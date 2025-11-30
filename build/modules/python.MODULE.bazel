@@ -1,0 +1,22 @@
+bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "rules_python_gazelle_plugin", version = "1.6.3")
+bazel_dep(name = "gazelle", version = "0.47.0")
+bazel_dep(name = "rules_uv", version = "0.88.0")
+bazel_dep(name = "aspect_rules_py", version = "1.6.6")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+#########################
+# Hermetic Python interpreter and pip dependencies
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    python_version = "3.13.2",
+)
+
+pip.parse(
+    hub_name = "pip",
+    python_version = "3.13.2",
+    requirements_lock = "//requirements:all.txt",
+)
+use_repo(pip, "pip")

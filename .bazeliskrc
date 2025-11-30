@@ -1,0 +1,8 @@
+# In order to test recent release candidates use (in a local sandbox, not to be landed!)
+#
+# last_green              refers to the Bazel binary that was built at the most recent commit that passed Bazel CI. Ideally this binary should be very close to Bazel-at-head.
+# last_downstream_green   points to the most recent Bazel binary that builds and tests all downstream projects successfully.
+# last_rc                 points to the most recent release candidate. If there is no active release candidate, Bazelisk uses the latest Bazel release instead.
+# rolling                 refers to the latest rolling release (even if there is a newer LTS release).
+
+USE_BAZEL_VERSION=8.4.2
