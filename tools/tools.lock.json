@@ -26,44 +26,8 @@
     "binaries": [
       {
         "kind": "file",
-        "url": "https://github.com/aspect-build/aspect-gazelle/releases/download/2025.40.131+d4013a8/gazelle-linux_amd64_cgo",
-        "sha256": "51c810609852b9ad305619f51a8c4701785e4247c71392d622004d24001e2f88",
-        "os": "linux",
-        "cpu": "x86_64"
-      }
-    ]
-  },
-  "ibazel": {
-    "binaries": [
-      {
-        "kind": "file",
-        "url": "https://github.com/bazelbuild/bazel-watcher/releases/download/v0.27.0/ibazel_linux_amd64",
-        "sha256": "7f819e1876bb71cfced7c56ccdb2a0d85fe5b88c732da87a9c267de7f807df2c",
-        "os": "linux",
-        "cpu": "x86_64"
-      }
-    ]
-  },
-  "pyenv": {
-    "binaries": [
-      {
-        "kind": "archive",
-        "url": "https://github.com/pyenv/pyenv/archive/refs/tags/v2.6.13.tar.gz",
-	"type": "tar.gz",
-	"sha256": "83dfd11eda420834eb02d4998040be06eea205352ff1ca826f9e43bab4e5fec5",
-        "file": "pyenv-2.6.13/bin/pyenv",
-        "os": "linux",
-        "cpu": "x86_64"
-      }
-    ]
-  },
-  "starpls": {
-    "binaries": [
-      {
-        "kind": "archive",
-        "url": "https://github.com/withered-magic/starpls/releases/download/v0.1.22/starpls-linux-amd64.tar.gz",
-        "file": "starpls",
-        "sha256": "7111cd5389bac480f05ee20adbc638337ebaa06f340f478501497b65112f897f",
+        "url": "https://github.com/aspect-build/aspect-gazelle/releases/download/2025.40.143+e1d0591/gazelle-linux_amd64_cgo",
+        "sha256": "89237c9705b9a74a82e2e36f8a61471a9226c19fd05472c1b9321bd36dd10534",
         "os": "linux",
         "cpu": "x86_64"
       }
@@ -80,6 +44,53 @@
         "cpu": "x86_64"
       }
     ]
+  },
+  "ibazel": {
+    "binaries": [
+      {
+        "kind": "file",
+        "url": "https://github.com/bazelbuild/bazel-watcher/releases/download/v0.27.0/ibazel_linux_amd64",
+        "sha256": "7f819e1876bb71cfced7c56ccdb2a0d85fe5b88c732da87a9c267de7f807df2c",
+        "os": "linux",
+        "cpu": "x86_64"
+      }
+    ]
+  },
+  "multitool": {
+    "binaries": [
+      {
+        "kind": "archive",
+        "url": "https://github.com/bazel-contrib/multitool/releases/download/v0.9.0/multitool-x86_64-unknown-linux-gnu.tar.xz",
+        "file": "multitool-x86_64-unknown-linux-gnu/multitool",
+        "sha256": "34dc5968dad458a4050ebde58e484ebb7c624a119e4031347683eeb80922e6df",
+        "os": "linux",
+        "cpu": "x86_64"
+      }
+    ]
+  },
+  "pyenv": {
+    "binaries": [
+      {
+        "kind": "archive",
+        "url": "https://github.com/pyenv/pyenv/archive/refs/tags/v2.6.13.tar.gz",
+        "file": "pyenv-2.6.13/bin/pyenv",
+        "sha256": "83dfd11eda420834eb02d4998040be06eea205352ff1ca826f9e43bab4e5fec5",
+        "os": "linux",
+        "cpu": "x86_64",
+        "type": "tar.gz"
+      }
+    ]
+  },
+  "starpls": {
+    "binaries": [
+      {
+        "kind": "archive",
+        "url": "https://github.com/withered-magic/starpls/releases/download/v0.1.22/starpls-linux-amd64.tar.gz",
+        "file": "starpls",
+        "sha256": "7111cd5389bac480f05ee20adbc638337ebaa06f340f478501497b65112f897f",
+        "os": "linux",
+        "cpu": "x86_64"
+      }
+    ]
   }
-
 }
