@@ -33,6 +33,18 @@
       }
     ]
   },
+  "gh": {
+    "binaries": [
+      {
+        "kind": "archive",
+        "url": "https://github.com/cli/cli/releases/download/v2.83.1/gh_2.83.1_linux_amd64.tar.gz",
+	"file": "gh_2.83.1_linux_amd64/bin/gh",
+        "sha256": "1c5252d4ce3db07b51c01ff0b909583da6364ff3fdc06d0c2e75e62dc0380a34",
+        "os": "linux",
+        "cpu": "x86_64"
+      }
+    ]
+  },
   "gitleaks": {
     "binaries": [
       {
