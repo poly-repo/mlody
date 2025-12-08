@@ -45,6 +45,17 @@
       }
     ]
   },
+  "gh-act": {
+    "binaries": [
+      {
+        "kind": "file",
+        "url": "https://github.com/nektos/gh-act/releases/download/v0.2.83/linux-amd64",
+        "sha256": "f157343253da8afa3292fbf2a0a09aa65f4e1864a8720196d91421c4f103dd1f",
+        "os": "linux",
+        "cpu": "x86_64"
+      }
+    ]
+  },
   "gitleaks": {
     "binaries": [
       {
