@@ -22,6 +22,17 @@
       }
     ]
   },
+  "claat": {
+    "binaries": [
+      {
+        "kind": "file",
+        "url": "https://github.com/googlecodelabs/tools/releases/download/v2.2.6/claat-linux-amd64",
+        "sha256": "04454a6a89c64c603027cc3371eb1c36e48727e04558e077c20ec37c9c2f831a",
+        "os": "linux",
+        "cpu": "x86_64"
+      }
+    ]
+  },
   "gazelle": {
     "binaries": [
       {
