@@ -6,3 +6,7 @@ pyfiglet==1.0.4 \
     --hash=sha256:65b57b7a8e1dff8a67dc8e940a117238661d5e14c3e49121032bd404d9b2b39f \
     --hash=sha256:db9c9940ed1bf3048deff534ed52ff2dafbbc2cd7610b17bb5eca1df6d4278ef
     # via omega (pyproject.toml)
+rassumfrassum==0.2.1 \
+    --hash=sha256:9b4fe64dec87745d13b30910b1c7e881e6a76d0891fa66020f14c8e916c5ec36 \
+    --hash=sha256:d507321854709f13f0f3319e60778be57c1f6f029639ea8881ad8ffecc801a97
+    # via omega (pyproject.toml)

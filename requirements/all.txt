@@ -410,6 +410,12 @@ questionary==2.1.1 \
     --hash=sha256:3d7e980292bb0107abaa79c68dd3eee3c561b83a0f89ae482860b181c8bd412d \
     --hash=sha256:a51af13f345f1cdea62347589fbb6df3b290306ab8930713bfae4d475a7d4a59
     # via copier
+rassumfrassum==0.2.1 \
+    --hash=sha256:9b4fe64dec87745d13b30910b1c7e881e6a76d0891fa66020f14c8e916c5ec36 \
+    --hash=sha256:d507321854709f13f0f3319e60778be57c1f6f029639ea8881ad8ffecc801a97
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
 typing-extensions==4.15.0 \
     --hash=sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466 \
     --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548

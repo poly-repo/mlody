@@ -10,10 +10,16 @@ version = "0"
 # Therefore we only need to constrain versions when some ranges 
 # of dependency versions are not compatible.
 dependencies = [
+
   # a funny external dependency we use in smoketests. We use it for
   # tests because hopefully it is not used for anything in production.
   # See: https://pypi.org/project/pyfiglet/
-  "pyfiglet"
+  "pyfiglet",
+
+  # a prossibly temporary LSP multiplexer because eglot doesn't do
+  # multiple servers.
+  # See: https://github.com/joaotavora/rassumfrassum/tree/master
+  "rassumfrassum"
 ]
 
 # See https://docs.astral.sh/ruff/configuration/

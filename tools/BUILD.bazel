@@ -42,3 +42,10 @@ bazel_env(
         "python": "$(PYTHON3)",
     } | MULTITOOL_TOOLS,
 )
+
+# NOTE: not really hermetic in that it launches whatever basedpyright and ruff
+# it finds (when launched with the python preset)
+py_console_script_binary(
+    name = "rass",
+    pkg = "@pip//rassumfrassum",
+)

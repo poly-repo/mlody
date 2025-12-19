@@ -29,6 +29,7 @@ manifest:
     pygments: pygments
     pytest: pytest
     questionary: questionary
+    rassumfrassum: rassumfrassum
     typing_extensions: typing_extensions
     typing_inspection: typing_inspection
     wcwidth: wcwidth
