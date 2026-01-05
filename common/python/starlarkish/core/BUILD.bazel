@@ -1,0 +1,15 @@
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
+
+o_py_library(
+    name = "core_lib",
+    srcs = ["struct.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_test(
+    name = "struct_test",
+    srcs = ["struct_test.py"],
+    deps = [
+        ":core_lib",
+    ],
+)

@@ -19,7 +19,11 @@ dependencies = [
   # a prossibly temporary LSP multiplexer because eglot doesn't do
   # multiple servers.
   # See: https://github.com/joaotavora/rassumfrassum/tree/master
-  "rassumfrassum"
+  "rassumfrassum",
+
+  # a fake file system that mocks the Python file system modules
+  # See: https://github.com/pytest-dev/pyfakefs
+  "pyfakefs"
 ]
 
 # See https://docs.astral.sh/ruff/configuration/

@@ -25,6 +25,7 @@ manifest:
     py: pytest
     pydantic: pydantic
     pydantic_core: pydantic_core
+    pyfakefs: pyfakefs
     pyfiglet: pyfiglet
     pygments: pygments
     pytest: pytest
