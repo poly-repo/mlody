@@ -21,9 +21,21 @@ dependencies = [
   # See: https://github.com/joaotavora/rassumfrassum/tree/master
   "rassumfrassum",
 
-  # a fake file system that mocks the Python file system modules
+  # a fake file system that mocks the Python file system modules.
   # See: https://github.com/pytest-dev/pyfakefs
-  "pyfakefs"
+  "pyfakefs",
+
+  # a library for nice console output
+  # See: https://github.com/Textualize/rich
+  "rich",
+
+  # a library for creating CLI applications.
+  # See: https://click.palletsprojects.com/en/stable/
+  "click",
+
+  # a library for HTTP request handling
+  # See: https://pypi.org/project/requests/
+  "requests"
 ]
 
 # See https://docs.astral.sh/ruff/configuration/
