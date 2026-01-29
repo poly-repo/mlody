@@ -15,6 +15,7 @@ manifest:
     debugpy: debugpy
     dunamai: dunamai
     funcy: funcy
+    gnupg: python_gnupg
     idna: idna
     iniconfig: iniconfig
     jinja2: jinja2
