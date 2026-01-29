@@ -29,6 +29,7 @@ manifest:
     plumbum: plumbum
     prompt_toolkit: prompt_toolkit
     py: pytest
+    pycdlib: pycdlib
     pydantic: pydantic
     pydantic_core: pydantic_core
     pyfakefs: pyfakefs

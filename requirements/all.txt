@@ -137,6 +137,7 @@ click==8.3.1 \
     # via
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
+    #   -r requirements/tools.in
 colorama==0.4.6 \
     --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
     --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
@@ -200,6 +201,7 @@ jinja2==3.1.6 \
     --hash=sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d \
     --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
     # via
+    #   -r requirements/tools.in
     #   copier
     #   jinja2-ansible-filters
 jinja2-ansible-filters==1.3.2 \
@@ -338,6 +340,10 @@ prompt-toolkit==3.0.52 \
     --hash=sha256:28cde192929c8e7321de85de1ddbe736f1375148b02f2e17edd840042b1be855 \
     --hash=sha256:9aac639a3bbd33284347de5ad8d68ecc044b91a762dc39b7c21095fcd6a19955
     # via questionary
+pycdlib==1.14.0 \
+    --hash=sha256:8ec306b31d9c850f28c5fda52438d904edd1e8fcf862c5ffd756272efac9f422 \
+    --hash=sha256:a905827335f0066af3fd416c5cf9b1f29dffaf4d0914b714555213d1809f38d4
+    # via -r requirements/tools.in
 pydantic==2.12.5 \
     --hash=sha256:4d351024c75c0f085a9febbb665ce8c0c6ec5d30e903bdb6394b7ede26aebb49 \
     --hash=sha256:e561593fccf61e8a20fc46dfc2dfe075b8be7d0188df33f221ad1f0139180f9d
@@ -589,6 +595,7 @@ rich==14.2.0 \
     # via
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
+    #   -r requirements/tools.in
 typing-extensions==4.15.0 \
     --hash=sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466 \
     --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548
