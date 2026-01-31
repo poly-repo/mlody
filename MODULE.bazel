@@ -15,7 +15,11 @@ include("//build/modules:python.MODULE.bazel")
 include("//build/modules:java.MODULE.bazel")
 
 ####
+# LaTeX support
+include("//build/modules:latex.MODULE.bazel")
+##
+
+####
 # Hermetic tool support
 include("//build/modules:tools.MODULE.bazel")
 ##
-
