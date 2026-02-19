@@ -7,6 +7,11 @@
 manifest:
   modules_mapping:
     annotated_types: annotated_types
+    appdirs: appdirs
+    attr: attrs
+    attrs: attrs
+    cattr: cattrs
+    cattrs: cattrs
     certifi: certifi
     charset_normalizer: charset_normalizer
     click: click
@@ -18,23 +23,28 @@ manifest:
     gnupg: python_gnupg
     idna: idna
     iniconfig: iniconfig
+    jedi: jedi
     jinja2: jinja2
     jinja2_ansible_filters: jinja2_ansible_filters
+    lsprotocol: lsprotocol
     markdown_it: markdown_it_py
     markupsafe: markupsafe
     mdurl: mdurl
     packaging: packaging
+    parso: parso
     pathspec: pathspec
     platformdirs: platformdirs
     pluggy: pluggy
     plumbum: plumbum
     prompt_toolkit: prompt_toolkit
+    ptpython: ptpython
     py: pytest
     pycdlib: pycdlib
     pydantic: pydantic
     pydantic_core: pydantic_core
     pyfakefs: pyfakefs
     pyfiglet: pyfiglet
+    pygls: pygls
     pygments: pygments
     pytest: pytest
     questionary: questionary

@@ -1,0 +1,27 @@
+load("//mlody/core/builtins.mlody", "root")
+
+root(
+    name="lexica",
+    path="//mlody/teams/lexica",
+    description="text ML team",
+)
+
+root(
+    name="framera",
+    path="//mlody/teams/framera",
+    description="video ML team",
+)
+
+root(
+    name="pixelle",
+    path="//mlody/teams/pixelle",
+    description="image ML team",
+)
+
+root(
+    name="common",
+    path="//mlody/common",
+    description="shared modules",
+)
+
+# should we add the notion of 'team'? a team could have a set of roots plus other metadata

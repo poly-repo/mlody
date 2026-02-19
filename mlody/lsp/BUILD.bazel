@@ -1,0 +1,87 @@
+load("//build/bzl:python.bzl", "o_py_binary", "o_py_library", "o_py_pex_binary", "o_py_test")
+
+o_py_library(
+    name = "lsp_lib",
+    srcs = [
+        "__init__.py",
+        "completion.py",
+        "definition.py",
+        "log_handler.py",
+        "server.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody/core:workspace_lib",
+        "@pip//lsprotocol",
+        "@pip//pygls",
+    ],
+)
+
+o_py_binary(
+    name = "lsp_server",
+    srcs = ["__main__.py"],
+    main = "__main__.py",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":lsp_lib",
+    ],
+)
+
+# PEX can't use lsp_server directly because PEX reserves __main__.py for its
+# own bootstrap — packaging a py_binary whose entry point is __main__.py causes
+# a ChrootTaggingException. This intermediate binary uses a differently-named
+# entry point file to sidestep the collision.
+o_py_binary(
+    name = "_lsp_server_pex_bin",
+    srcs = ["_pex_main.py"],
+    main = "_pex_main.py",
+    visibility = ["//visibility:private"],
+    deps = [":lsp_lib"],
+)
+
+o_py_pex_binary(
+    name = "lsp_server_pex",
+    binary = ":_lsp_server_pex_bin",
+    visibility = ["//visibility:public"],
+)
+
+o_py_test(
+    name = "log_handler_test",
+    srcs = ["log_handler_test.py"],
+    deps = [
+        ":lsp_lib",
+        "@pip//lsprotocol",
+        "@pip//pygls",
+    ],
+)
+
+o_py_test(
+    name = "completion_test",
+    srcs = ["completion_test.py"],
+    deps = [
+        ":lsp_lib",
+        "@pip//lsprotocol",
+        "@pip//pygls",
+    ],
+)
+
+o_py_test(
+    name = "definition_test",
+    srcs = ["definition_test.py"],
+    deps = [
+        ":lsp_lib",
+        "@pip//lsprotocol",
+        "@pip//pygls",
+    ],
+)
+
+o_py_test(
+    name = "server_test",
+    srcs = ["server_test.py"],
+    deps = [
+        ":lsp_lib",
+        "@pip//lsprotocol",
+        "@pip//pygls",
+    ],
+)

@@ -1,0 +1,49 @@
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
+
+o_py_library(
+    name = "targets_lib",
+    srcs = ["targets.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_test(
+    name = "targets_test",
+    srcs = ["targets_test.py"],
+    deps = [
+        ":targets_lib",
+        "//common/python/starlarkish/core:core_lib",
+    ],
+)
+
+o_py_library(
+    name = "plan_lib",
+    srcs = ["plan.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_test(
+    name = "plan_test",
+    srcs = ["plan_test.py"],
+    deps = [":plan_lib"],
+)
+
+o_py_library(
+    name = "workspace_lib",
+    srcs = ["workspace.py"],
+    data = ["builtins.mlody"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":targets_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+    ],
+)
+
+o_py_test(
+    name = "workspace_test",
+    srcs = ["workspace_test.py"],
+    deps = [
+        ":workspace_lib",
+        "@pip//pyfakefs",
+    ],
+)

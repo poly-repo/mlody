@@ -1,0 +1,17 @@
+load("//mlody/core/builtins.mlody", "root")
+
+print("===================================")
+
+world = "World"
+
+def hello(s):
+    print("Hello, " + world + "! this is : " + s)
+
+print("===================================")
+
+# This is just for testing as root is the only thing we have defined for now
+root(
+    name = "FOO",
+    path = "//FOO",
+    description = "TODO: remove this",
+)

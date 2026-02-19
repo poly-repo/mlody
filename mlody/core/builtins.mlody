@@ -1,0 +1,7 @@
+def root(name, path, description=""):
+    """Register a named root for target addressing."""
+    builtins.register("root", struct(
+        name=name,
+        path=path,
+        description=description,
+    ))

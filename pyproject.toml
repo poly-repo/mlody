@@ -35,7 +35,15 @@ dependencies = [
 
   # a library for HTTP request handling
   # See: https://pypi.org/project/requests/
-  "requests"
+  "requests",
+
+  # an advanced Python REPL used for the `mlody shell` interactive session.
+  # See: https://github.com/prompt-toolkit/ptpython
+  "ptpython",
+
+  # a pythonic generic language server framework used for the mlody LSP server.
+  # See: https://github.com/openlawlibrary/pygls
+  "pygls"
 ]
 
 # See https://docs.astral.sh/ruff/configuration/

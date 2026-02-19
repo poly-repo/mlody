@@ -1,0 +1,8 @@
+#load("@pypi//:requirements.bzl", "all_data_requirements", "all_requirements", "all_whl_requirements", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+py_library(
+    name = "struct",
+    srcs = ["struct.py"],
+    visibility = ["//visibility:public"],
+)

@@ -1,7 +1,9 @@
-import pytest
-from pathlib import Path
-from unittest.mock import patch
+from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
@@ -98,6 +100,38 @@ builtins.register("root", struct(name="loaded_all", const=MY_CONSTANT, func_resu
     root_obj = evaluator.roots["loaded_all"]
     assert root_obj.const == "hello from lib"
     assert root_obj.func_result == "data from func"
+
+def test_default_print_fn_writes_to_stdout(
+    fs: FakeFilesystem, project_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Requirement: print() in sandbox writes to stdout by default.
+
+    This is the expected CLI behaviour — users can call print() in .mlody
+    scripts and see output on the terminal.
+    """
+    fs.create_file("/project/printer.mlody", contents='print("hello from mlody")\n')
+    evaluator = Evaluator(project_root)
+    evaluator.eval_file(project_root / "printer.mlody")
+
+    captured = capsys.readouterr()
+    assert "hello from mlody" in captured.out
+
+
+def test_custom_print_fn_replaces_sandbox_print(
+    fs: FakeFilesystem, project_root: Path
+) -> None:
+    """Requirement: custom print_fn is called instead of builtins.print.
+
+    The LSP server passes a no-op here so that sandbox print() calls do not
+    corrupt the stdout JSON-RPC transport.
+    """
+    mock_print = MagicMock()
+    fs.create_file("/project/printer.mlody", contents='print("intercepted")\n')
+    evaluator = Evaluator(project_root, print_fn=mock_print)
+    evaluator.eval_file(project_root / "printer.mlody")
+
+    mock_print.assert_called_once_with("intercepted")
+
 
 def test_caching_of_loaded_files(fs: FakeFilesystem, project_root: Path) -> None:
     """Test that files are only executed once."""

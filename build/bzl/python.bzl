@@ -1,4 +1,4 @@
-load("@aspect_rules_py//py:defs.bzl", "py_binary", "py_library", "py_test")
+load("@aspect_rules_py//py:defs.bzl", "py_binary", "py_library", "py_pex_binary", "py_test")
 
 def o_py_test(name, deps = [], **kwargs):
     extra_deps = []
@@ -24,6 +24,12 @@ def o_py_library(name, **kwargs):
 
 def o_py_binary(name, **kwargs):
     py_binary(
+        name = name,
+        **kwargs
+    )
+
+def o_py_pex_binary(name, **kwargs):
+    py_pex_binary(
         name = name,
         **kwargs
     )

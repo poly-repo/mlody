@@ -28,10 +28,13 @@ Core Concepts:
 """
 import builtins
 import functools
+import logging
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from common.python.starlarkish.core.struct import struct, Struct
+
+_logger = logging.getLogger(__name__)
 
 
 class Named(Protocol):
@@ -97,7 +100,12 @@ class Evaluator:
     """
     The core engine that prepares a sandboxed environment and executes a user script.
     """
-    def __init__(self, root: Path, init_files: list[Path] | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        init_files: list[Path] | None = None,
+        print_fn: Callable[..., None] = builtins.print,
+    ) -> None:
         self.loaded_files: set[Path] = set()
         self._eval_stack: list[Path] = []
         #self.context = mlody_context.EvaluationContext()
@@ -105,6 +113,9 @@ class Evaluator:
         self.targets: dict[str, Struct] = dict()
         self.roots: dict[str, Named] = dict()
         self._module_globals: dict[Path, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
+        # Override print in the sandbox so callers can suppress stdout writes
+        # (e.g. the LSP server, which uses stdout as its JSON-RPC transport).
+        self._print_fn = print_fn
         if init_files:
             for init_file in init_files:
                 path_to_load = init_file
@@ -116,7 +127,7 @@ class Evaluator:
     def _register(self, kind : str, thing: Named) -> None:
         if kind == 'root':
             self.roots[thing.name] = thing
-        print(f"REGISTERING {thing} as {kind}")
+        _logger.debug("Registering %s as %s", thing, kind)
         
     def _load(self, path: str, *symbols: str, current_file: Path, caller_globals: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
         """
@@ -190,14 +201,17 @@ class Evaluator:
 
             relative_path = file_path.relative_to(self.root_path)
             path_prefix = list(relative_path.parts[:-1]) + [relative_path.stem]
-            print(f">>> {path_prefix} {self.targets}")
+            _logger.debug("Evaluating %s (targets: %s)", path_prefix, self.targets)
             
             with open(file_path, 'r') as f:
                 script_content = f.read()
 
-            # Prepare sandbox globals. Note: we create the dict first, then bind load into it
+            # Prepare sandbox globals. Note: we create the dict first, then bind load into it.
+            # Spread SAFE_BUILTINS and override "print" with the instance-level print_fn so
+            # that callers (e.g. the LSP server) can suppress sandbox stdout writes without
+            # mutating the shared module-level constant.
             sandbox_globals: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
-                "__builtins__": SAFE_BUILTINS,
+                "__builtins__": {**SAFE_BUILTINS, "print": self._print_fn},
                 "__MLODY__": True,
                # "targets": self.targets,
                 # "load" will be set below after sandbox_globals exists
@@ -222,7 +236,7 @@ class Evaluator:
             # Save module globals so subsequent loads return same dict (and avoid re-exec)
             self._module_globals[file_path] = sandbox_globals
 
-            print(f"GLOBALS for {file_path}: {list(sandbox_globals.keys())}")
+            _logger.debug("Globals for %s: %s", file_path, list(sandbox_globals.keys()))
 
             return sandbox_globals
         finally:
