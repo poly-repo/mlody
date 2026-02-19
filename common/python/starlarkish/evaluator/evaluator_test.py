@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 
+from common.python.starlarkish.evaluator import evaluator as evaluator_module
 from common.python.starlarkish.evaluator.evaluator import Evaluator
+from common.python.starlarkish.evaluator.testing import InMemoryFS
 
 
 @pytest.fixture
@@ -51,6 +53,7 @@ open("/etc/passwd")
     )
     return root_path
 
+
 def test_simple_execution_and_registration(fs: FakeFilesystem, project_root: Path) -> None:
     """Test basic script execution and object registration."""
     _ = fs.create_file(
@@ -64,9 +67,10 @@ builtins.register("root", struct(name="simple_root", value=42))
 
     assert "simple_root" in evaluator.roots
     assert evaluator.roots["simple_root"].name == "simple_root"
-    assert evaluator.roots["simple_root"].value == 42
+    assert evaluator.roots["simple_root"].value == 42  # type: ignore[attr-defined]
 
-def test_load_and_registration(project_root: Path) -> None:
+
+def test_load_and_registration(fs: FakeFilesystem, project_root: Path) -> None:
     """Test loading from other files and registering combined results."""
     evaluator = Evaluator(project_root)
     evaluator.eval_file(project_root / "entry.mlody")
@@ -74,14 +78,16 @@ def test_load_and_registration(project_root: Path) -> None:
     assert "entry_point" in evaluator.roots
     root_obj = evaluator.roots["entry_point"]
     assert root_obj.name == "entry_point"
-    assert root_obj.const == "hello from lib"
-    assert root_obj.helper == "helper"
+    assert root_obj.const == "hello from lib"  # type: ignore[attr-defined]
+    assert root_obj.helper == "helper"  # type: ignore[attr-defined]
 
-def test_sandboxing(project_root: Path) -> None:
+
+def test_sandboxing(fs: FakeFilesystem, project_root: Path) -> None:
     """Test that scripts cannot access disallowed builtins."""
     evaluator = Evaluator(project_root)
     with pytest.raises(NameError, match="name 'open' is not defined"):
         evaluator.eval_file(project_root / "bad_sandbox.mlody")
+
 
 def test_load_all_symbols(fs: FakeFilesystem, project_root: Path) -> None:
     """Test load() without explicit symbols, importing all public names."""
@@ -98,8 +104,9 @@ builtins.register("root", struct(name="loaded_all", const=MY_CONSTANT, func_resu
 
     assert "loaded_all" in evaluator.roots
     root_obj = evaluator.roots["loaded_all"]
-    assert root_obj.const == "hello from lib"
-    assert root_obj.func_result == "data from func"
+    assert root_obj.const == "hello from lib"  # type: ignore[attr-defined]
+    assert root_obj.func_result == "data from func"  # type: ignore[attr-defined]
+
 
 def test_default_print_fn_writes_to_stdout(
     fs: FakeFilesystem, project_root: Path, capsys: pytest.CaptureFixture[str]
@@ -134,24 +141,129 @@ def test_custom_print_fn_replaces_sandbox_print(
 
 
 def test_caching_of_loaded_files(fs: FakeFilesystem, project_root: Path) -> None:
-    """Test that files are only executed once."""
-    # A file that loads another file.
+    """Files are executed at most once; repeated loads return cached globals.
+
+    Tests requirement: Caching test validates observable behaviour.
+    Spies on _execute_file at the instance level so only calls on this
+    evaluator are counted (no global builtins.exec patch).
+    """
     _ = fs.create_file(
         "/project/loader.mlody",
         contents="load('//lib.mlody', 'MY_CONSTANT')",
     )
+    ev = Evaluator(project_root)
+
+    with patch.object(ev, "_execute_file", wraps=ev._execute_file) as spy:
+        # First eval: loader.mlody executed, which loads lib.mlody (2 calls total)
+        ev.eval_file(project_root / "loader.mlody")
+        calls_after_first = spy.call_count
+        assert calls_after_first == 2
+
+        # Second eval: loader.mlody is cached; returns before running load().
+        # Only one additional _execute_file call (the early-return cache check).
+        ev.eval_file(project_root / "loader.mlody")
+        assert spy.call_count == calls_after_first + 1
+
+    # Each unique file ends up in loaded_files exactly once
+    assert len(ev.loaded_files) == 2
+
+
+def test_register_unknown_kind_raises(fs: FakeFilesystem, project_root: Path) -> None:
+    """Registering with an unknown kind raises ValueError.
+
+    Tests requirement: Registration kind validation
+    (scenario: Unknown kind rejected).
+    """
+    _ = fs.create_file(
+        "/project/bad_register.mlody",
+        contents="""
+builtins.register("target", struct(name="oops"))
+""",
+    )
     evaluator = Evaluator(project_root)
+    with pytest.raises(ValueError, match="target"):
+        evaluator.eval_file(project_root / "bad_register.mlody")
 
-    with patch('builtins.exec') as mock_exec:
-        # First execution of lib.mlody
-        evaluator.eval_file(project_root / "lib.mlody")
-        assert mock_exec.call_count == 1, "exec should be called for lib.mlody"
 
-        # Execute a file that loads the same library
-        evaluator.eval_file(project_root / "loader.mlody")
-        # exec is called for loader.mlody, but not for lib.mlody because it's cached
-        assert mock_exec.call_count == 2, "exec should be called for loader.mlody"
+def test_circular_import_raises(fs: FakeFilesystem, project_root: Path) -> None:
+    """Mutually-loading files raise ImportError with the full cycle path.
 
-        # Re-executing loader.mlody should not trigger any more exec calls
-        evaluator.eval_file(project_root / "loader.mlody")
-        assert mock_exec.call_count == 2, "exec should not be called again for cached file"
+    Tests requirement: Evaluator test coverage for error paths
+    (scenario: Circular import raises ImportError).
+    """
+    _ = fs.create_file("/project/a.mlody", contents='load("//b.mlody")\n')
+    _ = fs.create_file("/project/b.mlody", contents='load("//a.mlody")\n')
+
+    evaluator = Evaluator(project_root)
+    with pytest.raises(ImportError, match="Circular import detected"):
+        evaluator.eval_file(project_root / "a.mlody")
+
+
+def test_load_nonexistent_file_raises(fs: FakeFilesystem, project_root: Path) -> None:
+    """Loading a missing file raises FileNotFoundError.
+
+    Tests requirement: Evaluator test coverage for error paths
+    (scenario: Load of nonexistent file raises FileNotFoundError).
+    """
+    _ = fs.create_file(
+        "/project/missing.mlody",
+        contents='load("//nonexistent.mlody")\n',
+    )
+    evaluator = Evaluator(project_root)
+    with pytest.raises(FileNotFoundError):
+        evaluator.eval_file(project_root / "missing.mlody")
+
+
+def test_load_invalid_symbol_raises(fs: FakeFilesystem, project_root: Path) -> None:
+    """Loading a symbol that does not exist in the target raises NameError.
+
+    Tests requirement: Evaluator test coverage for error paths
+    (scenario: Load of invalid symbol raises NameError).
+    """
+    _ = fs.create_file(
+        "/project/bad_symbol.mlody",
+        contents='load("//lib.mlody", "NO_SUCH_SYMBOL")\n',
+    )
+    evaluator = Evaluator(project_root)
+    with pytest.raises(NameError, match="NO_SUCH_SYMBOL"):
+        evaluator.eval_file(project_root / "bad_symbol.mlody")
+
+
+def test_init_files_preloaded(fs: FakeFilesystem, project_root: Path) -> None:
+    """Files passed as init_files are executed before eval_file() is called.
+
+    Tests requirement: Evaluator test coverage for error paths
+    (scenario: init_files are pre-executed).
+    """
+    _ = fs.create_file(
+        "/project/init.mlody",
+        contents="""
+builtins.register("root", struct(name="preloaded", value=99))
+""",
+    )
+    evaluator = Evaluator(project_root, init_files=[project_root / "init.mlody"])
+
+    # Root must be registered without any eval_file() call
+    assert "preloaded" in evaluator.roots
+    assert evaluator.roots["preloaded"].value == 99  # type: ignore[attr-defined]
+
+
+def test_inmemoryfs_roots_smoketest() -> None:
+    """End-to-end smoke test: Evaluator + InMemoryFS registers a root correctly.
+
+    Tests requirement: InMemoryFS end-to-end smoketest with roots.mlody
+    (scenario: Evaluator registers root via InMemoryFS).
+    """
+    files = {
+        "smoke.mlody": (
+            'builtins.register("root", '
+            'struct(name="smoke_root", path="//smoke", description="test"))\n'
+        ),
+    }
+    with InMemoryFS(files) as root:
+        ev = Evaluator(root)
+        ev.eval_file(root / "smoke.mlody")
+
+    assert "smoke_root" in ev.roots
+    assert ev.roots["smoke_root"].name == "smoke_root"
+    assert ev.roots["smoke_root"].path == "//smoke"  # type: ignore[attr-defined]

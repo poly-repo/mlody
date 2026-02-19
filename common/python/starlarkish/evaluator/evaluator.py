@@ -1,40 +1,49 @@
-"""
-Starlark-like Evaluator for .mlody files.
+"""Starlark-like Evaluator for .mlody files.
 
 This module provides a sandboxed Python environment for executing user-defined
-scripts with a `.mlody` extension. It is designed to safely evaluate
+scripts with a `.mlody` extension.  It is designed to safely evaluate
 configuration or definition files in a controlled manner, similar to build
 systems like Bazel that use Starlark.
 
 Core Concepts:
-- **Sandboxing**: Scripts are executed with a limited, explicitly-defined set of
-  globally available functions and types, specified in the `SAFE_BUILTINS`
-  dictionary. This prevents scripts from accessing arbitrary I/O or other
-  unsafe operations.
+- **Sandboxing**: Scripts are executed with a limited, explicitly-defined set
+  of globally available functions and types, specified in ``SAFE_BUILTINS``.
+  This prevents scripts from accessing arbitrary I/O or other unsafe
+  operations.  **Note:** The sandbox is best-effort.  It is intended to
+  discourage accidental misuse, not to enforce a hard security boundary
+  against a determined attacker.
 
-- **Evaluator Class**: The main entry point is the `Evaluator` class. An instance
-  of this class manages the state of the evaluation, including loaded files and
-  registered objects.
+- **``PYTHON_SPECIFIC_BUILTINS``**: An intentional design element exposed as
+  the ``python`` variable inside ``.mlody`` scripts.  It acts as a clearly-
+  demarcated namespace for Python constructs that are valid Python but not
+  valid Starlark (e.g. ``python.hasattr``, ``python.getattr``).  The explicit
+  ``python.`` prefix makes such usages easy to audit: ``grep python\\.``
+  surfaces every script location that needs attention when migrating away from
+  Python-specific prototype behaviour.
 
-- **`load()` Statement**: Scripts can import symbols from other `.mlody` files
-  using a custom `load()` function, which is injected into the sandbox. It
-  supports root-relative ("//path/to/file") and file-relative (":file") paths.
+- **``Evaluator`` Class**: The main entry point.  An instance manages the state
+  of the evaluation, including loaded files and registered objects.
 
-- **Registration**: Scripts can communicate results back to the host system by
-  using the `builtins.register(kind: str, thing: Struct)` function. The
-  `Evaluator` instance collects these registered objects (e.g., 'root' objects)
-  in its internal state (`self.roots`, `self.targets`), which can be accessed
-  after evaluation is complete.
+- **``load()`` Statement**: Scripts can import symbols from other ``.mlody``
+  files using a custom ``load()`` function injected into the sandbox.  It
+  supports root-relative (``//path/to/file``) and file-relative (``:file``)
+  paths.
+
+- **Registration**: Scripts communicate results back to the host system via
+  ``builtins.register(kind: str, thing: Struct)``.  The ``Evaluator`` instance
+  collects registered objects in its internal state (e.g. ``self.roots``),
+  accessible after evaluation completes.
 """
 import builtins
 import functools
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from common.python.starlarkish.core.struct import struct, Struct
 
-_logger = logging.getLogger(__name__)
+_log = logging.getLogger(__name__)
 
 
 class Named(Protocol):
@@ -55,6 +64,8 @@ PYTHON_SPECIFIC_BUILTINS = struct(
 
 # A curated list of safe built-ins to expose to user scripts.
 # This aligns with the "deny-by-default" security policy.
+# NOTE: `type` is intentionally excluded — it is a well-known exec-sandbox
+# escape vector in Python.
 SAFE_BUILTINS: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
     'abs': builtins.abs,
     'all': builtins.all,
@@ -77,23 +88,19 @@ SAFE_BUILTINS: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
     'str': builtins.str,
     'struct': struct,
     'tuple': builtins.tuple,
-    'type': builtins.type,
     'zip': builtins.zip,
     'None': None,
     'True': True,
     'False': False,
-#    'Exception': Exception,
     'Struct': Struct,
     'python': PYTHON_SPECIFIC_BUILTINS,
 }
 
+
+@dataclass
 class Builtins:
     register: Callable[[str, Named], None]
     ctx: Struct
-
-    def __init__(self, register: Callable[[str, Named], None], ctx: Struct) -> None:
-        self.register = register
-        self.ctx = ctx
 
 
 class Evaluator:
@@ -108,9 +115,7 @@ class Evaluator:
     ) -> None:
         self.loaded_files: set[Path] = set()
         self._eval_stack: list[Path] = []
-        #self.context = mlody_context.EvaluationContext()
         self.root_path: Path = root
-        self.targets: dict[str, Struct] = dict()
         self.roots: dict[str, Named] = dict()
         self._module_globals: dict[Path, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
         # Override print in the sandbox so callers can suppress stdout writes
@@ -123,13 +128,16 @@ class Evaluator:
                     path_to_load = self.root_path / path_to_load
                 self._execute_file(path_to_load)
 
-
-    def _register(self, kind : str, thing: Named) -> None:
+    def _register(self, kind: str, thing: Named) -> None:
         if kind == 'root':
             self.roots[thing.name] = thing
-        _logger.debug("Registering %s as %s", thing, kind)
-        
-    def _load(self, path: str, *symbols: str, current_file: Path, caller_globals: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
+        else:
+            raise ValueError(
+                f"Unknown registration kind {kind!r}. Supported kinds: 'root'."
+            )
+        _log.debug("Registering %s as %s", thing, kind)
+
+    def _load(self, path: str, *symbols: str, current_file: Path, caller_globals: dict[str, Any]) -> None:  # pyright: ignore[reportExplicitAny]
         """
         Implementation of the Starlark-like `load()`:
          - path: file path (relative or //-absolute)
@@ -146,15 +154,11 @@ class Evaluator:
         else:
             # resolve relative to current file
             target_path = (current_file.parent / path).resolve()
+
         # Execute (or fetch cached execution) of target file; returns its globals dict
         target_globals = self._execute_file(target_path)
 
-        if not target_globals:
-            return {}
-
         # Decide which symbols to import
-        # TODO: here maybe allow modules to define a symbol __all__, a list of everything imported
-        # when no symbol is explicitly mentioned
         if symbols:
             names_to_copy = symbols
         else:
@@ -170,80 +174,61 @@ class Evaluator:
                 raise NameError(f"module {path} has no symbol {name!r}")
             if name in ("__builtins__", "load"):
                 continue
-            # if name in caller_globals:
-            #     raise RuntimeError(f"Refusing to overwrite existing name {name!r} in caller")
             caller_globals[name] = target_globals[name]
 
-            # if name in target_globals:
-            #     # avoid overwriting caller's __builtins__ or load
-            #     if name in ("__builtins__", "load"):
-            #         continue
-            #     caller_globals[name] = target_globals[name]
-
-        # Optionally return the copied names or the entire module globals
-        return target_globals
-
-
-    def _execute_file(self, file_path: Path) -> dict[str, Any] :  # pyright: ignore[reportExplicitAny]
+    def _execute_file(self, file_path: Path) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
         """Executes a single .mlody file and returns the globals dict."""
         if file_path in self._eval_stack:
             stack_copy = self._eval_stack + [file_path]
             raise ImportError(f"Circular import detected: {' -> '.join(map(str, stack_copy))}")
 
         if file_path in self.loaded_files:
-            # If already loaded, we should locate whichever globals were used the first time.
-            # For simplicity, we can keep a map self._module_globals: Path -> globals dict.
+            # If already loaded, return the cached globals dict from the first execution.
             return self._module_globals.get(file_path, {})
 
         self._eval_stack.append(file_path)
         try:
             self.loaded_files.add(file_path)
 
-            relative_path = file_path.relative_to(self.root_path)
-            path_prefix = list(relative_path.parts[:-1]) + [relative_path.stem]
-            _logger.debug("Evaluating %s (targets: %s)", path_prefix, self.targets)
-            
-            with open(file_path, 'r') as f:
+            _log.debug("Evaluating %s", file_path)
+
+            with open(file_path, 'r', encoding='utf-8') as f:
                 script_content = f.read()
 
-            # Prepare sandbox globals. Note: we create the dict first, then bind load into it.
-            # Spread SAFE_BUILTINS and override "print" with the instance-level print_fn so
-            # that callers (e.g. the LSP server) can suppress sandbox stdout writes without
-            # mutating the shared module-level constant.
+            # Prepare sandbox globals.  Spread SAFE_BUILTINS and override "print"
+            # with the instance-level print_fn so that callers (e.g. the LSP server)
+            # can suppress sandbox stdout writes without mutating the shared
+            # module-level constant.
             sandbox_globals: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
                 "__builtins__": {**SAFE_BUILTINS, "print": self._print_fn},
                 "__MLODY__": True,
-               # "targets": self.targets,
-                # "load" will be set below after sandbox_globals exists
             }
 
-            builtins = Builtins(
+            builtins_obj = Builtins(
                 register=self._register,
                 ctx=struct(
                     directory=file_path.parent
                 )
             )
-            sandbox_globals["builtins"] = builtins
-            
+            sandbox_globals["builtins"] = builtins_obj
+
             # create a load function that will inject into this sandbox's globals
             load_func = functools.partial(self._load, current_file=file_path, caller_globals=sandbox_globals)
             sandbox_globals["load"] = load_func
 
             # Execute the file in its sandbox
-            #print(f"===== {file_path} =====\n{script_content}\n=====\n")
             exec(script_content, sandbox_globals)
 
             # Save module globals so subsequent loads return same dict (and avoid re-exec)
             self._module_globals[file_path] = sandbox_globals
 
-            _logger.debug("Globals for %s: %s", file_path, list(sandbox_globals.keys()))
+            _log.debug("Globals for %s: %s", file_path, list(sandbox_globals.keys()))
 
             return sandbox_globals
         finally:
             self._eval_stack.pop()
 
-
-    def eval_file(self, entrypoint_file: Path):
+    def eval_file(self, entrypoint_file: Path) -> None:
         """
         Evaluates a script and any scripts it loads.
 
@@ -253,13 +238,4 @@ class Evaluator:
         Args:
             entrypoint_file: The path to the root script to execute.
         """
-        # token = mlody_context.set_current_context(self.context)
-
-        try:
-            _ = self._execute_file(entrypoint_file)
-        finally:
-            pass
-            # Always ensure the context is reset, even if errors occur.
-#            mlody_context.reset_current_context(token)
-
- #       return self.context.pipeline
+        self._execute_file(entrypoint_file)

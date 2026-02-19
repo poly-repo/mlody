@@ -1,0 +1,11 @@
+load("//build/bzl:python.bzl", "o_py_library")
+
+o_py_library(
+    name = "starlarkish",
+    srcs = ["__init__.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//common/python/starlarkish/core:core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+    ],
+)

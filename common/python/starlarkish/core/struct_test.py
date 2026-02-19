@@ -23,13 +23,16 @@ def test_immutability():
     with pytest.raises(AttributeError, match="Struct is immutable"):
         s.b = 2
 
-def test_item_assignment_immutability():
-    """Tests that structs do not support item assignment."""
+def test_internal_fields_immutable():
+    """Struct._fields is a MappingProxyType — direct mutation raises TypeError.
+
+    Tests requirement: Struct true immutability (scenario: Direct field dict mutation).
+    Replaces the old test_item_assignment_immutability which only tested subscript
+    assignment on the Struct object itself, not the internal backing store.
+    """
     s = struct(a=1)
     with pytest.raises(TypeError):
-        s['a'] = 2
-    with pytest.raises(TypeError):
-        s['b'] = 2
+        object.__getattribute__(s, "_fields")["a"] = 99  # type: ignore[index]
 
 def test_to_dict():
     """Tests conversion of a simple struct to a dict."""
@@ -66,7 +69,7 @@ def test_repr():
     assert r.endswith(")")
     assert "a=1" in r
     assert "b='hello'" in r
-    
+
     s_empty = struct()
     assert repr(s_empty) == "struct()"
 
@@ -105,9 +108,41 @@ def test_struct_factory_nested_tuple_of_dicts():
     """Tests the struct factory with a tuple of dicts."""
     s = struct(a=({'b': 1},))
     # The factory converts tuples to lists.
-    assert isinstance(s.a, list) 
+    assert isinstance(s.a, list)
     assert isinstance(s.a[0], Struct)
     assert s.a[0].b == 1
 
-if __name__ == "__main__":
-    pytest.main([__file__])
+def test_equality():
+    """Struct implements value-based equality.
+
+    Tests requirement: Struct value equality.
+    """
+    # Equal structs with same fields and values
+    assert struct(a=1, b=2) == struct(a=1, b=2)
+    assert not (struct(a=1, b=2) != struct(a=1, b=2))
+
+    # Unequal values
+    assert struct(a=1, b=2) != struct(a=1, b=99)
+
+    # Unequal field names
+    assert struct(a=1) != struct(b=1)
+
+    # Comparison with non-Struct returns NotImplemented (Python falls back to False)
+    assert struct(a=1) != 42
+    assert struct(a=1) != {"a": 1}
+
+def test_struct_class_does_not_coerce_nested_dicts():
+    """Struct() stores plain dicts; struct() factory coerces them to Struct.
+
+    Tests requirement: Struct vs factory dict-coercion distinction.
+    """
+    nested = {"x": 1}
+
+    # Direct class: no coercion
+    s_class = Struct(nested=nested)
+    assert isinstance(s_class.nested, dict)
+
+    # Factory: coerces to Struct
+    s_factory = struct(nested=nested)
+    assert isinstance(s_factory.nested, Struct)
+    assert s_factory.nested.x == 1

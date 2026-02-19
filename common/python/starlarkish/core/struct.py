@@ -1,14 +1,33 @@
-from typing import Any, Dict
+"""Immutable value-typed Struct for the Starlarkish sandbox.
+
+``Struct`` is modelled on Starlark's ``struct`` type: dot-accessible and
+immutable.
+
+Choosing between ``Struct`` and ``struct()``:
+
+* Use the ``struct(**kwargs)`` factory in scripts and tests.  It coerces
+  nested ``dict`` values into nested ``Struct`` instances (Starlark deviation,
+  see below).
+* Use ``Struct(**kwargs)`` only when you explicitly do *not* want
+  dict-to-Struct coercion.
+
+Starlark deviation:
+  ``struct(a={...})`` wraps the nested dict as another ``Struct``.
+  Standard Starlark leaves nested dicts as plain dicts.  Lists and tuples
+  are also walked for dict coercion.
+"""
+from typing import Any
 from types import MappingProxyType
-#import pickle
+
 
 class Struct:
     __slots__ = ("_fields",)
-    _fields: Dict[str, Any]
+    _fields: MappingProxyType[str, Any]
 
     def __init__(self, **kwargs: Any):
-        # Store a plain dict internally; we expose a read-only view if needed.
-        object.__setattr__(self, "_fields", dict(kwargs))
+        # MappingProxyType wraps kwargs at the C level; any mutation attempt raises
+        # TypeError — immutability is a data-structure guarantee, not just convention.
+        object.__setattr__(self, "_fields", MappingProxyType(kwargs))
 
     def __getattr__(self, name: str) -> Any:
         fields = object.__getattribute__(self, "_fields")
@@ -19,7 +38,22 @@ class Struct:
     def __setattr__(self, key: str, value: Any) -> None:
         raise AttributeError("Struct is immutable")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Struct):
+            return NotImplemented  # pyright: ignore[reportReturnType]
+        return self._fields == other._fields
+
+    def __hash__(self) -> int:
+        # Raises TypeError for unhashable field values — surfaces the problem at
+        # call time rather than silently returning a meaningless id()-based hash.
+        return hash(tuple(sorted(self._fields.items())))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a plain-dict representation, recursing into nested Structs.
+
+        Tuple values are coerced to lists in the output so that the result is
+        uniformly list-based and JSON-serialisable without further conversion.
+        """
         def conv(x: Any) -> Any:
             if isinstance(x, Struct):
                 return x.to_dict()
@@ -31,22 +65,26 @@ class Struct:
         return {k: conv(v) for k, v in self._fields.items()}
 
     def as_mapping(self) -> MappingProxyType[str, Any]:
-        """Read-only view of the backing dict; avoids exposing mutable dict directly."""
-        return MappingProxyType(self._fields)
+        """Read-only view of the backing dict.
+
+        The view is shallow: nested mutable values (e.g. a list stored in a
+        field) are not deep-frozen and remain mutable.
+        """
+        return self._fields
 
     def __repr__(self) -> str:
         items = ", ".join(f"{k}={v!r}" for k, v in self._fields.items())
         return f"struct({items})"
 
     # --- Pickle support: simple, reliable ---
-    def __getstate__(self) -> Dict[str, Any]:
-        # Return a plain serializable representation (the inner dict)
-        # This will be pickled and passed to __setstate__ on unpickle.
-        return self._fields
+    def __getstate__(self) -> dict[str, Any]:
+        # MappingProxyType is not directly picklable; convert to a plain dict.
+        return dict(self._fields)
 
-    def __setstate__(self, state: Dict[str, Any]) -> None:
-        # Reconstruct from the state (a dict)
-        object.__setattr__(self, "_fields", dict(state))
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        # Reconstruct from the pickled plain dict, re-wrapping as proxy.
+        object.__setattr__(self, "_fields", MappingProxyType(state))
+
 
 # factory helper (keeps API similar to Starlark struct())
 def struct(**kwargs: Any) -> Struct:
@@ -60,27 +98,3 @@ def struct(**kwargs: Any) -> Struct:
         return x
     wrapped = {k: maybe_wrap(v) for k, v in kwargs.items()}
     return Struct(**wrapped)
-
-
-# def struct(**kwargs):
-#     """
-#     Mimic Starlark's struct:
-#       - Dot-accessible attributes
-#       - Immutable after creation
-#       - Can be created dynamically from kwargs
-#     """
-#     class Struct:
-#         __slots__ = kwargs.keys()  # prevent dynamic attributes
-
-#         def __init__(self, **inner_kwargs):
-#             for k, v in inner_kwargs.items():
-#                 object.__setattr__(self, k, v)
-
-#         def __setattr__(self, key, value):
-#             raise AttributeError("Cannot modify fields of a struct")
-
-#         def __repr__(self):
-#             fields = ", ".join(f"{k} = {getattr(self, k)!r}" for k in self.__slots__)
-#             return f"struct({fields})"
-
-#     return Struct(**kwargs)

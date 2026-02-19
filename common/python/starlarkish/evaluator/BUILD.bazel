@@ -4,7 +4,6 @@ o_py_library(
     name = "evaluator_lib",
     srcs = [
         "evaluator.py",
-        "testing.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = ["//common/python/starlarkish/core:core_lib"],
@@ -22,6 +21,7 @@ o_py_test(
     srcs = ["evaluator_test.py"],
     deps = [
         ":evaluator_lib",
+        ":testing",
         "@pip//pyfakefs",
     ],
 )
