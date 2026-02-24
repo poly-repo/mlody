@@ -1,48 +1,90 @@
 # mlody/lsp
 
-Python LSP server for `.mlody` files, built on pygls + lsprotocol + tree-sitter-starlark.
+Python LSP server for `.mlody` files, built on pygls + lsprotocol +
+tree-sitter-starlark.
 
 ## Key Library Findings
 
 ### tree-sitter (Python bindings)
 
 - `node.type == "ERROR"` — identifies error-recovery nodes (always available).
-- `node.is_missing: bool` — True for parser-inserted placeholder nodes. **Available in the installed version.**
+- `node.is_missing: bool` — True for parser-inserted placeholder nodes.
+  **Available in the installed version.**
 - `node.has_error: bool` — True if the node or any descendant contains an error.
-- `node.start_point`, `node.end_point` — `tree_sitter.Point` objects (namedtuple-like, `row`/`column` attributes), zero-indexed. Compare with `==` — they compare equal to each other correctly.
+- `node.start_point`, `node.end_point` — `tree_sitter.Point` objects
+  (namedtuple-like, `row`/`column` attributes), zero-indexed. Compare with `==`
+  — they compare equal to each other correctly.
+
+### tree-sitter-starlark — module-level AST structure
+
+At module scope, **assignments are wrapped in an `expression_statement`
+parent**; `function_definition` nodes are direct children of the root `module`
+node:
+
+```
+(module
+  (expression_statement       # wrapper for top-level assignments and calls
+    (assignment               # e.g. MY_MODEL = struct(...)
+      (identifier)            # children[0] — LHS name
+      "="
+      ...))
+  (function_definition        # direct child — no expression_statement wrapper
+    "def"
+    (identifier)              # children[1] — function name
+    ...))
+```
+
+**Practical consequence:** Code that iterates `root_node.children` looking for
+nodes with `type == "assignment"` will silently find nothing. Always unwrap:
+check for `expression_statement` first, then inspect `children[0]` for the
+`assignment`.
 
 ### tree-sitter-starlark — MISSING node behaviour
 
-tree-sitter-starlark uses ERROR recovery rather than MISSING nodes in most cases.
-Not all "obviously missing" tokens produce `is_missing=True` nodes:
+tree-sitter-starlark uses ERROR recovery rather than MISSING nodes in most
+cases. Not all "obviously missing" tokens produce `is_missing=True` nodes:
 
-| Input | Result |
-|---|---|
-| `load(` | One ERROR node spanning the whole input — **no MISSING node** |
-| `def (((` | One ERROR node spanning the whole input — **no MISSING node** |
-| `x = @` | Nested ERROR nodes (parent + one per bad char) — **no MISSING node** |
-| `if :` | `is_missing=True` on the condition `identifier` — **MISSING node present** |
+| Input           | Result                                                                     |
+| --------------- | -------------------------------------------------------------------------- |
+| `load(`         | One ERROR node spanning the whole input — **no MISSING node**              |
+| `def (((`       | One ERROR node spanning the whole input — **no MISSING node**              |
+| `x = @`         | Nested ERROR nodes (parent + one per bad char) — **no MISSING node**       |
+| `if :`          | `is_missing=True` on the condition `identifier` — **MISSING node present** |
+| `X = struct(\n` | One top-level ERROR node — **not** an `assignment` with `has_error`        |
 
-**Practical consequence:** When writing tests for MISSING-node diagnostics, use `"if :"` (missing `if`-condition) as the triggering input. Do NOT use `"load("` — it produces only an ERROR node.
+**Practical consequence:** When writing tests for MISSING-node diagnostics, use
+`"if :"` (missing `if`-condition) as the triggering input. Do NOT use `"load("`
+— it produces only an ERROR node.
 
-To produce **multiple** ERROR nodes in one document, intersperse valid code with invalid characters: `"x = @\ny = $"` yields a parent ERROR plus two nested ERROR nodes (one per `@`/`$`).
+To produce **multiple** ERROR nodes in one document, intersperse valid code with
+invalid characters: `"x = @\ny = $"` yields a parent ERROR plus two nested ERROR
+nodes (one per `@`/`$`).
+
+**Incomplete assignments:** An unclosed RHS call (e.g. `X = struct(`) collapses
+the entire statement into a single top-level `ERROR` node — it does **not**
+produce an `assignment` node with `has_error=True`. Guard by checking
+`child.type == "ERROR"` on the root-level child, not `child.has_error` on an
+assignment node.
 
 ### lsprotocol
 
 Content-change event types for `DidChangeTextDocumentParams.content_changes`:
 
-| Sync kind | Correct type name |
-|---|---|
-| Incremental (with range) | `types.TextDocumentContentChangePartial` |
-| Full (whole document) | `types.TextDocumentContentChangeWholeDocument` |
+| Sync kind                | Correct type name                              |
+| ------------------------ | ---------------------------------------------- |
+| Incremental (with range) | `types.TextDocumentContentChangePartial`       |
+| Full (whole document)    | `types.TextDocumentContentChangeWholeDocument` |
 
-The names `TextDocumentContentChangeEvent_Type1` / `_Type2` do **not** exist in the installed version.
+The names `TextDocumentContentChangeEvent_Type1` / `_Type2` do **not** exist in
+the installed version.
 
 ### tree-sitter-starlark — AST structure for semantic tokens
 
-**`function_definition` node child order** (verified against tree-sitter-starlark 1.3.0):
+**`function_definition` node child order** (verified against
+tree-sitter-starlark 1.3.0):
 
-> ⚠️ The node type is `"function_definition"` — **not** `"function_def"`. Earlier docs and the design.md were wrong; confirmed by runtime inspection.
+> ⚠️ The node type is `"function_definition"` — **not** `"function_def"`.
+> Earlier docs and the design.md were wrong; confirmed by runtime inspection.
 
 ```
 (function_definition
@@ -53,37 +95,52 @@ The names `TextDocumentContentChangeEvent_Type1` / `_Type2` do **not** exist in 
   (block ...))   # children[4]
 ```
 
-To detect the function name identifier: `node.parent.type == "function_definition"` and `node.start_point == node.parent.children[1].start_point`.
+To detect the function name identifier:
+`node.parent.type == "function_definition"` and
+`node.start_point == node.parent.children[1].start_point`.
 
-**`parameters` node children** — simple positional parameters are direct `identifier` children of `parameters`. Non-simple variants have distinct parent node types:
+**`parameters` node children** — simple positional parameters are direct
+`identifier` children of `parameters`. Non-simple variants have distinct parent
+node types:
 
-| Syntax | Parent node type |
-|---|---|
+| Syntax           | Parent node type                         |
+| ---------------- | ---------------------------------------- |
 | `x` (positional) | `parameters` — direct `identifier` child |
-| `x=1` (default) | `default_parameter` |
-| `*args` | `list_splat_pattern` |
-| `**kwargs` | `dictionary_splat_pattern` |
+| `x=1` (default)  | `default_parameter`                      |
+| `*args`          | `list_splat_pattern`                     |
+| `**kwargs`       | `dictionary_splat_pattern`               |
 
-To detect simple parameters: `node.parent.type == "parameters"` (no grandparent check needed).
+To detect simple parameters: `node.parent.type == "parameters"` (no grandparent
+check needed).
 
-**Identifier classification priority chain** (must be evaluated in this order inside `_collect_tokens`):
+**Identifier classification priority chain** (must be evaluated in this order
+inside `_collect_tokens`):
 
-1. `parent.type == "function_definition"` and matches `children[1]` → `function` + `definition`
+1. `parent.type == "function_definition"` and matches `children[1]` →
+   `function` + `definition`
 2. `parent.type == "parameters"` → `parameter` + `definition`
-3. `parent.type == "assignment"` and matches `children[0]` → `variable` + `definition` + `readonly`
+3. `parent.type == "assignment"` and matches `children[0]` → `variable` +
+   `definition` + `readonly`
 4. Fallback → `variable` + no modifiers
 
 ### pygls (v2)
 
-- LanguageServer constructor: `text_document_sync_kind=` (not `text_document_sync=`).
-- Publish diagnostics: `server.text_document_publish_diagnostics(types.PublishDiagnosticsParams(uri=..., diagnostics=...))`.
+- LanguageServer constructor: `text_document_sync_kind=` (not
+  `text_document_sync=`).
+- Publish diagnostics:
+  `server.text_document_publish_diagnostics(types.PublishDiagnosticsParams(uri=..., diagnostics=...))`.
   The old `server.publish_diagnostics(uri, diagnostics)` signature is v1 only.
 
 # Deployment
 
 The server can be deployed with:
+
 ```shell
 bazel build mlody/lsp:lsp_server_pex
 chmod 755 bazel-bin/mlody/lsp/lsp_server_pex.pex
 cp bazel-bin/mlody/lsp/lsp_server_pex.pex ~/.local/bin/mlody-lsp
 ```
+
+**Note:** `mlody-lsp --version` (and any other flag) will hang — the server
+immediately starts listening on stdio rather than parsing CLI arguments. Verify
+the installation with `ls -lh ~/.local/bin/mlody-lsp` instead.

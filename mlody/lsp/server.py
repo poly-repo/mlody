@@ -16,16 +16,18 @@ from mlody.lsp.completion import get_completions
 from mlody.lsp.definition import _resolve_load_path, get_definition
 from mlody.lsp.diagnostics import get_eval_diagnostics, get_parse_diagnostics
 from mlody.lsp.log_handler import LSPLogHandler
-from mlody.lsp.parser import CACHE, find_ancestor, node_at_position
+from mlody.lsp.parser import CACHE, apply_incremental_changes, find_ancestor, node_at_position
 
 _logger = logging.getLogger(__name__)
 
-# FULL sync is required so the client sends the complete document text in
-# didChange content changes, enabling accurate re-parsing on every keystroke.
+# INCREMENTAL sync: the client sends only changed ranges on each keystroke.
+# apply_incremental_changes() reconstructs the full buffer from the diffs;
+# DocumentCache stores the rebuilt text and uses old_tree for incremental
+# re-parses (see design.md §D1–D5 in lsp-incremental-sync).
 server = LanguageServer(
     "mlody-lsp",
     "v0.1",
-    text_document_sync_kind=types.TextDocumentSyncKind.Full,
+    text_document_sync_kind=types.TextDocumentSyncKind.Incremental,
 )
 
 
@@ -347,14 +349,19 @@ def on_did_open(params: types.DidOpenTextDocumentParams) -> None:
 def on_did_change(params: types.DidChangeTextDocumentParams) -> None:
     """Re-parse the changed document and republish diagnostics.
 
-    With TextDocumentSyncKind.FULL the client always sends the complete
-    document text in a single content change, so we take content_changes[0].
+    With TextDocumentSyncKind.Incremental the client sends only the changed
+    range(s).  We retrieve the previous full text from DocumentCache, apply
+    the diffs, and pass the reconstructed text to _publish_diagnostics_for.
+
+    If the URI has no cached text (e.g. didOpen was never received), treat
+    the baseline as "" to avoid an unhandled None in the diff path (D4 in
+    design.md, lsp-incremental-sync).
     """
     uri = params.text_document.uri
     version = params.text_document.version
-    # FULL sync: exactly one content change containing the complete document.
-    text = params.content_changes[0].text if params.content_changes else ""
-    _publish_diagnostics_for(uri, version, text)
+    prev_text = CACHE.get_text(uri) or ""
+    new_text = apply_incremental_changes(prev_text, params.content_changes)
+    _publish_diagnostics_for(uri, version, new_text)
 
 
 @server.feature(types.TEXT_DOCUMENT_DID_CLOSE)

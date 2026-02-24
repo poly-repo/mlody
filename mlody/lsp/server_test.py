@@ -370,6 +370,118 @@ class TestHover:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# TestIncrementalSync — lsp-incremental-sync/spec.md scenarios
+# ---------------------------------------------------------------------------
+
+
+class TestIncrementalSync:
+    """Requirements: Incremental capability negotiation and on_did_change buffer
+    reconstruction (lsp-incremental-sync/spec.md).
+    """
+
+    _SYNC_URI = "file:///test_incremental_sync.mlody"
+    _MISSING_URI = "file:///test_incremental_missing.mlody"
+
+    def _incremental_change_params(
+        self,
+        uri: str,
+        changes: list[
+            types.TextDocumentContentChangePartial
+            | types.TextDocumentContentChangeWholeDocument
+        ],
+        version: int = 2,
+    ) -> types.DidChangeTextDocumentParams:
+        return types.DidChangeTextDocumentParams(
+            text_document=types.VersionedTextDocumentIdentifier(
+                uri=uri,
+                version=version,
+            ),
+            content_changes=changes,
+        )
+
+    def test_server_advertises_incremental_sync_kind(self) -> None:
+        """Scenario: Server capability negotiation — textDocumentSync.change == 2.
+
+        TextDocumentSyncKind.Incremental == 2 per LSP spec.
+        """
+        # Verify the module-level server was constructed with Incremental sync kind.
+        assert server_module.server._text_document_sync_kind == types.TextDocumentSyncKind.Incremental
+        assert types.TextDocumentSyncKind.Incremental == 2  # noqa: PLR2004
+
+    def test_on_did_change_partial_reconstructs_buffer(self) -> None:
+        """Scenario: Partial edit updates cached text.
+
+        Seeds CACHE with "A = 1\\n", applies a partial change inserting
+        "B = 2\\n" at line 1 character 0, and verifies the cache holds the
+        reconstructed full text.
+        """
+        uri = self._SYNC_URI
+        # Seed cache via on_did_open so CACHE holds the initial text.
+        with patch.object(server_module.server, "text_document_publish_diagnostics"):
+            on_did_open(
+                types.DidOpenTextDocumentParams(
+                    text_document=types.TextDocumentItem(
+                        uri=uri,
+                        language_id="starlark",
+                        version=1,
+                        text="A = 1\n",
+                    )
+                )
+            )
+
+        assert server_module.CACHE.get_text(uri) == "A = 1\n"
+
+        # Partial change: insert "B = 2\n" at end (line 1, char 0).
+        with patch.object(server_module.server, "text_document_publish_diagnostics"):
+            on_did_change(
+                self._incremental_change_params(
+                    uri=uri,
+                    changes=[
+                        types.TextDocumentContentChangePartial(
+                            range=types.Range(
+                                start=types.Position(line=1, character=0),
+                                end=types.Position(line=1, character=0),
+                            ),
+                            text="B = 2\n",
+                        )
+                    ],
+                    version=2,
+                )
+            )
+
+        assert server_module.CACHE.get_text(uri) == "A = 1\nB = 2\n"
+
+    def test_on_did_change_missing_cache_uses_empty_baseline(self) -> None:
+        """Scenario: Missing cache entry treated as empty document.
+
+        Calls on_did_change for a URI with no cached text and confirms
+        no exception is raised (baseline "" is used transparently).
+        """
+        uri = self._MISSING_URI
+        # Ensure the URI is not in cache.
+        server_module.CACHE.remove(uri)
+        assert server_module.CACHE.get_text(uri) is None
+
+        with patch.object(server_module.server, "text_document_publish_diagnostics"):
+            # Must not raise even though there is no cached baseline.
+            on_did_change(
+                self._incremental_change_params(
+                    uri=uri,
+                    changes=[
+                        types.TextDocumentContentChangeWholeDocument(text="X = 1\n")
+                    ],
+                )
+            )
+
+        assert server_module.CACHE.get_text(uri) == "X = 1\n"
+
+
+# ---------------------------------------------------------------------------
+# TestSemanticTokens — lsp-semantic-tokens/spec.md scenarios
+# ---------------------------------------------------------------------------
+
+
 class TestSemanticTokens:
     """Requirements: Semantic token encoding and ERROR-node exclusion
     (lsp-semantic-tokens/spec.md).

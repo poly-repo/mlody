@@ -9,11 +9,11 @@ import tree_sitter
 from lsprotocol.types import CompletionItem
 
 from common.python.starlarkish.evaluator.evaluator import SAFE_BUILTINS, Evaluator
-from mlody.lsp.parser import find_ancestor, node_at_position
-
-# Keys injected by the evaluator sandbox that are not user symbols.
-_FRAMEWORK_INTERNALS: frozenset[str] = frozenset(
-    {"__builtins__", "load", "__MLODY__", "builtins"}
+from mlody.lsp.parser import (
+    _FRAMEWORK_INTERNALS,
+    extract_top_level_symbols,
+    find_ancestor,
+    node_at_position,
 )
 
 
@@ -101,21 +101,45 @@ def _builtin_member_completions() -> list[str]:
     return ["register", "ctx"]
 
 
-def _general_completions(evaluator: Evaluator, current_file: Path) -> list[str]:
-    """Return safe builtins plus symbols loaded into the current file.
+def _general_completions(
+    evaluator: Evaluator | None,
+    tree: tree_sitter.Tree,
+    current_file: Path,
+) -> list[str]:
+    """Return safe builtins plus in-buffer and evaluator-derived symbols.
+
+    Always includes:
+    - All safe builtin names.
+    - Top-level symbols from the current parse tree (unsaved buffer), via
+      ``extract_top_level_symbols``.
+
+    Also includes, when ``evaluator`` is not None:
+    - Symbols from ``evaluator._module_globals`` for ``current_file``,
+      filtered to exclude ``_FRAMEWORK_INTERNALS`` and ``_``-prefixed names.
+
+    A ``seen`` set prevents duplicates when a name appears in both the tree
+    and the evaluator globals (design.md §D1).
 
     Accesses evaluator._module_globals directly — intentional coupling to the
     starlarkish implementation; documented in design.md §Decisions #4.
     """
-    names: list[str] = list(SAFE_BUILTINS.keys())
+    seen: set[str] = set(SAFE_BUILTINS.keys())
+    names: list[str] = list(seen)
 
-    # pyright: ignore — _module_globals is a private attribute
-    module_globals: dict[str, object] = evaluator._module_globals.get(  # type: ignore[attr-defined]
-        current_file, {}
-    )
-    for key in module_globals:
-        if key not in _FRAMEWORK_INTERNALS and not key.startswith("_"):
-            names.append(key)
+    for sym in extract_top_level_symbols(tree):
+        if sym not in seen:
+            seen.add(sym)
+            names.append(sym)
+
+    if evaluator is not None:
+        # pyright: ignore — _module_globals is a private attribute
+        module_globals: dict[str, object] = evaluator._module_globals.get(  # type: ignore[attr-defined]
+            current_file, {}
+        )
+        for key in module_globals:
+            if key not in _FRAMEWORK_INTERNALS and not key.startswith("_") and key not in seen:
+                seen.add(key)
+                names.append(key)
 
     return names
 
@@ -131,12 +155,13 @@ def get_completions(
 ) -> list[CompletionItem]:
     """Top-level completion entry point called by the LSP server handler.
 
-    Returns [] if the workspace failed to load (`evaluator` is None).
     Dispatches by cursor context to the appropriate completion source.
+    When ``evaluator`` is None (workspace failed to load):
+    - ``general`` context: returns safe builtins and tree-extracted symbols.
+    - ``load_path`` context: returns an empty list (no evaluator, no paths).
+    - ``load_symbol`` context: returns an empty list (deferred feature).
+    - ``builtins_member`` context: returns static member list (no evaluator needed).
     """
-    if evaluator is None:
-        return []
-
     line_to_cursor = document_lines[line][:character] if line < len(document_lines) else ""
     node = node_at_position(tree, line, character)
     context = _detect_context(node, line_to_cursor)
@@ -146,19 +171,21 @@ def get_completions(
         # quote to the cursor.  The string node's start_point marks the opening
         # quote; adding 1 skips it.  In practice load() paths are single-line
         # strings, so start_row == cursor line for all realistic documents.
-        string_node: tree_sitter.Node | None = (  # type: ignore[type-arg]
-            node if node.type == "string" else find_ancestor(node, "string")
-        )
-        if string_node is not None:
-            start_row, start_col = string_node.start_point
-            if start_row == line:
-                partial = document_lines[start_row][start_col + 1 : character]
+        labels: list[str] = []
+        if evaluator is not None:
+            string_node: tree_sitter.Node | None = (  # type: ignore[type-arg]
+                node if node.type == "string" else find_ancestor(node, "string")
+            )
+            if string_node is not None:
+                start_row, start_col = string_node.start_point
+                if start_row == line:
+                    partial = document_lines[start_row][start_col + 1 : character]
+                else:
+                    # String opened on an earlier line; take from start of cursor line.
+                    partial = document_lines[line][:character].lstrip("\"' ")
             else:
-                # String opened on an earlier line; take from start of cursor line.
-                partial = document_lines[line][:character].lstrip("\"' ")
-        else:
-            partial = ""
-        labels = _load_path_completions(partial, monorepo_root, current_file)
+                partial = ""
+            labels = _load_path_completions(partial, monorepo_root, current_file)
 
     elif context == "load_symbol":
         # Symbol name completions are a future feature (see lsp-completion spec).
@@ -168,6 +195,6 @@ def get_completions(
         labels = _builtin_member_completions()
 
     else:
-        labels = _general_completions(evaluator, current_file)
+        labels = _general_completions(evaluator, tree, current_file)
 
     return [CompletionItem(label=name) for name in labels]

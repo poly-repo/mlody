@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import tree_sitter
+from lsprotocol import types
 
 # Grammar and parser are module-level singletons — loaded once at import time.
 # If tree-sitter-starlark is absent the ImportError surfaces immediately with
@@ -22,15 +23,18 @@ import tree_sitter
 try:
     import tree_sitter_starlark as _ts_starlark
 except ImportError as _exc:
-    raise ImportError(
-        "tree-sitter-starlark is not installed. Run: o-repin"
-    ) from _exc
+    raise ImportError("tree-sitter-starlark is not installed. Run: o-repin") from _exc
 
-STARLARK_LANGUAGE: tree_sitter.Language = tree_sitter.Language(
-    _ts_starlark.language()
-)
+STARLARK_LANGUAGE: tree_sitter.Language = tree_sitter.Language(_ts_starlark.language())
 
 _parser: tree_sitter.Parser = tree_sitter.Parser(STARLARK_LANGUAGE)
+
+# Keys injected by the starlarkish evaluator sandbox at eval time.
+# Moved here from completion.py to avoid a circular import: completion.py
+# imports from parser.py, so any constant needed by both must live here.
+_FRAMEWORK_INTERNALS: frozenset[str] = frozenset(
+    {"__builtins__", "load", "__MLODY__", "builtins"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -79,14 +83,18 @@ class LoadStatement:
 class DocumentCache:
     """In-process cache of tree-sitter parse trees keyed by document URI.
 
-    Maps each URI to a ``(version, Tree)`` pair.  Re-parsing happens only
-    when the version number changes, preventing redundant work when multiple
-    handlers fire for the same document version in a single request cycle
-    (e.g. textDocument/completion triggered after textDocument/didChange).
+    Maps each URI to a ``(version, text, Tree)`` triple.  Re-parsing happens
+    only when the version number changes, preventing redundant work when
+    multiple handlers fire for the same document version in a single request
+    cycle (e.g. textDocument/completion triggered after textDocument/didChange).
+
+    The stored text is required by ``on_did_change`` to reconstruct the full
+    buffer from LSP range-diffs, and by ``extract_top_level_symbols`` for
+    live-buffer completion — see design.md §Context.
     """
 
     def __init__(self) -> None:
-        self._cache: dict[str, tuple[int, tree_sitter.Tree]] = {}
+        self._cache: dict[str, tuple[int, str, tree_sitter.Tree]] = {}
 
     def update(
         self,
@@ -95,6 +103,10 @@ class DocumentCache:
         text: str,
     ) -> tree_sitter.Tree:
         """Return the parse tree for *uri*, re-parsing only if *version* is new.
+
+        Passes the previously stored tree as ``old_tree`` when one exists,
+        enabling tree-sitter's incremental re-parse optimisation.  The first
+        parse of a URI (cold parse) omits ``old_tree``.
 
         Args:
             uri: The LSP document URI (e.g. ``"file:///path/to/file.mlody"``).
@@ -107,17 +119,28 @@ class DocumentCache:
         """
         cached = self._cache.get(uri)
         if cached is not None and cached[0] == version:
-            return cached[1]
+            return cached[2]
 
         # tree-sitter Python bindings require bytes, not str (D3 in design.md).
         # UTF-8 is correct for .mlody files: they are ASCII-safe Starlark, so
         # UTF-8 and UTF-16 byte offsets coincide for all practical content.
-        tree = _parser.parse(text.encode())
-        self._cache[uri] = (version, tree)
+        prev_tree = cached[2] if cached is not None else None
+        if prev_tree is not None:
+            # Incremental re-parse: old_tree is a hint — tree-sitter guarantees
+            # correctness from the full text regardless of how stale the hint is.
+            tree = _parser.parse(text.encode(), old_tree=prev_tree)
+        else:
+            tree = _parser.parse(text.encode())
+        self._cache[uri] = (version, text, tree)
         return tree
 
     def get(self, uri: str) -> tree_sitter.Tree | None:
         """Return the cached tree for *uri*, or ``None`` if not present."""
+        cached = self._cache.get(uri)
+        return cached[2] if cached is not None else None
+
+    def get_text(self, uri: str) -> str | None:
+        """Return the cached document text for *uri*, or ``None`` if not present."""
         cached = self._cache.get(uri)
         return cached[1] if cached is not None else None
 
@@ -128,6 +151,54 @@ class DocumentCache:
 
 # Module-level cache singleton shared by all LSP handlers.
 CACHE: DocumentCache = DocumentCache()
+
+
+# ---------------------------------------------------------------------------
+# Incremental change application
+# ---------------------------------------------------------------------------
+
+
+def apply_incremental_changes(
+    text: str,
+    changes: list[
+        types.TextDocumentContentChangePartial
+        | types.TextDocumentContentChangeWholeDocument
+    ],
+) -> str:
+    """Apply an ordered list of LSP range-edits to *text*, returning the updated text.
+
+    Processes each change in the order it appears in *changes* — ranges in
+    later changes refer to the text *after* all previous changes have been
+    applied, per LSP specification (FR-002).
+
+    Two change variants are handled (D3 in design.md):
+    - ``TextDocumentContentChangeWholeDocument``: replaces the entire buffer.
+    - ``TextDocumentContentChangePartial``: applies a range splice using the
+      line-split algorithm from D2 in design.md.  Splitting on ``"\\n"`` is
+      correct for ``.mlody`` files, which are always LF-only.
+
+    Args:
+        text: The current full document text.
+        changes: Ordered list of LSP content-change events.
+
+    Returns:
+        The updated full document text after all changes are applied.
+    """
+    for change in changes:
+        if isinstance(change, types.TextDocumentContentChangeWholeDocument):
+            # Whole-document replacement — discard current text entirely.
+            text = change.text
+        else:
+            # Partial (range) change — splice the affected line region.
+            start = change.range.start
+            end = change.range.end
+            lines = text.split("\n")
+            prefix = lines[start.line][: start.character]
+            suffix = lines[end.line][end.character :]
+            replacement_lines = (prefix + change.text + suffix).split("\n")
+            lines = lines[: start.line] + replacement_lines + lines[end.line + 1 :]
+            text = "\n".join(lines)
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +270,59 @@ def find_ancestor(
     return None
 
 
+def extract_top_level_symbols(tree: tree_sitter.Tree) -> list[str]:
+    """Return names of syntactically complete top-level bindings in *tree*.
+
+    Walks the direct children of the root ``module`` node (one level deep).
+    In tree-sitter-starlark, assignments at module scope are wrapped in an
+    ``expression_statement`` parent; ``function_definition`` nodes are direct
+    children.  Nodes with errors — ``type == "ERROR"`` or ``has_error`` —
+    are skipped entirely, so incomplete assignments (e.g. ``X = struct(``)
+    do not appear in the result (tree-sitter collapses them into a top-level
+    ERROR node).
+
+    Names starting with ``_`` and names in ``_FRAMEWORK_INTERNALS`` are
+    filtered out to avoid surfacing private or evaluator-injected symbols
+    as completion candidates.
+
+    See design.md §Decision 3 for the rationale behind the one-level walk
+    and the ``has_error`` guard.
+
+    Args:
+        tree: A ``tree_sitter.Tree`` for a Starlark document.
+
+    Returns:
+        Symbol names in source order, with private and framework names removed.
+    """
+    symbols: list[str] = []
+    for child in tree.root_node.children:
+        # Skip syntactically broken nodes.  Incomplete assignments (e.g. an
+        # unclosed struct() call) produce a top-level ERROR node rather than
+        # an assignment node, so this guard also covers those cases.
+        if child.type == "ERROR" or child.has_error:
+            continue
+
+        name: str | None = None
+        if child.type == "expression_statement" and child.children:
+            # In tree-sitter-starlark, assignments at module scope are wrapped
+            # in an expression_statement parent node.
+            inner = child.children[0]
+            if inner.type == "assignment" and inner.children:
+                first = inner.children[0]
+                if first.type == "identifier" and first.text is not None:
+                    name = first.text.decode()
+        elif child.type == "function_definition" and len(child.children) > 1:
+            # children[1] is the function name identifier; children[0] is "def".
+            second = child.children[1]
+            if second.type == "identifier" and second.text is not None:
+                name = second.text.decode()
+
+        if name is not None and not name.startswith("_") and name not in _FRAMEWORK_INTERNALS:
+            symbols.append(name)
+
+    return symbols
+
+
 def get_load_statements(tree: tree_sitter.Tree) -> list[LoadStatement]:
     """Extract all load() calls from *tree* as structured ``LoadStatement`` objects.
 
@@ -249,9 +373,7 @@ def get_load_statements(tree: tree_sitter.Tree) -> list[LoadStatement]:
             sym_name = raw_sym.decode().strip('"').strip("'")
             symbols.append(ImportedSymbol(name=sym_name, node=sym_node))
 
-        results.append(
-            LoadStatement(path=path, path_node=path_node, symbols=symbols)
-        )
+        results.append(LoadStatement(path=path, path_node=path_node, symbols=symbols))
 
     _walk(tree.root_node)
     return results

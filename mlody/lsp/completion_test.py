@@ -107,7 +107,8 @@ class TestGeneralCompletions:
         # _module_globals won't contain the file — should still get builtins.
         evaluator = MagicMock()
         evaluator._module_globals = {}
-        result = _general_completions(evaluator, Path("/repo/mlody/pipeline.mlody"))
+        tree = CACHE.update("file:///gc_builtins_test.mlody", 1, "")
+        result = _general_completions(evaluator, tree, Path("/repo/mlody/pipeline.mlody"))
 
         for key in SAFE_BUILTINS:
             assert key in result
@@ -125,7 +126,8 @@ class TestGeneralCompletions:
             }
         }
 
-        result = _general_completions(evaluator, current_file)
+        tree = CACHE.update("file:///gc_loaded_test.mlody", 1, "")
+        result = _general_completions(evaluator, tree, current_file)
 
         assert "MY_CONFIG" in result
 
@@ -142,13 +144,45 @@ class TestGeneralCompletions:
             }
         }
 
-        result = _general_completions(evaluator, current_file)
+        tree = CACHE.update("file:///gc_framework_test.mlody", 1, "")
+        result = _general_completions(evaluator, tree, current_file)
 
         assert "__builtins__" not in result
         assert "load" not in result
         assert "__MLODY__" not in result
         assert "builtins" not in result
         assert "USER_VAR" in result
+
+    def test_includes_tree_extracted_symbols(self) -> None:
+        # FR-006: symbols defined in the unsaved buffer must appear even when
+        # the evaluator is None.
+        src = "MY_MODEL = struct(name='bert')\n"
+        tree = CACHE.update("file:///gc_tree_sym_test.mlody", 1, src)
+        result = _general_completions(None, tree, Path("/repo/f.mlody"))
+
+        assert "MY_MODEL" in result
+
+    def test_incomplete_assignment_excluded(self) -> None:
+        # An unclosed RHS call collapses the whole statement into a top-level
+        # ERROR node; the name must NOT appear (spec §Incomplete assignment).
+        src = "MY_MODEL = struct("
+        tree = CACHE.update("file:///gc_incomplete_test.mlody", 1, src)
+        result = _general_completions(None, tree, Path("/repo/f.mlody"))
+
+        assert "MY_MODEL" not in result
+
+    def test_no_duplicates_when_symbol_in_both_evaluator_and_tree(self) -> None:
+        # A name present in both the evaluator globals and the parse tree must
+        # appear exactly once (design.md §D1 deduplication via seen set).
+        current_file = Path("/repo/mlody/pipeline.mlody")
+        evaluator = MagicMock()
+        evaluator._module_globals = {current_file: {"MY_SAVED": object()}}
+
+        src = "MY_SAVED = struct()\n"
+        tree = CACHE.update("file:///gc_dedup_test.mlody", 1, src)
+        result = _general_completions(evaluator, tree, current_file)
+
+        assert result.count("MY_SAVED") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -204,8 +238,11 @@ class TestLoadPathCompletions:
 class TestGetCompletions:
     """Requirement: Fall back to builtins-only / No crash on workspace failure."""
 
-    def test_returns_empty_list_when_evaluator_is_none(self) -> None:
-        src = "struct("
+    def test_general_returns_builtins_when_evaluator_none(self) -> None:
+        # Even when the workspace failed to load, safe builtins should still
+        # be returned for general positions (spec §Provide tree-extracted completions
+        # when evaluator is unavailable).
+        src = ""
         tree = CACHE.update("file:///gc_test1.mlody", 1, src)
         result = get_completions(
             evaluator=None,
@@ -213,11 +250,13 @@ class TestGetCompletions:
             current_file=Path("/repo/mlody/file.mlody"),
             tree=tree,
             line=0,
-            character=7,
+            character=0,
             document_lines=[src],
         )
 
-        assert result == []
+        labels = [item.label for item in result]
+        for key in SAFE_BUILTINS:
+            assert key in labels
 
     def test_returns_only_builtins_when_file_not_evaluated(self) -> None:
         evaluator = MagicMock()
@@ -283,3 +322,57 @@ class TestGetCompletions:
 
         labels = [item.label for item in items]
         assert "pipeline.mlody" in labels
+
+    def test_general_returns_tree_symbols_when_evaluator_none(self) -> None:
+        # FR-006 + "evaluator is None" path: tree-extracted symbols must appear
+        # even when the workspace failed to load.
+        src = "MY_MODEL = struct(name='bert')\n"
+        tree = CACHE.update("file:///gc_test5.mlody", 1, src)
+        items = get_completions(
+            evaluator=None,
+            monorepo_root=Path("/repo"),
+            current_file=Path("/repo/mlody/file.mlody"),
+            tree=tree,
+            line=0,
+            character=0,
+            document_lines=src.splitlines(),
+        )
+
+        labels = [item.label for item in items]
+        assert "MY_MODEL" in labels
+
+    def test_load_path_returns_empty_when_evaluator_none(self) -> None:
+        # Spec §No crash: load_path context with no evaluator must return [],
+        # not raise.
+        src = 'load("//mlody/", "SYM")'
+        tree = CACHE.update("file:///gc_test6.mlody", 1, src)
+        # Cursor inside the path string at col 10.
+        items = get_completions(
+            evaluator=None,
+            monorepo_root=Path("/repo"),
+            current_file=Path("/repo/mlody/file.mlody"),
+            tree=tree,
+            line=0,
+            character=10,
+            document_lines=[src],
+        )
+
+        assert items == []
+
+    def test_builtins_member_returns_completions_when_evaluator_none(self) -> None:
+        # builtins_member context is purely static — must work without an evaluator.
+        src = "x = builtins."
+        tree = CACHE.update("file:///gc_test7.mlody", 1, src)
+        items = get_completions(
+            evaluator=None,
+            monorepo_root=Path("/repo"),
+            current_file=Path("/repo/mlody/file.mlody"),
+            tree=tree,
+            line=0,
+            character=len(src),
+            document_lines=[src],
+        )
+
+        labels = [item.label for item in items]
+        assert "register" in labels
+        assert "ctx" in labels

@@ -11,12 +11,16 @@ import tree_sitter
 import pytest
 
 import mlody.lsp.parser as parser
+from lsprotocol import types
+
 from mlody.lsp.parser import (
     CACHE,
     STARLARK_LANGUAGE,
     DocumentCache,
     ImportedSymbol,
     LoadStatement,
+    apply_incremental_changes,
+    extract_top_level_symbols,
     find_ancestor,
     get_load_statements,
     node_at_position,
@@ -317,3 +321,248 @@ class TestGetLoadStatements:
         sym = stmts[0].symbols[0]
         assert sym.node.type == "string"
         assert sym.node.text == b'"X"'
+
+
+# ---------------------------------------------------------------------------
+# Requirement: Store document text alongside the parse tree
+# Spec: scenarios in lsp-parser-cache/spec.md § "Store document text"
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentCacheGetText:
+    """Requirement: DocumentCache.get_text returns the stored document text."""
+
+    def setup_method(self) -> None:
+        self.cache = DocumentCache()
+        self.uri = "file:///test.mlody"
+
+    def test_get_text_returns_none_before_first_update(self) -> None:
+        """Scenario: get_text returns None before first update."""
+        assert self.cache.get_text(self.uri) is None
+
+    def test_get_text_returns_stored_text_after_update(self) -> None:
+        """Scenario: Text is accessible after update."""
+        self.cache.update(self.uri, version=1, text="abc\n")
+        assert self.cache.get_text(self.uri) == "abc\n"
+
+    def test_get_text_reflects_new_version(self) -> None:
+        """Scenario: Text updates on new version."""
+        self.cache.update(self.uri, version=1, text="first\n")
+        self.cache.update(self.uri, version=2, text="second\n")
+        assert self.cache.get_text(self.uri) == "second\n"
+
+    def test_get_text_unchanged_on_same_version(self) -> None:
+        """Scenario: Same version returns cached text unchanged (no re-parse)."""
+        self.cache.update(self.uri, version=1, text="first\n")
+        self.cache.update(self.uri, version=1, text="different\n")
+        assert self.cache.get_text(self.uri) == "first\n"
+
+
+# ---------------------------------------------------------------------------
+# Requirement: Use the previous parse tree for incremental re-parse
+# Spec: scenarios in lsp-parser-cache/spec.md § "Use the previous parse tree"
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentCacheIncrementalReparse:
+    """Requirement: DocumentCache passes old_tree on re-parse when available."""
+
+    def setup_method(self) -> None:
+        self.cache = DocumentCache()
+        self.uri = "file:///test.mlody"
+
+    def test_cold_parse_produces_valid_tree(self) -> None:
+        """Scenario: First parse has no previous tree — still returns valid tree."""
+        tree = self.cache.update(self.uri, version=1, text="x = 1\n")
+        assert isinstance(tree, tree_sitter.Tree)
+        assert not tree.root_node.has_error
+
+    def test_reparse_reflects_new_content(self) -> None:
+        """Scenario: Re-parse reuses old tree and reflects updated content."""
+        self.cache.update(self.uri, version=1, text="x = 1\n")
+        tree2 = self.cache.update(self.uri, version=2, text="y = 2\n")
+        assert isinstance(tree2, tree_sitter.Tree)
+        # Root node text must contain the new identifier, not the old one.
+        root_text = tree2.root_node.text
+        assert root_text is not None
+        assert b"y" in root_text
+
+    def test_reparse_after_remove_is_cold(self) -> None:
+        """Scenario: Re-parse after removal starts fresh (no stale tree ref)."""
+        self.cache.update(self.uri, version=1, text="x = 1\n")
+        self.cache.remove(self.uri)
+        # After removal a new update must succeed as a cold parse.
+        tree = self.cache.update(self.uri, version=1, text="z = 3\n")
+        assert isinstance(tree, tree_sitter.Tree)
+        assert not tree.root_node.has_error
+
+
+# ---------------------------------------------------------------------------
+# Requirement: Extract completed top-level symbol names from the parse tree
+# Spec: scenarios in lsp-parser-cache/spec.md § "Extract completed top-level"
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTopLevelSymbols:
+    """Requirement: extract_top_level_symbols returns names of complete bindings."""
+
+    def test_completed_assignment_is_extracted(self) -> None:
+        """Scenario: Completed assignment is extracted."""
+        tree = _parse('MY_MODEL = struct(name="bert")\n')
+        assert extract_top_level_symbols(tree) == ["MY_MODEL"]
+
+    def test_function_definition_is_extracted(self) -> None:
+        """Scenario: Function definition is extracted."""
+        tree = _parse("def train():\n    pass\n")
+        assert extract_top_level_symbols(tree) == ["train"]
+
+    def test_incomplete_assignment_not_extracted(self) -> None:
+        """Scenario: Incomplete assignment (unclosed call) is not extracted.
+
+        has_error propagates from the broken RHS up to the assignment node,
+        causing the whole node to be skipped — see design.md §Decision 3.
+        """
+        tree = _parse("MY_MODEL = struct(\n")
+        assert extract_top_level_symbols(tree) == []
+
+    def test_nested_assignment_not_extracted(self) -> None:
+        """Scenario: Nested assignment (inside function body) is not extracted."""
+        tree = _parse("def f():\n    inner = 1\n")
+        assert "inner" not in extract_top_level_symbols(tree)
+
+    def test_underscore_prefixed_name_excluded(self) -> None:
+        """Scenario: Underscore-prefixed name is excluded."""
+        tree = _parse("_PRIVATE = 1\n")
+        assert extract_top_level_symbols(tree) == []
+
+    def test_empty_document_returns_empty_list(self) -> None:
+        """Scenario: Empty document returns empty list."""
+        tree = _parse("")
+        assert extract_top_level_symbols(tree) == []
+
+    def test_multiple_symbols_returned_in_source_order(self) -> None:
+        """Scenario: Multiple symbols returned in source order."""
+        tree = _parse("A = 1\nB = 2\ndef f():\n    pass\n")
+        assert extract_top_level_symbols(tree) == ["A", "B", "f"]
+
+    def test_error_sibling_does_not_suppress_clean_symbol(self) -> None:
+        """Scenario: ERROR sibling does not suppress a clean adjacent symbol.
+
+        The invalid function header ``def (`` produces an ERROR node; the
+        preceding clean assignment ``A = 1`` is unaffected.
+        """
+        tree = _parse("A = 1\ndef (\n")
+        result = extract_top_level_symbols(tree)
+        assert "A" in result
+        # The broken def should not appear.
+        assert len(result) == 1
+
+    def test_framework_internal_name_excluded(self) -> None:
+        """Scenario: Framework internal name (from _FRAMEWORK_INTERNALS) excluded."""
+        # Use __MLODY__ — a valid Starlark identifier that is in the set and
+        # is not a keyword (unlike "load"), so tree-sitter parses it cleanly.
+        tree = _parse("__MLODY__ = 1\n")
+        assert "__MLODY__" not in extract_top_level_symbols(tree)
+
+
+# ---------------------------------------------------------------------------
+# Requirement: Apply incremental range-edits to the document buffer
+# Spec: scenarios in lsp-incremental-sync/spec.md
+# ---------------------------------------------------------------------------
+
+
+def _partial(
+    new_text: str,
+    start_line: int,
+    start_char: int,
+    end_line: int,
+    end_char: int,
+) -> types.TextDocumentContentChangePartial:
+    """Build a TextDocumentContentChangePartial for the given range."""
+    return types.TextDocumentContentChangePartial(
+        range=types.Range(
+            start=types.Position(line=start_line, character=start_char),
+            end=types.Position(line=end_line, character=end_char),
+        ),
+        text=new_text,
+    )
+
+
+def _whole(new_text: str) -> types.TextDocumentContentChangeWholeDocument:
+    """Build a TextDocumentContentChangeWholeDocument."""
+    return types.TextDocumentContentChangeWholeDocument(text=new_text)
+
+
+class TestApplyIncrementalChanges:
+    """Requirement: apply_incremental_changes applies ordered LSP range-edits."""
+
+    def test_single_character_insertion(self) -> None:
+        """Scenario: Single character insertion — insert 'X' at end of first word."""
+        # Insert "X" after "abc" on line 0 (character position 3).
+        result = apply_incremental_changes(
+            "abc\ndef\n",
+            [_partial("X", start_line=0, start_char=3, end_line=0, end_char=3)],
+        )
+        assert result == "abcX\ndef\n"
+
+    def test_single_character_deletion(self) -> None:
+        """Scenario: Single character deletion — delete chars 0–1 on line 0."""
+        # Delete "ab" (chars 0 through 2, exclusive) on line 0 of "abc\n".
+        result = apply_incremental_changes(
+            "abc\n",
+            [_partial("", start_line=0, start_char=0, end_line=0, end_char=2)],
+        )
+        assert result == "c\n"
+
+    def test_text_replacement(self) -> None:
+        """Scenario: Text replacement — replace 'old' at (0,0)–(0,3) with 'new'."""
+        result = apply_incremental_changes(
+            "old\n",
+            [_partial("new", start_line=0, start_char=0, end_line=0, end_char=3)],
+        )
+        assert result == "new\n"
+
+    def test_multi_line_replacement(self) -> None:
+        """Scenario: Multi-line replacement — replace lines 1–2 with a single line."""
+        original = "line0\nline1\nline2\nline3\n"
+        # Replace "line1\nline2" (lines 1 and 2, from char 0 to end of line 2)
+        # with a single word.
+        result = apply_incremental_changes(
+            original,
+            [_partial("REPLACED", start_line=1, start_char=0, end_line=2, end_char=5)],
+        )
+        # Resulting lines: line0, REPLACED, line3 — three content lines + trailing newline.
+        assert result.count("\n") < original.count("\n")
+        assert "REPLACED" in result
+        assert "line1" not in result
+        assert "line2" not in result
+
+    def test_empty_changes_list_returns_text_unchanged(self) -> None:
+        """Scenario: Empty changes list — original text returned unchanged."""
+        original = "x = 1\ny = 2\n"
+        result = apply_incremental_changes(original, [])
+        assert result == original
+
+    def test_whole_document_fallback_replaces_text(self) -> None:
+        """Scenario: Whole-document fallback — TextDocumentContentChangeWholeDocument
+        replaces text wholesale."""
+        result = apply_incremental_changes(
+            "old content\n",
+            [_whole("brand new content\n")],
+        )
+        assert result == "brand new content\n"
+
+    def test_multiple_changes_applied_in_order(self) -> None:
+        """Scenario: Multiple changes applied in order — two sequential partial changes
+        in one list are both applied."""
+        # Start: "abc\n"
+        # Change 1: replace "a" at (0,0)–(0,1) with "X" → "Xbc\n"
+        # Change 2: replace "b" at (0,1)–(0,2) (in the *updated* text) with "Y" → "XYc\n"
+        result = apply_incremental_changes(
+            "abc\n",
+            [
+                _partial("X", start_line=0, start_char=0, end_line=0, end_char=1),
+                _partial("Y", start_line=0, start_char=1, end_line=0, end_char=2),
+            ],
+        )
+        assert result == "XYc\n"
