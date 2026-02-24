@@ -5,13 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import tree_sitter
 from lsprotocol.types import Location, Position, Range
 
 from common.python.starlarkish.evaluator.evaluator import SAFE_BUILTINS, Evaluator
-
-# Matches the path string inside load("...") with the cursor inside it.
-# Captures the path including any partial prefix.
-_LOAD_PATH_RE = re.compile(r"""load\s*\(\s*["']([^"']*)["']""")
+from mlody.lsp.parser import find_ancestor, get_load_statements, node_at_position
 
 # Matches a symbol definition line: `NAME = ...` or `def NAME`.
 _ASSIGNMENT_RE = re.compile(r"^(\w+)\s*=")
@@ -67,27 +65,6 @@ def _find_symbol_line(source_path: Path, symbol: str) -> int | None:
     return None
 
 
-def _extract_load_string(line: str, char: int) -> str | None:
-    """Return the load() path string if the cursor at `char` is inside one.
-
-    Scans all load("...") occurrences in the line and checks whether `char`
-    falls inside the quoted string. Returns the path string or None.
-    """
-    for m in re.finditer(r"""load\s*\(\s*["']([^"']*)["']""", line):
-        # The quoted string spans from the char after the opening quote
-        # to the char before the closing quote.
-        full_match_start = m.start()
-        inner = m.group(1)
-        # Find start of the captured group within the full match.
-        quote_start = line.index(inner, full_match_start) if inner else (
-            m.start(1)
-        )
-        quote_end = quote_start + len(inner)
-        if quote_start <= char <= quote_end:
-            return inner
-    return None
-
-
 def _extract_symbol_at_cursor(line: str, char: int) -> str | None:
     """Return the identifier token under the cursor position.
 
@@ -98,6 +75,49 @@ def _extract_symbol_at_cursor(line: str, char: int) -> str | None:
         if m.start() <= char <= m.end():
             return m.group(0)
     return None
+
+
+def _load_string_at_cursor(
+    node: tree_sitter.Node,  # type: ignore[type-arg]
+    tree: tree_sitter.Tree,
+) -> tuple[str, bool] | None:
+    """Return (string_value, is_path) if the cursor is on a load() string arg, else None.
+
+    is_path=True  → first argument of load() (the path string)
+    is_path=False → subsequent argument of load() (an imported symbol name)
+
+    Uses start_point equality for first-arg detection instead of `is` identity
+    because tree-sitter Python bindings return new wrapper objects on each
+    .children access (D4 in design.md).
+    """
+    string_node: tree_sitter.Node | None = (  # type: ignore[type-arg]
+        node if node.type == "string" else find_ancestor(node, "string")
+    )
+    if string_node is None:
+        return None
+
+    arg_list = string_node.parent
+    if arg_list is None or arg_list.type != "argument_list":
+        return None
+
+    call_node = arg_list.parent
+    if call_node is None or call_node.type != "call":
+        return None
+
+    func = call_node.children[0]
+    if func.type != "identifier" or func.text != b"load":
+        return None
+
+    string_args = [c for c in arg_list.children if c.type == "string"]
+    if not string_args:
+        return None
+
+    raw = string_node.text or b'""'
+    value = raw.decode().strip('"').strip("'")
+
+    # First string arg is the path; all others are imported symbol names.
+    is_path = string_args[0].start_point == string_node.start_point
+    return (value, is_path)
 
 
 def _make_location(path: Path, line: int) -> Location:
@@ -112,8 +132,10 @@ def get_definition(
     evaluator: Evaluator | None,
     monorepo_root: Path,
     current_file: Path,
-    line: str,
+    tree: tree_sitter.Tree,
+    line: int,
     char: int,
+    document_lines: list[str],
 ) -> Location | None:
     """Top-level definition entry point called by the LSP server handler.
 
@@ -122,9 +144,10 @@ def get_definition(
     - the cursor is not on a navigable token
     - the referenced file or symbol cannot be found
 
-    Two navigation modes (tried in order):
+    Three navigation modes (tried in order):
     1. load() path string — navigate to the referenced file at line 0
-    2. imported symbol — find definition line in the source file
+    2. load() symbol string — navigate to the symbol's definition in the loaded file
+    3. imported symbol identifier — find definition line via direct load() imports
 
     Transitive imports (symbols not in the current file's direct load() calls)
     return None intentionally (see design.md §Decisions #7).
@@ -132,16 +155,34 @@ def get_definition(
     if evaluator is None:
         return None
 
-    # Mode 1: cursor inside a load("...") string → navigate to the file.
-    load_str = _extract_load_string(line, char)
-    if load_str is not None:
-        target_path = _resolve_load_path(load_str, monorepo_root, current_file)
-        if target_path is None:
+    # Modes 1 and 2: cursor inside a load() string argument (path or symbol).
+    # Uses parse-tree traversal to handle multi-line load() calls correctly.
+    node = node_at_position(tree, line, char)
+    load_result = _load_string_at_cursor(node, tree)
+    if load_result is not None:
+        string_value, is_path = load_result
+        if is_path:
+            # Mode 1: navigate to the referenced file.
+            target_path = _resolve_load_path(string_value, monorepo_root, current_file)
+            return _make_location(target_path, 0) if target_path else None
+        else:
+            # Mode 2: cursor on a symbol string — navigate to its definition.
+            # Find the load() statement that declares this symbol and resolve.
+            for stmt in get_load_statements(tree):
+                for sym in stmt.symbols:
+                    if sym.name == string_value:
+                        source_file = _resolve_load_path(
+                            stmt.path, monorepo_root, current_file
+                        )
+                        if source_file is None:
+                            return None
+                        def_line = _find_symbol_line(source_file, string_value)
+                        return _make_location(source_file, def_line) if def_line is not None else None
             return None
-        return _make_location(target_path, 0)
 
-    # Mode 2: cursor on a symbol name → find its definition via direct imports.
-    symbol = _extract_symbol_at_cursor(line, char)
+    # Mode 3: cursor on a symbol name identifier.
+    line_text = document_lines[line] if line < len(document_lines) else ""
+    symbol = _extract_symbol_at_cursor(line_text, char)
     if symbol is None:
         return None
 
@@ -158,19 +199,13 @@ def get_definition(
     if symbol not in current_globals:
         return None
 
-    # Scan load() statements in the current file to find the source file.
-    try:
-        source_lines = current_file.read_text().splitlines()
-    except OSError:
-        return None
-
-    for source_line in source_lines:
-        for load_m in re.finditer(r"""load\s*\(\s*["']([^"']+)["'](.*)""", source_line):
-            imports_section = load_m.group(2)
-            if re.search(r'["\']\s*' + re.escape(symbol) + r'\s*["\']', imports_section):
-                load_path_str = load_m.group(1)
+    # Use parse-tree traversal instead of a regex line-scan so that multi-line
+    # load() forms (symbol on a different line from load() opening) are handled.
+    for stmt in get_load_statements(tree):
+        for sym in stmt.symbols:
+            if sym.name == symbol:
                 source_file = _resolve_load_path(
-                    load_path_str, monorepo_root, current_file
+                    stmt.path, monorepo_root, current_file
                 )
                 if source_file is None:
                     continue

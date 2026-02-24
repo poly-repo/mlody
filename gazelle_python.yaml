@@ -51,6 +51,8 @@ manifest:
     rassumfrassum: rassumfrassum
     requests: requests
     rich: rich
+    tree_sitter: tree_sitter
+    tree_sitter_starlark: tree_sitter_starlark
     typing_extensions: typing_extensions
     typing_inspection: typing_inspection
     urllib3: urllib3

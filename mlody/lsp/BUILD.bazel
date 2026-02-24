@@ -6,7 +6,9 @@ o_py_library(
         "__init__.py",
         "completion.py",
         "definition.py",
+        "diagnostics.py",
         "log_handler.py",
+        "parser.py",
         "server.py",
     ],
     visibility = ["//:__subpackages__"],
@@ -15,6 +17,8 @@ o_py_library(
         "//mlody/core:workspace_lib",
         "@pip//lsprotocol",
         "@pip//pygls",
+        "@pip//tree_sitter",
+        "@pip//tree_sitter_starlark",
     ],
 )
 
@@ -47,6 +51,16 @@ o_py_pex_binary(
 )
 
 o_py_test(
+    name = "parser_test",
+    srcs = ["parser_test.py"],
+    deps = [
+        ":lsp_lib",
+        "@pip//tree_sitter",
+        "@pip//tree_sitter_starlark",
+    ],
+)
+
+o_py_test(
     name = "log_handler_test",
     srcs = ["log_handler_test.py"],
     deps = [
@@ -73,6 +87,17 @@ o_py_test(
         ":lsp_lib",
         "@pip//lsprotocol",
         "@pip//pygls",
+    ],
+)
+
+o_py_test(
+    name = "diagnostics_test",
+    srcs = ["diagnostics_test.py"],
+    deps = [
+        ":lsp_lib",
+        "@pip//lsprotocol",
+        "@pip//tree_sitter",
+        "@pip//tree_sitter_starlark",
     ],
 )
 

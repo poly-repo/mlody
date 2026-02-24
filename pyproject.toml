@@ -43,7 +43,16 @@ dependencies = [
 
   # a pythonic generic language server framework used for the mlody LSP server.
   # See: https://github.com/openlawlibrary/pygls
-  "pygls"
+  "pygls",
+
+  # tree-sitter core library — provides Parser, Language, Tree, Node types.
+  # Used by the mlody LSP server to parse .mlody (Starlark) documents.
+  # See: https://github.com/tree-sitter/py-tree-sitter
+  "tree-sitter",
+
+  # Starlark grammar for tree-sitter.
+  # See: https://github.com/nickel-lang/tree-sitter-starlark
+  "tree-sitter-starlark"
 ]
 
 # See https://docs.astral.sh/ruff/configuration/

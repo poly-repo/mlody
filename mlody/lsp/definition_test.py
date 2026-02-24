@@ -6,14 +6,24 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import tree_sitter
 
 from mlody.lsp.definition import (
-    _extract_load_string,
     _extract_symbol_at_cursor,
     _find_symbol_line,
     _resolve_load_path,
     get_definition,
 )
+from mlody.lsp.parser import DocumentCache
+
+
+def _parse(source: str) -> tree_sitter.Tree:
+    """Parse Starlark source text and return a tree-sitter Tree.
+
+    Uses a local DocumentCache instance to avoid sharing state between tests.
+    """
+    cache = DocumentCache()
+    return cache.update("test://test.mlody", 0, source)
 
 
 # ---------------------------------------------------------------------------
@@ -88,24 +98,6 @@ class TestFindSymbolLine:
 
 
 # ---------------------------------------------------------------------------
-# _extract_load_string
-# ---------------------------------------------------------------------------
-
-
-class TestExtractLoadString:
-    def test_extracts_path_when_cursor_inside(self) -> None:
-        line = 'load("//mlody/core/builtins.mlody", "struct")'
-        # Cursor at position 10 — inside the path string
-        result = _extract_load_string(line, 10)
-        assert result == "//mlody/core/builtins.mlody"
-
-    def test_returns_none_when_cursor_outside_load(self) -> None:
-        line = 'MY_CONFIG = struct(lr=0.001)'
-        result = _extract_load_string(line, 5)
-        assert result is None
-
-
-# ---------------------------------------------------------------------------
 # _extract_symbol_at_cursor
 # ---------------------------------------------------------------------------
 
@@ -122,7 +114,7 @@ class TestExtractSymbolAtCursor:
 
 
 # ---------------------------------------------------------------------------
-# get_definition
+# get_definition — single-line load() scenarios
 # ---------------------------------------------------------------------------
 
 
@@ -130,12 +122,17 @@ class TestGetDefinition:
     """Requirement: Go-to-definition for load() paths and imported symbols."""
 
     def test_returns_none_when_evaluator_is_none(self) -> None:
+        source = 'load("//mlody/core/builtins.mlody", "struct")'
+        tree = _parse(source)
+
         result = get_definition(
             evaluator=None,
             monorepo_root=Path("/repo"),
             current_file=Path("/repo/mlody/file.mlody"),
-            line='load("//mlody/core/builtins.mlody", "struct")',
+            tree=tree,
+            line=0,
             char=10,
+            document_lines=[source],
         )
         assert result is None
 
@@ -147,13 +144,18 @@ class TestGetDefinition:
         evaluator = MagicMock()
         evaluator._module_globals = {}
 
-        line = 'load("//mlody/core/builtins.mlody", "struct")'
+        source = 'load("//mlody/core/builtins.mlody", "struct")'
+        tree = _parse(source)
+
+        # char=10 falls inside "//mlody/core/builtins.mlody"
         result = get_definition(
             evaluator=evaluator,
             monorepo_root=tmp_path,
             current_file=tmp_path / "pipeline.mlody",
-            line=line,
+            tree=tree,
+            line=0,
             char=10,
+            document_lines=[source],
         )
 
         assert result is not None
@@ -164,20 +166,26 @@ class TestGetDefinition:
         helper.write_text("x = 1\nMY_CONFIG = struct(lr=0.001)\n")
 
         current = tmp_path / "pipeline.mlody"
-        current.write_text('load(":helper.mlody", "MY_CONFIG")\nresult = MY_CONFIG\n')
+        file_source = 'load(":helper.mlody", "MY_CONFIG")\nresult = MY_CONFIG\n'
+        current.write_text(file_source)
 
         evaluator = MagicMock()
         evaluator._module_globals = {
             current: {"MY_CONFIG": object(), "__builtins__": {}, "load": None, "__MLODY__": True, "builtins": None}
         }
 
-        line = "result = MY_CONFIG"
+        tree = _parse(file_source)
+        document_lines = file_source.splitlines()
+
+        # line=1, char=12 — cursor on MY_CONFIG identifier
         result = get_definition(
             evaluator=evaluator,
             monorepo_root=tmp_path,
             current_file=current,
-            line=line,
-            char=12,  # cursor on MY_CONFIG
+            tree=tree,
+            line=1,
+            char=12,
+            document_lines=document_lines,
         )
 
         assert result is not None
@@ -189,7 +197,8 @@ class TestGetDefinition:
         helper.write_text("SHARED_VAR = struct()\n")
 
         current = tmp_path / "pipeline.mlody"
-        current.write_text("# no load() for SHARED_VAR\nresult = SHARED_VAR\n")
+        file_source = "# no load() for SHARED_VAR\nresult = SHARED_VAR\n"
+        current.write_text(file_source)
 
         evaluator = MagicMock()
         # SHARED_VAR not in current file's globals (not directly imported)
@@ -197,12 +206,17 @@ class TestGetDefinition:
             current: {"__builtins__": {}, "load": None, "__MLODY__": True, "builtins": None}
         }
 
+        tree = _parse(file_source)
+        document_lines = file_source.splitlines()
+
         result = get_definition(
             evaluator=evaluator,
             monorepo_root=tmp_path,
             current_file=current,
-            line="result = SHARED_VAR",
+            tree=tree,
+            line=1,
             char=12,
+            document_lines=document_lines,
         )
 
         assert result is None
@@ -213,12 +227,17 @@ class TestGetDefinition:
             tmp_path / "file.mlody": {"struct": object()}
         }
 
+        source = "x = struct("
+        tree = _parse(source)
+
         result = get_definition(
             evaluator=evaluator,
             monorepo_root=tmp_path,
             current_file=tmp_path / "file.mlody",
-            line="x = struct(",
+            tree=tree,
+            line=0,
             char=5,  # cursor on 'struct'
+            document_lines=[source],
         )
 
         assert result is None
@@ -230,12 +249,101 @@ class TestGetDefinition:
         evaluator = MagicMock()
         evaluator._module_globals = {}
 
+        source = "   =   "
+        tree = _parse(source)
+
         result = get_definition(
             evaluator=evaluator,
             monorepo_root=tmp_path,
             current_file=tmp_path / "file.mlody",
-            line="   =   ",
+            tree=tree,
+            line=0,
             char=char,
+            document_lines=[source],
         )
 
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# get_definition — multi-line load() scenarios
+# ---------------------------------------------------------------------------
+
+
+class TestGetDefinitionMultiline:
+    """Requirement: Multi-line load() path and symbol navigation.
+
+    Covers scenarios where the path string or symbol string is on a different
+    line from the load() opening — the regex approach would silently return
+    None for these; the parse-tree approach handles them correctly.
+    """
+
+    def test_multiline_load_path_navigation(self, tmp_path: Path) -> None:
+        """Multi-line load() path string navigates to the correct file."""
+        target = tmp_path / "mlody" / "core" / "builtins.mlody"
+        target.parent.mkdir(parents=True)
+        target.write_text("")
+
+        evaluator = MagicMock()
+        evaluator._module_globals = {}
+
+        # Path string on its own line (line 1 in 0-indexed terms).
+        source = 'load(\n    "//mlody/core/builtins.mlody",\n    "struct"\n)'
+        tree = _parse(source)
+        document_lines = source.splitlines()
+
+        # Cursor on line 1, char 10 — inside "//mlody/core/builtins.mlody".
+        # Line 1: '    "//mlody/core/builtins.mlody",'
+        #          0123456789...  char 10 is after the opening quote.
+        result = get_definition(
+            evaluator=evaluator,
+            monorepo_root=tmp_path,
+            current_file=tmp_path / "pipeline.mlody",
+            tree=tree,
+            line=1,
+            char=10,
+            document_lines=document_lines,
+        )
+
+        assert result is not None
+        assert result.range.start.line == 0
+
+    def test_multiline_load_symbol_navigation(self, tmp_path: Path) -> None:
+        """Multi-line load() symbol string navigates to the symbol's definition."""
+        helper = tmp_path / "helper.mlody"
+        helper.write_text("x = 1\nMY_CONFIG = struct(lr=0.001)\n")
+
+        current = tmp_path / "pipeline.mlody"
+        # Symbol string on its own line (line 2 in 0-indexed terms).
+        file_source = 'load(\n    ":helper.mlody",\n    "MY_CONFIG"\n)\nresult = MY_CONFIG\n'
+        current.write_text(file_source)
+
+        evaluator = MagicMock()
+        evaluator._module_globals = {
+            current: {
+                "MY_CONFIG": object(),
+                "__builtins__": {},
+                "load": None,
+                "__MLODY__": True,
+                "builtins": None,
+            }
+        }
+
+        tree = _parse(file_source)
+        document_lines = file_source.splitlines()
+
+        # Cursor on line 2, char 6 — inside "MY_CONFIG".
+        # Line 2: '    "MY_CONFIG"'
+        #          0123456...  char 6 is 'Y' inside MY_CONFIG.
+        result = get_definition(
+            evaluator=evaluator,
+            monorepo_root=tmp_path,
+            current_file=current,
+            tree=tree,
+            line=2,
+            char=6,
+            document_lines=document_lines,
+        )
+
+        assert result is not None
+        assert result.range.start.line == 1  # MY_CONFIG defined at line 1 in helper.mlody
