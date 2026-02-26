@@ -1,0 +1,155 @@
+
+Sone regexes are scary. For instance this is the official semver regex:
+
+#+begin_src shell
+^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][a-zA-Z0-9-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][a-zA-Z0-9-]*))*))?(?:\+(?P<build>[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*))?$
+#+end_src
+
+
+Creating regex can be as simple as
+
+#+begin_src python
+    # Constants for basic anchors and character classes
+    RX_START = "^"
+    RX_END = "$"
+    RX_DIGIT = r"\d"
+    RX_ALPHA = r"[a-zA-Z]"
+    RX_ALNUM = r"[a-zA-Z0-9]"
+    RX_ANY   = r"."
+    RX_SPACE = r"\s"
+
+    def rx_seq(*args):
+        """Concatenates multiple patterns."""
+        return "".join(args)
+
+    def rx_choice(*args):
+        """Matches any of the provided patterns (Non-capturing OR)."""
+        return "(?:" + "|".join(args) + ")"
+
+    def rx_one_or_more(pattern):
+        return "(?:" + pattern + ")+"
+
+    def rx_zero_or_more(pattern):
+        return "(?:" + pattern + ")*"
+
+    def rx_optional(pattern):
+        return "(?:" + pattern + ")?"
+
+    def rx_group(pattern):
+        """Creates a capturing group."""
+        return "(" + pattern + ")"
+
+    def rx_named_group(name, pattern):
+        """Creates a named capturing group."""
+        return "(?P<" + name + ">" + pattern + ")"
+
+    def rx_repeat(pattern, min_count, max_count=None):
+        """Matches a pattern a specific number of times."""
+        if max_count == None:
+            return "(?:" + pattern + "){" + str(min_count) + "}"
+        return "(?:" + pattern + "){" + str(min_count) + "," + str(max_count) + "}"
+
+    def rx_any_of(chars):
+        """Creates a character class, e.g., rx_any_of('a-f0-9') -> [a-f0-9]"""
+        return "[" + chars + "]"
+#+end_src
+
+This allows us to rewrite the commit regex as:
+
+#+begin_src python
+  commit_pattern = rx_seq(
+      RX_START,
+      rx_repeat(rx_any_of("0-9a-f"), 40),
+      RX_END
+  )
+
+  # Output: ^(?:[0-9a-f]){40}$
+#+end_src
+
+or a simple semantic version as:
+#+begin_src python
+  semver_pattern = rx_seq(
+      RX_START,
+      rx_optional("v"),
+      rx_named_group("major", rx_one_or_more(RX_DIGIT)),
+      r"\.",
+      rx_named_group("minor", rx_one_or_more(RX_DIGIT)),
+      r"\.",
+      rx_named_group("patch", rx_one_or_more(RX_DIGIT)),
+      RX_END
+  )
+
+  # Output: ^(?:v)?(?P<major>(?:\d)+)\.(?P<minor>(?:\d)+)\.(?P<patch>(?:\d)+)$
+#+end_src
+
+and a more complete version as:
+#+begin_src python
+  # --- 1. Basic Atoms ---
+  zero = "0"
+  non_zero_digit = rx_any_of("1-9")
+  digit = r"\d"
+  alphanum_dash = rx_any_of("a-zA-Z0-9-")
+  letter_dash = rx_any_of("a-zA-Z-")
+
+  # --- 2. Core Version Logic ---
+  # Matches "0" OR "1" through "9" followed by any number of digits (no leading zero)
+  num_no_leading_zero = rx_choice(
+      zero,
+      rx_seq(non_zero_digit, rx_zero_or_more(digit))
+  )
+
+  core_version = rx_seq(
+      rx_named_group("major", num_no_leading_zero),
+      r"\.",
+      rx_named_group("minor", num_no_leading_zero),
+      r"\.",
+      rx_named_group("patch", num_no_leading_zero)
+  )
+
+  # --- 3. Pre-release Logic ---
+  # Pre-release IDs can be purely numeric (no leading zeroes) OR 
+  # alphanumeric (must contain at least one letter or dash to allow leading zeroes)
+  prerelease_id = rx_choice(
+      num_no_leading_zero,
+      rx_seq(rx_zero_or_more(digit), letter_dash, rx_zero_or_more(alphanum_dash))
+  )
+
+  # Matches "-alpha.1.2"
+  prerelease_block = rx_seq(
+      "-",
+      rx_named_group(
+          "prerelease",
+          rx_seq(
+              prerelease_id,
+              rx_zero_or_more(rx_seq(r"\.", prerelease_id))
+          )
+      )
+  )
+
+  # --- 4. Build Metadata Logic ---
+  # Build IDs are much simpler: just alphanumeric and dashes (leading zeroes allowed)
+  build_id = rx_one_or_more(alphanum_dash)
+
+  # Matches "+exp.sha.5114f85"
+  build_block = rx_seq(
+      r"\+",
+      rx_named_group(
+          "build",
+          rx_seq(
+              build_id,
+              rx_zero_or_more(rx_seq(r"\.", build_id))
+          )
+      )
+  )
+
+  # --- 5. The Final Assembly ---
+  semver_pattern = rx_seq(
+      RX_START,
+      core_version,
+      rx_optional(prerelease_block),
+      rx_optional(build_block),
+      RX_END
+  )
+#+end_src
+
+There's space for optimization, but it probably doesn't matter for MLody

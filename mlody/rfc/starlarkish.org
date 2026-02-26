@@ -1,0 +1,82 @@
+Types have their own core attributes defining basic validation, convertion from/to raw,
+
+TT: how we specify "reference to a type". References are not normal
+C++-style reference, the name of an imageis a references to an
+image. A path to a parwuet file is a reference to a table stored as
+parwuet.
+
+* Scalar
+#+begin_src python
+      type(
+          name = "integer",
+          attrs = [
+              value_min = value(
+                  type = ":integer" # TT: we should be able to say "same type" and lift it to be a core type attribute
+              ),
+              value_max = value(
+                  type = ":integer"
+              ),
+          ],
+      )
+
+      type(
+          name = "float",
+      )
+
+      type(
+          name = "probability",
+          inherit = [":float"],
+          value_min = 0.0,
+          value_max = 1.0,
+      )
+
+      type(
+          name = "cuda-batch-size",
+          inherit = [":integer"],
+          value_min = 0,
+          value_predicate = [
+              "(value & (value - 1)) == 0", # power of 2
+              "value <= MAX_VRAM_ALLOCATION", # hardware limit, TT: this should actually come from the executor configuration (pull) or be configured from the same setting (push)
+          ],
+      )
+      
+      type(
+          name = "string",
+          attrs = [
+              min_length = value(
+                  type = ":integer" # TT: say that the min is 0, this would then be a unnamed type declaration
+              ),
+              max_length = value(
+                  type = ":integer"
+              ),
+          ],
+      )
+
+      type( name = "commit",
+            inherit = [":string"],
+            length = 40, # this mean min == max == 40
+            regex = "^[0-9a-fA-F]{40}$", # lowercase and uppercase both acceptable
+
+  # canonical: lowercase 
+  #   verification/validation: exists in repo
+            
+            # TT: although the canonical representation should be 40 chars,
+            # we should allow shorter raw specification as long as they
+            # exist and are unique in the repo.
+           )
+
+      type(
+          name = "semantic-version",
+          inherit = [":string"],
+          length_min = 4,
+          length_max = 20,            # arbitrary, officially unlimited
+          # TT: library for making creating regex simpler, in the style of Emacs rx
+          regex = "^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+#+end_src
+
+* Aggregates
+While scalars are considered atomic (e.g. they may or not be present,
+but when they're available we assume they're entirely available and
+"frozen"), the same is not true for aggregates. Elements in an
+aggregate may not be all available, not all available yet or change
+value over time (TT: this is trick and we may eant to disallow it)
