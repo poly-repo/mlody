@@ -19,6 +19,12 @@ root(
 )
 
 root(
+    name="sonora",
+    path="//mlody/teams/sonora",
+    description="speech/audio ML team",
+)
+
+root(
     name="common",
     path="//mlody/common",
     description="shared modules",
