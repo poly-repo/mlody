@@ -4,6 +4,7 @@ o_py_library(
     name = "lsp_lib",
     srcs = [
         "__init__.py",
+        "_pex_main.py",
         "completion.py",
         "definition.py",
         "diagnostics.py",
@@ -14,7 +15,7 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         "//common/python/starlarkish/evaluator:evaluator_lib",
-        "//mlody/core:workspace_lib",
+        "//mlody/core:core_lib",
         "@pip//lsprotocol",
         "@pip//pygls",
         "@pip//tree_sitter",
@@ -55,8 +56,9 @@ o_py_test(
     srcs = ["parser_test.py"],
     deps = [
         ":lsp_lib",
+        "@pip//lsprotocol",
+        "@pip//pytest",
         "@pip//tree_sitter",
-        "@pip//tree_sitter_starlark",
     ],
 )
 
@@ -66,7 +68,7 @@ o_py_test(
     deps = [
         ":lsp_lib",
         "@pip//lsprotocol",
-        "@pip//pygls",
+        "@pip//pytest",
     ],
 )
 
@@ -75,8 +77,7 @@ o_py_test(
     srcs = ["completion_test.py"],
     deps = [
         ":lsp_lib",
-        "@pip//lsprotocol",
-        "@pip//pygls",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
     ],
 )
 
@@ -85,8 +86,8 @@ o_py_test(
     srcs = ["definition_test.py"],
     deps = [
         ":lsp_lib",
-        "@pip//lsprotocol",
-        "@pip//pygls",
+        "@pip//pytest",
+        "@pip//tree_sitter",
     ],
 )
 
@@ -96,8 +97,6 @@ o_py_test(
     deps = [
         ":lsp_lib",
         "@pip//lsprotocol",
-        "@pip//tree_sitter",
-        "@pip//tree_sitter_starlark",
     ],
 )
 
@@ -108,5 +107,6 @@ o_py_test(
         ":lsp_lib",
         "@pip//lsprotocol",
         "@pip//pygls",
+        "@pip//pytest",
     ],
 )

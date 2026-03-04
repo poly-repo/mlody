@@ -2,11 +2,17 @@ load("//build/bzl:python.bzl", "o_py_binary", "o_py_library", "o_py_test")
 
 o_py_library(
     name = "cli_lib",
-    srcs = ["main.py"],
+    srcs = [
+        "__init__.py",
+        "main.py",
+        "shell.py",
+        "show.py",
+    ],
     visibility = ["//:__subpackages__"],
     deps = [
-        "//mlody/core:workspace_lib",
+        "//mlody/core:core_lib",
         "@pip//click",
+        "@pip//ptpython",
         "@pip//rich",
     ],
 )
@@ -49,8 +55,9 @@ o_py_test(
     name = "shell_test",
     srcs = ["shell_test.py"],
     deps = [
-        ":shell_lib",
+        ":cli_lib",
         "@pip//click",
+        "@pip//pytest",
     ],
 )
 
@@ -59,19 +66,26 @@ o_py_binary(
     srcs = ["__main__.py"],
     main = "__main__.py",
     visibility = ["//visibility:public"],
-    deps = [
-        ":cli_lib",
-        ":shell_lib",
-        ":show_lib",
-    ],
+    deps = [":cli_lib"],
 )
 
 o_py_test(
     name = "show_test",
     srcs = ["show_test.py"],
     deps = [
-        ":show_lib",
+        ":cli_lib",
         "//common/python/starlarkish/core:core_lib",
         "@pip//click",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "main_test",
+    srcs = ["main_test.py"],
+    deps = [
+        ":cli_lib",
+        "@pip//click",
+        "@pip//pytest",
     ],
 )

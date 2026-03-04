@@ -10,8 +10,9 @@ o_py_test(
     name = "targets_test",
     srcs = ["targets_test.py"],
     deps = [
-        ":targets_lib",
+        ":core_lib",
         "//common/python/starlarkish/core:core_lib",
+        "@pip//pytest",
     ],
 )
 
@@ -24,7 +25,10 @@ o_py_library(
 o_py_test(
     name = "plan_test",
     srcs = ["plan_test.py"],
-    deps = [":plan_lib"],
+    deps = [
+        ":core_lib",
+        "@pip//pytest",
+    ],
 )
 
 o_py_library(
@@ -43,7 +47,20 @@ o_py_test(
     name = "workspace_test",
     srcs = ["workspace_test.py"],
     deps = [
-        ":workspace_lib",
+        ":core_lib",
         "@pip//pyfakefs",
+        "@pip//pytest",
     ],
+)
+
+o_py_library(
+    name = "core_lib",
+    srcs = [
+        "__init__.py",
+        "plan.py",
+        "targets.py",
+        "workspace.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = ["//common/python/starlarkish/evaluator:evaluator_lib"],
 )

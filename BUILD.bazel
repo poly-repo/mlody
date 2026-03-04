@@ -20,6 +20,7 @@ gazelle(
     name = "gazelle",
     env = {
         "ENABLE_LANGUAGES": ",".join([
+            "go",
             "starlark",
             "proto",
             "python",

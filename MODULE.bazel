@@ -1,11 +1,20 @@
 ####
 # Misc
 include("//build/modules:misc.MODULE.bazel")
+
+# used in both go and python. Not happy about having it here, but I
+# don't have a better solution.
+bazel_dep(name = "gazelle", version = "0.47.0")
 ##
 
 ####
 # Python
 include("//build/modules:python.MODULE.bazel")
+##
+
+####
+# Go
+include("//build/modules:go.MODULE.bazel")
 ##
 
 ####

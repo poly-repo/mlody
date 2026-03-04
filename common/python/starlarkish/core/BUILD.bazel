@@ -11,5 +11,6 @@ o_py_test(
     srcs = ["struct_test.py"],
     deps = [
         ":core_lib",
+        "@pip//pytest",
     ],
 )
