@@ -6,7 +6,9 @@
 ---
 manifest:
   modules_mapping:
+    annotated_doc: annotated_doc
     annotated_types: annotated_types
+    anyio: anyio
     appdirs: appdirs
     attr: attrs
     attrs: attrs
@@ -19,8 +21,15 @@ manifest:
     copier: copier
     debugpy: debugpy
     dunamai: dunamai
+    filelock: filelock
+    fsspec: fsspec
     funcy: funcy
     gnupg: python_gnupg
+    h11: h11
+    hf_xet: hf_xet
+    httpcore: httpcore
+    httpx: httpx
+    huggingface_hub: huggingface_hub
     idna: idna
     iniconfig: iniconfig
     jedi: jedi
@@ -51,8 +60,11 @@ manifest:
     rassumfrassum: rassumfrassum
     requests: requests
     rich: rich
+    shellingham: shellingham
+    tqdm: tqdm
     tree_sitter: tree_sitter
     tree_sitter_starlark: tree_sitter_starlark
+    typer: typer
     typing_extensions: typing_extensions
     typing_inspection: typing_inspection
     urllib3: urllib3

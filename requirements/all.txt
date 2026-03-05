@@ -2,10 +2,24 @@
 #    bazel run @@//requirements:requirements.all
 --index-url https://pypi.org/simple
 
+annotated-doc==0.0.4 \
+    --hash=sha256:571ac1dc6991c450b25a9c2d84a3705e2ae7a53467b5d111c24fa8baabbed320 \
+    --hash=sha256:fbcda96e87e9c92ad167c2e53839e57503ecfda18804ea28102353485033faa4
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   typer
 annotated-types==0.7.0 \
     --hash=sha256:1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53 \
     --hash=sha256:aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89
     # via pydantic
+anyio==4.12.1 \
+    --hash=sha256:41cfcc3a4c85d3f05c932da7c26d0201ac36f72abd4435ba90d0464a3ffed703 \
+    --hash=sha256:d405828884fc140aa80a3c667b8beed277f1dfedec42ba031bd6ac3db606ab6c
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   httpx
 appdirs==1.4.4 \
     --hash=sha256:7d5d0167b2b1ba821647616af46a749d1c653740dd0d2415100fe26e27afdf41 \
     --hash=sha256:a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128
@@ -36,6 +50,8 @@ certifi==2026.1.4 \
     # via
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
+    #   httpcore
+    #   httpx
     #   requests
 charset-normalizer==3.4.4 \
     --hash=sha256:027f6de494925c0ab2a55eab46ae5129951638a49a34d87f4c3eda90f696b4ad \
@@ -162,6 +178,7 @@ click==8.3.1 \
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
     #   -r requirements/tools.in
+    #   typer
 colorama==0.4.6 \
     --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
     --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
@@ -206,16 +223,89 @@ dunamai==1.25.0 \
     --hash=sha256:7f9dc687dd3256e613b6cc978d9daabfd2bb5deb8adc541fc135ee423ffa98ab \
     --hash=sha256:a7f8360ea286d3dbaf0b6a1473f9253280ac93d619836ad4514facb70c0719d1
     # via copier
+filelock==3.25.0 \
+    --hash=sha256:5ccf8069f7948f494968fc0713c10e5c182a9c9d9eef3a636307a20c2490f047 \
+    --hash=sha256:8f00faf3abf9dc730a1ffe9c354ae5c04e079ab7d3a683b7c32da5dd05f26af3
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   huggingface-hub
+fsspec==2026.2.0 \
+    --hash=sha256:6544e34b16869f5aacd5b90bdf1a71acb37792ea3ddf6125ee69a22a53fb8bff \
+    --hash=sha256:98de475b5cb3bd66bedd5c4679e87b4fdfe1a3bf4d707b151b3c07e58c9a2437
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   huggingface-hub
 funcy==2.0 \
     --hash=sha256:3963315d59d41c6f30c04bc910e10ab50a3ac4a225868bfa96feed133df075cb \
     --hash=sha256:53df23c8bb1651b12f095df764bfb057935d49537a56de211b098f4c79614bb0
     # via copier
+h11==0.16.0 \
+    --hash=sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1 \
+    --hash=sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   httpcore
+hf-xet==1.3.2 \
+    --hash=sha256:06b724a361f670ae557836e57801b82c75b534812e351a87a2c739f77d1e0635 \
+    --hash=sha256:06cdbde243c85f39a63b28e9034321399c507bcd5e7befdd17ed2ccc06dfe14e \
+    --hash=sha256:1c88fbd90ad0d27c46b77a445f0a436ebaa94e14965c581123b68b1c52f5fd30 \
+    --hash=sha256:211f30098512d95e85ad03ae63bd7dd2c4df476558a5095d09f9e38e78cbf674 \
+    --hash=sha256:305f5489d7241a47e0458ef49334be02411d1d0f480846363c1c8084ed9916f7 \
+    --hash=sha256:3155a02e083aa21fd733a7485c7c36025e49d5975c8d6bda0453d224dd0b0ac4 \
+    --hash=sha256:31612ba0629046e425ba50375685a2586e11fb9144270ebabd75878c3eaf6378 \
+    --hash=sha256:335a8f36c55fd35a92d0062f4e9201b4015057e62747b7e7001ffb203c0ee1d2 \
+    --hash=sha256:35b855024ca37f2dd113ac1c08993e997fbe167b9d61f9ef66d3d4f84015e508 \
+    --hash=sha256:433c77c9f4e132b562f37d66c9b22c05b5479f243a1f06a120c1c06ce8b1502a \
+    --hash=sha256:4a6817c41de7c48ed9270da0b02849347e089c5ece9a0e72ae4f4b3a57617f82 \
+    --hash=sha256:4bc995d6c41992831f762096020dc14a65fdf3963f86ffed580b596d04de32e3 \
+    --hash=sha256:7c2a054a97c44e136b1f7f5a78f12b3efffdf2eed3abc6746fc5ea4b39511633 \
+    --hash=sha256:83d8ec273136171431833a6957e8f3af496bee227a0fe47c7b8b39c106d1749a \
+    --hash=sha256:91b1dc03c31cbf733d35dc03df7c5353686233d86af045e716f1e0ea4a2673cf \
+    --hash=sha256:9298b47cce6037b7045ae41482e703c471ce36b52e73e49f71226d2e8e5685a1 \
+    --hash=sha256:959083c89dee30f7d6f890b36cdadda823386c4de63b1a30384a75bfd2ae995d \
+    --hash=sha256:a85d3d43743174393afe27835bde0cd146e652b5fcfdbcd624602daef2ef3259 \
+    --hash=sha256:c1980abfb68ecf6c1c7983379ed7b1e2b49a1aaf1a5aca9acc7d48e5e2e0a961 \
+    --hash=sha256:c1ae4d3a716afc774e66922f3cac8206bfa707db13f6a7e62dfff74bfc95c9a8 \
+    --hash=sha256:c34e2c7aefad15792d57067c1c89b2b02c1bbaeabd7f8456ae3d07b4bbaf4094 \
+    --hash=sha256:cfa760888633b08c01b398d212ce7e8c0d7adac6c86e4b20dfb2397d8acd78ee \
+    --hash=sha256:d6dbdf231efac0b9b39adcf12a07f0c030498f9212a18e8c50224d0e84ab803d \
+    --hash=sha256:e130ee08984783d12717444e538587fa2119385e5bd8fc2bb9f930419b73a7af \
+    --hash=sha256:f93b7595f1d8fefddfede775c18b5c9256757824f7f6832930b49858483cd56f
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   huggingface-hub
+httpcore==1.0.9 \
+    --hash=sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55 \
+    --hash=sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   httpx
+httpx==0.28.1 \
+    --hash=sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc \
+    --hash=sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   huggingface-hub
+huggingface-hub==1.5.0 \
+    --hash=sha256:c9c0b3ab95a777fc91666111f3b3ede71c0cdced3614c553a64e98920585c4ee \
+    --hash=sha256:f281838db29265880fb543de7a23b0f81d3504675de82044307ea3c6c62f799d
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
 idna==3.11 \
     --hash=sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea \
     --hash=sha256:795dafcc9c04ed0c1fb032c2aa73654d8e8c5023a7df64a53f39190ada629902
     # via
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
+    #   anyio
+    #   httpx
     #   requests
 iniconfig==2.3.0 \
     --hash=sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730 \
@@ -351,12 +441,15 @@ mdurl==0.1.2 \
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
     #   markdown-it-py
-packaging==25.0 \
-    --hash=sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484 \
-    --hash=sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f
+packaging==26.0 \
+    --hash=sha256:00243ae351a257117b6a241061796684b084ed1c516a08c48a3f7e147a9d80b4 \
+    --hash=sha256:b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529
     # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
     #   copier
     #   dunamai
+    #   huggingface-hub
     #   pytest
 parso==0.8.6 \
     --hash=sha256:2b9a0332696df97d454fa67b81618fd69c35a7b90327cbe6ba5c92d2c68a7bfd \
@@ -637,7 +730,10 @@ pyyaml==6.0.3 \
     --hash=sha256:fa160448684b4e94d80416c0fa4aac48967a969efe22931448d853ada8baf926 \
     --hash=sha256:fc09d0aa354569bc501d4e787133afc08552722d3ab34836a80547331bb5d4a0
     # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
     #   copier
+    #   huggingface-hub
     #   jinja2-ansible-filters
 questionary==2.1.1 \
     --hash=sha256:3d7e980292bb0107abaa79c68dd3eee3c561b83a0f89ae482860b181c8bd412d \
@@ -662,6 +758,21 @@ rich==14.2.0 \
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
     #   -r requirements/tools.in
+    #   typer
+shellingham==1.5.4 \
+    --hash=sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686 \
+    --hash=sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   typer
+tqdm==4.67.3 \
+    --hash=sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb \
+    --hash=sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   huggingface-hub
 tree-sitter==0.25.2 \
     --hash=sha256:0628671f0de69bb279558ef6b640bcfc97864fe0026d840f872728a86cd6b6cd \
     --hash=sha256:0c8b6682cac77e37cfe5cf7ec388844957f48b7bd8d6321d0ca2d852994e10d5 \
@@ -714,6 +825,13 @@ tree-sitter-starlark==1.3.0 \
     # via
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
+typer==0.24.1 \
+    --hash=sha256:112c1f0ce578bfb4cab9ffdabc68f031416ebcc216536611ba21f04e9aa84c9e \
+    --hash=sha256:e39b4732d65fbdcde189ae76cf7cd48aeae72919dea1fdfc16593be016256b45
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   huggingface-hub
 typing-extensions==4.15.0 \
     --hash=sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466 \
     --hash=sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548
@@ -721,6 +839,7 @@ typing-extensions==4.15.0 \
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
     #   cattrs
+    #   huggingface-hub
     #   pydantic
     #   pydantic-core
     #   typing-inspection

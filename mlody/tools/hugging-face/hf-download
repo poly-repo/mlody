@@ -1,0 +1,2 @@
+#!/bin/bash
+exec bazel run //mlody/tools/hugging-face:hf_download -- "$@"

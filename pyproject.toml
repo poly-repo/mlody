@@ -52,7 +52,11 @@ dependencies = [
 
   # Starlark grammar for tree-sitter.
   # See: https://github.com/nickel-lang/tree-sitter-starlark
-  "tree-sitter-starlark"
+  "tree-sitter-starlark",
+
+  # HuggingFace model hub client for downloading models.
+  # See: https://github.com/huggingface/huggingface_hub
+  "huggingface_hub",
 ]
 
 # See https://docs.astral.sh/ruff/configuration/

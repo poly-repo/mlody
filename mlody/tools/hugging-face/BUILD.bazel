@@ -1,0 +1,23 @@
+load("//build/bzl:python.bzl", "o_py_binary", "o_py_library")
+
+o_py_binary(
+    name = "hf_download",
+    srcs = ["hf_download.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@pip//click",
+        "@pip//huggingface_hub",
+        "@pip//rich",
+    ],
+)
+
+o_py_library(
+    name = "hugging-face_lib",
+    srcs = ["hf_download.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@pip//click",
+        "@pip//huggingface_hub",
+        "@pip//rich",
+    ],
+)
