@@ -24,6 +24,8 @@ manifest:
     filelock: filelock
     fsspec: fsspec
     funcy: funcy
+    git: gitpython
+    gitdb: gitdb
     gnupg: python_gnupg
     h11: h11
     hf_xet: hf_xet
@@ -60,6 +62,7 @@ manifest:
     rassumfrassum: rassumfrassum
     requests: requests
     rich: rich
+    smmap: smmap
     shellingham: shellingham
     tqdm: tqdm
     tree_sitter: tree_sitter

@@ -1,0 +1,42 @@
+# The 'ctx' global is injected by the Starlark runtime.
+# This dummy assignment is to satisfy the linter.
+ctx = None
+
+
+def _validate_attr_definitions(defs):
+    return True
+
+def _validate_args(kwargs, attrs):
+    _validate_attr_definitions(attrs)
+    for attr_name, definition in attrs.items():
+        if definition['metadata']['mandatory'] and attr_name not in kwargs:
+            raise ValueError(f"Missing mandatory argument: '{attr_name}'")
+
+def _starlark_type(obj):
+    return type(obj)
+
+def _absolute_label(label):
+    if label.startswith(':'):
+        return ctx.module + label
+    else:
+        return label
+
+def _resolve_references(args, attrs):
+    for a in args.keys():
+        required_type = attrs[a]['type']
+        actual_type = _starlark_type(args[a])
+        if required_type == 'action' and actual_type == 'string':
+            absolute_label = _absolute_label(args[a])
+            args[a]=ctx.builtins.lookup('action', absolute_label)
+    return args
+
+def rule(*, implementation, kind, attrs=None):
+    # state is used to workaround the absence of nonlocal. Why it works, I don't know
+    state = {"attrs": attrs} # in starlark this would be a struct
+    def f(**kwargs):
+        _validate_args(kwargs, state['attrs'])
+        _resolve_references(kwargs, state['attrs'])
+        ctx = struct(kind=kind, attr=struct(**kwargs))
+        thing = implementation(ctx)
+        return thing
+    return f

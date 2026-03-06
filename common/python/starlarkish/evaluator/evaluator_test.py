@@ -248,6 +248,288 @@ builtins.register("root", struct(name="preloaded", value=99))
     assert evaluator.roots["preloaded"].value == 99  # type: ignore[attr-defined]
 
 
+def test_load_at_root_with_package(fs: FakeFilesystem, project_root: Path) -> None:
+    """load("@ROOT//package:file.mlody") resolves via the named root's path field."""
+    fs.create_file(
+        "/project/mlody/roots.mlody",
+        contents="""
+builtins.register("root", struct(name="myroot", path="//mlody/lib"))
+""",
+    )
+    fs.create_file(
+        "/project/mlody/lib/models/bert.mlody",
+        contents='BERT = "bert-base"\n',
+    )
+    fs.create_file(
+        "/project/mlody/consumer.mlody",
+        contents='load("@myroot//models:bert.mlody", "BERT")\nbuiltins.register("root", struct(name="consumer", value=BERT))\n',
+    )
+    ev = Evaluator(project_root)
+    ev.eval_file(project_root / "mlody/roots.mlody")
+    ev.eval_file(project_root / "mlody/consumer.mlody")
+
+    assert ev.roots["mlody/consumer"].value == "bert-base"  # type: ignore[attr-defined]
+
+
+def test_load_at_root_no_package(fs: FakeFilesystem, project_root: Path) -> None:
+    """load("@ROOT//:file.mlody") resolves to the root directory itself."""
+    fs.create_file(
+        "/project/lib_root.mlody",
+        contents='builtins.register("root", struct(name="base", path="//mlody/lib"))\n',
+    )
+    fs.create_file(
+        "/project/mlody/lib/helpers.mlody",
+        contents='HELPER = "ok"\n',
+    )
+    fs.create_file(
+        "/project/mlody/consumer.mlody",
+        contents='load("@base//:helpers.mlody", "HELPER")\nbuiltins.register("root", struct(name="r", value=HELPER))\n',
+    )
+    ev = Evaluator(project_root)
+    ev.eval_file(project_root / "lib_root.mlody")
+    ev.eval_file(project_root / "mlody/consumer.mlody")
+
+    assert ev.roots["mlody/r"].value == "ok"  # type: ignore[attr-defined]
+
+
+def test_load_at_root_idempotent_with_direct_load(
+    fs: FakeFilesystem, project_root: Path
+) -> None:
+    """A file loaded via @ROOT// and then again directly is executed only once.
+
+    This mirrors what happens when the Workspace Phase 2 glob re-discovers a
+    file that was already pulled in via a load("@ROOT//...") call.
+    """
+    from unittest.mock import patch
+
+    fs.create_file(
+        "/project/mlody/roots.mlody",
+        contents='builtins.register("root", struct(name="r", path="//mlody/lib"))\n',
+    )
+    fs.create_file("/project/mlody/lib/shared.mlody", contents='SHARED = 1\n')
+    fs.create_file(
+        "/project/mlody/consumer.mlody",
+        contents='load("@r//:shared.mlody", "SHARED")\nbuiltins.register("root", struct(name="c", value=SHARED))\n',
+    )
+    ev = Evaluator(project_root)
+    ev.eval_file(project_root / "mlody/roots.mlody")
+
+    with patch.object(ev, "_execute_file", wraps=ev._execute_file) as spy:
+        # Loads consumer.mlody (1) which pulls shared.mlody via @r// (2)
+        ev.eval_file(project_root / "mlody/consumer.mlody")
+        calls_after_first = spy.call_count
+        assert calls_after_first == 2
+
+        # Directly loading shared.mlody again — must be a cache hit, no re-execution
+        ev.eval_file(project_root / "mlody/lib/shared.mlody")
+        assert spy.call_count == calls_after_first + 1  # one extra call, returns immediately
+
+    assert len([f for f in ev.loaded_files if "shared" in str(f)]) == 1
+
+
+def test_load_at_root_unknown_root_raises(
+    fs: FakeFilesystem, project_root: Path
+) -> None:
+    """Referencing an unregistered @ROOT raises NameError."""
+    fs.create_file(
+        "/project/bad.mlody",
+        contents='load("@ghost//pkg:file.mlody")\n',
+    )
+    ev = Evaluator(project_root)
+    with pytest.raises(NameError, match="ghost"):
+        ev.eval_file(project_root / "bad.mlody")
+
+
+def test_load_at_root_missing_colon_raises(
+    fs: FakeFilesystem, project_root: Path
+) -> None:
+    """@ROOT// path without ':' raises ValueError."""
+    fs.create_file(
+        "/project/bad.mlody",
+        contents='load("@myroot//pkg/file.mlody")\n',
+    )
+    ev = Evaluator(project_root)
+    with pytest.raises(ValueError, match="':'"):
+        ev.eval_file(project_root / "bad.mlody")
+
+
+def test_register_receives_ctx(fs: FakeFilesystem, project_root: Path) -> None:
+    """_register is called with the ctx of the file that triggered the registration.
+
+    The ctx is bound transparently via functools.partial — .mlody scripts still
+    call builtins.register(kind, thing) with two arguments.
+    """
+    from common.python.starlarkish.core.struct import Struct as StructType
+
+    captured: list[StructType] = []
+
+    class CapturingEvaluator(Evaluator):
+        def _register(self, kind: str, thing: object, ctx: StructType) -> None:  # type: ignore[override]
+            captured.append(ctx)
+            super()._register(kind, thing, ctx)  # type: ignore[arg-type]
+
+    fs.create_file(
+        "/project/reg.mlody",
+        contents='builtins.register("root", struct(name="r", value=1))\n',
+    )
+    ev = CapturingEvaluator(project_root)
+    ev.eval_file(project_root / "reg.mlody")
+
+    assert len(captured) == 1
+    assert captured[0].directory == project_root  # type: ignore[attr-defined]
+
+
+def test_register_ctx_directory_reflects_caller_file(
+    fs: FakeFilesystem, project_root: Path
+) -> None:
+    """ctx.directory in _register is the calling file's directory, not the helper's.
+
+    A loaded helper function that calls builtins.register must not pin
+    ctx.directory to the helper's own directory.  The closure re-reads
+    _eval_stack at call time so the caller's directory is always used.
+    """
+    from common.python.starlarkish.core.struct import Struct as StructType
+
+    captured: list[StructType] = []
+
+    class CapturingEvaluator(Evaluator):
+        def _register(self, kind: str, thing: object, ctx: StructType) -> None:  # type: ignore[override]
+            captured.append(ctx)
+            super()._register(kind, thing, ctx)  # type: ignore[arg-type]
+
+    # Helper lives in a dedicated subdirectory — if the bug were present,
+    # ctx.directory would be /project/helpers instead of /project.
+    fs.create_file(
+        "/project/helpers/reg_helper.mlody",
+        contents=(
+            "def do_register(name):\n"
+            '    builtins.register("root", struct(name=name, value=1))\n'
+        ),
+    )
+    fs.create_file(
+        "/project/main.mlody",
+        contents=(
+            'load(":helpers/reg_helper.mlody", "do_register")\n'
+            'do_register("r")\n'
+        ),
+    )
+    ev = CapturingEvaluator(project_root)
+    ev.eval_file(project_root / "main.mlody")
+
+    assert len(captured) == 1
+    # Must be the calling file's directory (project root), not the helper's (subdir)
+    assert captured[0].directory == project_root  # type: ignore[attr-defined]
+
+
+def test_load_after_code_raises(fs: FakeFilesystem, project_root: Path) -> None:
+    """load() after a non-load statement raises SyntaxError.
+
+    Starlark requires all load() calls to appear before any other code.
+    """
+    fs.create_file(
+        "/project/bad_load_order.mlody",
+        contents="X = 5\nload('//lib.mlody')\n",
+    )
+    evaluator = Evaluator(project_root)
+    with pytest.raises(SyntaxError, match="load\\(\\).*must appear before"):
+        evaluator.eval_file(project_root / "bad_load_order.mlody")
+
+
+def test_load_after_other_load_then_code_then_load_raises(
+    fs: FakeFilesystem, project_root: Path
+) -> None:
+    """load() after valid loads followed by other code raises SyntaxError.
+
+    Even when valid loads precede the bad one, the violation must be caught.
+    """
+    fs.create_file(
+        "/project/mixed_load.mlody",
+        contents=(
+            "load('//lib.mlody', 'MY_CONSTANT')\n"
+            "X = 5\n"
+            "load('//subdir/helper.mlody')\n"
+        ),
+    )
+    evaluator = Evaluator(project_root)
+    with pytest.raises(SyntaxError, match="load\\(\\).*must appear before"):
+        evaluator.eval_file(project_root / "mixed_load.mlody")
+
+
+def test_docstring_then_load_is_allowed(fs: FakeFilesystem, project_root: Path) -> None:
+    """A module docstring followed by load() is valid and must not raise."""
+    fs.create_file(
+        "/project/docstring_load.mlody",
+        contents='"""Module docstring."""\nload("//lib.mlody", "MY_CONSTANT")\n',
+    )
+    evaluator = Evaluator(project_root)
+    evaluator.eval_file(project_root / "docstring_load.mlody")
+    # No error raised; MY_CONSTANT is now in the loaded file's globals.
+
+
+def test_primitive_types_pre_registered(fs: FakeFilesystem) -> None:
+    """Evaluator pre-registers primitive type sentinels on construction."""
+    root = Path("/project")
+    root.mkdir()
+    ev = Evaluator(root)
+    assert "integer" in ev.types
+    assert "string" in ev.types
+    assert "bool" in ev.types
+    assert "float" in ev.types
+
+
+def test_lookup_accessible_from_script(fs: FakeFilesystem) -> None:
+    """Scripts can call builtins.lookup() to access registered types."""
+    root = Path("/project")
+    root.mkdir()
+    fs.create_file(
+        "/project/test.mlody",
+        contents=(
+            'result_name = builtins.lookup("type", "integer").name\n'
+            'builtins.register("root", struct(name="r", type_name=result_name))\n'
+        ),
+    )
+    ev = Evaluator(root)
+    ev.eval_file(root / "test.mlody")
+    assert ev.roots["r"].type_name == "integer"  # type: ignore[attr-defined]
+
+
+def test_lookup_unknown_kind_raises_value_error(fs: FakeFilesystem) -> None:
+    """builtins.lookup with an unknown kind raises ValueError."""
+    root = Path("/project")
+    root.mkdir()
+    fs.create_file("/project/bad.mlody", contents='builtins.lookup("action", "foo")\n')
+    ev = Evaluator(root)
+    with pytest.raises(ValueError, match="Unknown lookup kind"):
+        ev.eval_file(root / "bad.mlody")
+
+
+def test_lookup_unknown_name_raises_name_error(fs: FakeFilesystem) -> None:
+    """builtins.lookup with an unknown name raises NameError."""
+    root = Path("/project")
+    root.mkdir()
+    fs.create_file("/project/bad.mlody", contents='builtins.lookup("type", "no_such_type")\n')
+    ev = Evaluator(root)
+    with pytest.raises(NameError, match="no_such_type"):
+        ev.eval_file(root / "bad.mlody")
+
+
+def test_lookup_returns_registered_type(fs: FakeFilesystem) -> None:
+    """Register a type then look it up — the round-trip returns the same object."""
+    root = Path("/project")
+    root.mkdir()
+    fs.create_file(
+        "/project/test.mlody",
+        contents=(
+            'builtins.register("type", struct(name="my_type", kind="type"))\n'
+            'found = builtins.lookup("type", "my_type")\n'
+            'builtins.register("root", struct(name="r", found_name=found.name))\n'
+        ),
+    )
+    ev = Evaluator(root)
+    ev.eval_file(root / "test.mlody")
+    assert ev.roots["r"].found_name == "my_type"  # type: ignore[attr-defined]
+
+
 def test_inmemoryfs_roots_smoketest() -> None:
     """End-to-end smoke test: Evaluator + InMemoryFS registers a root correctly.
 

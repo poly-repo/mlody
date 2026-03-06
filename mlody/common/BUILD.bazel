@@ -1,7 +1,48 @@
-load("//build/bzl:python.bzl", "o_py_library")
+#load("@pypi//:requirements.bzl", "all_data_requirements", "all_requirements", "all_whl_requirements", "requirement")
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
     name = "struct",
     srcs = ["struct.py"],
     visibility = ["//visibility:public"],
+)
+
+o_py_library(
+    name = "context_lib",
+    srcs = ["context.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//common/python/starlarkish/core:core_lib",
+        "@pip//gitpython",
+    ],
+)
+
+o_py_test(
+    name = "types_test",
+    srcs = ["types_test.py"],
+    data = [
+        "attrs.mlody",
+        "types.mlody",
+        "//mlody/core:rule.mlody",
+    ],
+    deps = [
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//common/python/starlarkish/evaluator:testing",
+        "@pip//pyfakefs",
+    ],
+)
+
+o_py_test(
+    name = "locations_test",
+    srcs = ["locations_test.py"],
+    data = [
+        "attrs.mlody",
+        "locations.mlody",
+        "types.mlody",
+        "//mlody/core:rule.mlody",
+    ],
+    deps = [
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//common/python/starlarkish/evaluator:testing",
+    ],
 )

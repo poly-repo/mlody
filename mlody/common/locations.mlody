@@ -1,0 +1,117 @@
+load("//mlody/core/rule.mlody", "rule")
+load("//mlody/common/attrs.mlody", "attr", "extend_attrs", "_validate_attr_value")
+
+
+def _make_location_factory(loc_struct):
+    allowed = python.getattr(loc_struct, "_allowed_attrs", {})
+
+    def factory(**kwargs):
+        for k in kwargs:
+            if k not in allowed:
+                raise TypeError(
+                    loc_struct.name + "() got unexpected attribute " + repr(k)
+                    + ". Allowed: " + repr(set(allowed))
+                )
+        for k, v in kwargs.items():
+            _validate_attr_value(k, v, allowed[k])
+
+        if not kwargs:
+            return loc_struct
+
+        captured_kwargs = dict(kwargs)
+        def extra_validator(value):
+            # v1 unification: equality check per constrained attribute
+            for k, expected in captured_kwargs.items():
+                if value != expected:
+                    raise ValueError(
+                        f"location constraint {k!r} not satisfied: "
+                        f"expected {expected!r}, got {value!r}"
+                    )
+            return True
+
+        return extend_attrs(
+            base=loc_struct,
+            extra_attributes=captured_kwargs,
+            extra_validator=extra_validator,
+        )
+
+    return factory
+
+
+def _location_impl(ctx):
+    base_type = python.getattr(ctx.attr, 'base', None)
+
+    if base_type == None:
+        # No base: bootstrap a minimal no-op base for this location kind.
+        base_type = Struct(
+            kind="location", type=ctx.attr.name, name=ctx.attr.name,
+            attributes={}, _allowed_attrs={},
+            validator=lambda v: True,
+            abstract=False,
+            _root_kind=ctx.attr.name,
+        )
+
+    other_fields = {}
+    if python.hasattr(ctx.attr, 'description'):
+        other_fields['description'] = ctx.attr.description
+
+    predicate = python.getattr(ctx.attr, 'predicate', None)
+
+    extra_attrs_spec = None
+    if python.hasattr(ctx.attr, 'attrs') and ctx.attr.attrs != None:
+        for attr_name, attr_def in ctx.attr.attrs.as_mapping().items():
+            declared_type = python.getattr(attr_def, "type", None)
+            if declared_type == None:
+                raise ValueError(
+                    f"location {ctx.attr.name!r}: attrs[{attr_name!r}] must declare a type"
+                )
+            if extra_attrs_spec == None:
+                extra_attrs_spec = {}
+            extra_attrs_spec[attr_name] = declared_type
+
+    # Always set abstract explicitly (prevents inheriting True from an abstract base).
+    abstract = python.getattr(ctx.attr, 'abstract', None)
+    other_fields['abstract'] = abstract == True
+
+    # Anchor _root_kind to this location kind's own name.
+    other_fields['_root_kind'] = ctx.attr.name
+
+    new_loc_struct = extend_attrs(
+        base=base_type,
+        type_name=ctx.attr.name,
+        extra_attrs_spec=extra_attrs_spec,
+        extra_validator=predicate,
+        **other_fields
+    )
+    builtins.register(ctx.kind, new_loc_struct)
+    builtins.inject(ctx.attr.name, _make_location_factory(new_loc_struct))
+    return {}
+
+
+location = rule(
+    implementation=_location_impl,
+    kind='location',
+    attrs={
+        "name":        attr(type="string"),
+        "description": attr(type="string",   mandatory=False),
+        "base":        attr(type="location", mandatory=False, default=None),
+        "attrs":       attr(type="dict",     mandatory=False, default=None),
+        "predicate":   attr(type="callable", mandatory=False, default=None),
+        "abstract":    attr(type="bool",     mandatory=False, default=None),
+    }
+)
+
+location(
+    name = "s3",
+    attrs = {
+        "bucket": attr(type="string", mandatory=False),
+        "prefix": attr(type="string", mandatory=False),
+        "region": attr(type="string", mandatory=False),
+    },
+)
+location(
+    name = "posix",
+    attrs = {
+        "path": attr(type="string", mandatory=False),
+    },
+)

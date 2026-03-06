@@ -1,0 +1,389 @@
+# Save built-in type references before bootstrap typedefs shadow them.
+_builtin_tuple = tuple
+_builtin_bool = bool
+_builtin_float = float
+
+# -------------------------
+# Primitive type validators (Tier 1: no registry lookup needed)
+# -------------------------
+_PRIMITIVE_VALIDATORS = {
+    "integer": lambda v: isinstance(v, int) and not isinstance(v, _builtin_bool),
+    "string":  lambda v: isinstance(v, str),
+    "bool":    lambda v: isinstance(v, _builtin_bool),
+    "float":   lambda v: isinstance(v, _builtin_float),
+}
+
+# Kinds whose validation is handled by generic_validate (used in extend_attrs).
+_PRIMITIVE_KINDS = {"integer", "string", "bool", "float", "vector", "tuple", "map"}
+
+
+def field(*, name, type, mandatory=True):
+    """Declare a typed field for use in map() or typedef(fields=[...])."""
+    return Struct(kind="field", name=name, type=type, mandatory=mandatory)
+
+
+def _validate_attr_value(attr_name: str, value: python.Any, type_ref: python.Any) -> None:
+    if isinstance(type_ref, str):
+        # String name: primitive check or registry lookup
+        if type_ref == "type":
+            if type(value) != "struct" or python.getattr(value, "kind", None) != "type":
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects a type struct, got {type(value)!r}"
+                )
+            return
+        if type_ref == "location":
+            if type(value) != "struct" or python.getattr(value, "kind", None) != "location":
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects a location struct, got {type(value)!r}"
+                )
+            return
+        if type_ref == "field_list":
+            if not isinstance(value, list):
+                raise TypeError(f"Attribute {attr_name!r} expects a list of field() specs")
+            for item in value:
+                if type(item) != "struct" or python.getattr(item, "kind", None) != "field":
+                    raise TypeError(f"Attribute {attr_name!r}: each item must be a field() spec")
+            return
+        if type_ref in _PRIMITIVE_VALIDATORS:
+            if not _PRIMITIVE_VALIDATORS[type_ref](value):
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects type {type_ref!r}, "
+                    f"got {type(value)!r} with value {value!r}"
+                )
+        else:
+            registered = builtins.lookup("type", type_ref)
+            validator = python.getattr(registered, "validator", None)
+            if validator == None:
+                raise TypeError(f"Type {type_ref!r} has no validator")
+            validator(value)
+    else:
+        # Type struct passed directly (e.g., from a factory call like age(max=17))
+        validator = python.getattr(type_ref, "validator", None)
+        if validator == None:
+            raise TypeError(f"Attribute {attr_name!r}: type struct has no validator")
+        validator(value)
+
+
+# -------------------------
+# Generic validator functions (operate on attributes dict)
+# -------------------------
+def generic_validate(kind: str, attrs: dict[str, python.Any], value: python.Any) -> None:
+    if kind == "integer":
+        _validate_integer(attrs, value)
+    elif kind == "string":
+        _validate_string(attrs, value)
+    elif kind == "bool":
+        _validate_bool(attrs, value)
+    elif kind == "float":
+        _validate_float(attrs, value)
+    elif kind == "vector":
+        _validate_vector(attrs, value)
+    elif kind == "tuple":
+        _validate_tuple(attrs, value)
+    elif kind == "map":
+        _validate_map(attrs, value)
+    else:
+        raise NotImplementedError(f"generic validator for kind={kind!r} not implemented")
+
+
+def _validate_integer(attrs: dict[str, python.Any], value: python.Any) -> None:
+    if not isinstance(value, int) or isinstance(value, _builtin_bool):
+        raise TypeError(f"Expected int, got {type(value)}")
+    mn = attrs.get("min")
+    mx = attrs.get("max")
+    if mn != None and value < mn:
+        raise ValueError(f"value {value} < min {mn}")
+    if mx != None and value > mx:
+        raise ValueError(f"value {value} > max {mx}")
+
+
+def _validate_string(attrs: dict[str, python.Any], value: python.Any) -> None:
+    if not isinstance(value, str):
+        raise TypeError(f"Expected str, got {type(value)}")
+    min_len = attrs.get("min_length")
+    max_len = attrs.get("max_length")
+    pattern = attrs.get("pattern")
+    if min_len != None and len(value) < min_len:
+        raise ValueError(f"len(value)={len(value)} < min_length {min_len}")
+    if max_len != None and len(value) > max_len:
+        raise ValueError(f"len(value)={len(value)} > max_length {max_len}")
+    if pattern != None and not python.re.fullmatch(pattern, value):
+        raise ValueError(f"value {value!r} does not match pattern {pattern!r}")
+
+
+def _validate_bool(attrs: dict[str, python.Any], value: python.Any) -> None:
+    if not isinstance(value, _builtin_bool):
+        raise TypeError(f"Expected bool, got {type(value)}")
+
+
+def _validate_float(attrs: dict[str, python.Any], value: python.Any) -> None:
+    if not isinstance(value, _builtin_float):
+        raise TypeError(f"Expected float, got {type(value)}")
+    mn = attrs.get("min")
+    mx = attrs.get("max")
+    if mn != None and value < mn:
+        raise ValueError(f"value {value} < min {mn}")
+    if mx != None and value > mx:
+        raise ValueError(f"value {value} > max {mx}")
+
+
+# For vector validation we expect `element_type` to be either a Struct (type) or a name (str)
+def _validate_vector(attrs: dict[str, python.Any], value: python.Any) -> None:
+    if not isinstance(value, (list, _builtin_tuple)):
+        raise TypeError(f"Expected list/tuple for vector, got {type(value)}")
+    min_len = attrs.get("min_length")
+    max_len = attrs.get("max_length")
+    if min_len != None and len(value) < min_len:
+        raise ValueError(f"vector len {len(value)} < min_length {min_len}")
+    if max_len != None and len(value) > max_len:
+        raise ValueError(f"vector len {len(value)} > max_length {max_len}")
+    el_type = attrs.get("element_type")
+    if el_type != None:
+        for i, el in enumerate(value):
+            validator = python.getattr(el_type, "validator", None)
+            if validator != None:
+                validator(el)
+
+
+def _validate_tuple(attrs: dict[str, python.Any], value: python.Any) -> None:
+    if not isinstance(value, (list, _builtin_tuple)):
+        raise TypeError(f"Expected list/tuple for tuple, got {type(value)}")
+    element_types = attrs.get("_element_types")
+    if element_types != None:
+        if len(value) != len(element_types):
+            raise ValueError(
+                f"Expected tuple of length {len(element_types)}, got {len(value)}"
+            )
+        for i, (el, el_type) in enumerate(zip(value, element_types)):
+            validator = python.getattr(el_type, "validator", None)
+            if validator != None:
+                validator(el)
+
+
+def _validate_map(attrs: dict[str, python.Any], value: python.Any) -> None:
+    if not isinstance(value, dict):
+        raise TypeError(f"Expected dict for map, got {type(value)}")
+
+    key_type = attrs.get("key_type")
+    # Validate all keys uniformly
+    for k in value.keys():
+        if key_type != None:
+            key_validator = python.getattr(key_type, "validator", None)
+            if key_validator != None:
+                key_validator(k)
+        else:
+            if not isinstance(k, str):
+                raise TypeError(f"Map key expected str (default), got {type(k)}")
+
+    fields = attrs.get("fields")
+    if fields != None:
+        # Per-key value types; field.name is a concrete key value of key_type
+        strict = attrs.get("strict", False)
+        field_by_name = {f.name: f for f in fields}
+        required = {f.name for f in fields if f.mandatory}
+        actual = set(value.keys())
+        missing = required - actual
+        if missing:
+            raise ValueError(f"Map missing required keys: {sorted(missing)}")
+        if strict:
+            extra = actual - set(field_by_name.keys())
+            if extra:
+                raise ValueError(f"Map has unexpected keys: {sorted(extra)}")
+        for k, v in value.items():
+            if k in field_by_name:
+                validator = python.getattr(field_by_name[k].type, "validator", None)
+                if validator != None:
+                    validator(v)
+        return
+
+    # Uniform value mode
+    value_type = attrs.get("value_type")
+    if value_type != None:
+        val_validator = python.getattr(value_type, "validator", None)
+        if val_validator != None:
+            for v in value.values():
+                val_validator(v)
+
+
+# -------------------------
+# extend_attrs: create derived type/location from base struct
+# -------------------------
+def extend_attrs(
+    base: Struct,
+    *,
+    type_name: str = None,
+    extra_attributes: dict[str, python.Any] = None,
+    extra_attrs_spec: dict[str, str] = None,
+    extra_validator: python.Callable[[python.Any], bool] = None,
+    **other_fields
+) -> Struct:
+    """
+    Create a new Struct that inherits from `base`:
+      - merges base.attributes with extra_attributes (extra overrides)
+      - merges base._allowed_attrs with extra_attrs_spec (with conflict check)
+      - composes validators: new validator first runs base validator or generic validation
+        against merged attributes, then runs extra_validator (if provided)
+      - other_fields allow overriding stored fields (e.g., element_type)
+    """
+    if type(base) != "struct":
+        raise TypeError(f"extend_attrs expects a Struct, got {type(base)!r}")
+
+    base_map = base.as_mapping()
+    base_kind_field = base_map.get("kind")
+    if base_kind_field != "type" and base_kind_field != "location":
+        raise TypeError("extend_attrs expects a base with kind='type' or kind='location'")
+
+    # Merge runtime attribute values
+    merged_attrs = dict(base_map.get("attributes", {}))
+    if extra_attributes:
+        merged_attrs.update(extra_attributes)
+
+    # Merge allowed-attrs spec with conflict check
+    base_allowed = dict(base_map.get("_allowed_attrs", {}))
+    if extra_attrs_spec:
+        conflicts = set(extra_attrs_spec.keys()) & set(base_allowed.keys())
+        if conflicts:
+            raise ValueError(
+                f"extend_attrs: new attrs {sorted(conflicts)} conflict with "
+                f"base {base_map.get('type')!r} which already declares them."
+            )
+        merged_allowed = dict(base_allowed)
+        merged_allowed.update(extra_attrs_spec)
+    else:
+        merged_allowed = base_allowed
+
+    # Capture base kind and existing validator for use in the composed validator closure.
+    # base_kind is used for primitive dispatch; base_validator for derived type chains.
+    base_kind = base_map.get("type")
+    base_validator = python.getattr(base, "validator", None)
+
+    merged_fields = dict(base_map)
+    merged_fields["attributes"] = merged_attrs
+    merged_fields["_allowed_attrs"] = merged_allowed
+    merged_fields.update(other_fields)
+    # Propagate root kind for validator-combination in factories; derive from
+    # base_kind if the base doesn't already carry it (e.g., primitive bases).
+    if "_root_kind" not in merged_fields:
+        merged_fields["_root_kind"] = base_kind
+    if type_name != None:
+        merged_fields["type"] = type_name
+        merged_fields["name"] = type_name
+
+    effective_kind = merged_fields.get("_root_kind", base_kind)
+    is_abstract = merged_fields.get("abstract", False)
+
+    # Compose validator:
+    #  - Abstract types: no-op (classification anchors only).
+    #  - Primitive base kinds (integer, string, …): always use generic_validate with the
+    #    fully-merged attrs so that any extra_attributes are enforced correctly.
+    #  - Derived base kinds (user typedefs): delegate to the base's validator, which
+    #    already encodes its own constraint chain.
+    def composed_validator(value: python.Any):
+        if is_abstract:
+            pass  # abstract types accept any value — they are classification-only
+        elif effective_kind in _PRIMITIVE_KINDS:
+            generic_validate(effective_kind, merged_attrs, value)
+        elif base_validator != None:
+            base_validator(value)
+        else:
+            raise NotImplementedError(f"No validator for base kind {effective_kind!r}")
+        if extra_validator != None:
+            res = extra_validator(value)
+            if res is False:
+                raise ValueError(f"value {value!r} rejected by extra_validator")
+        return True  # success
+
+    # If there is a pre-existing 'validator' in merged_fields (inherited from the
+    # base struct), handle it carefully:
+    #  - For primitive base kinds (integer, string, …): composed_validator already
+    #    calls generic_validate with the fully-merged attrs, so the base's old
+    #    validator (which would use its stale, narrower attrs) must NOT be called
+    #    again — it would re-validate with the wrong constraints.
+    #  - For non-primitive (user typedef) base kinds: the base's validator encodes
+    #    the full constraint chain; compose it as user_val after composed_validator.
+    if "validator" in merged_fields:
+        user_val = merged_fields.pop("validator")
+        if base_kind in _PRIMITIVE_KINDS:
+            # composed_validator is authoritative; skip the stale base validator.
+            merged_fields["validator"] = composed_validator
+        else:
+            def final_validator(v):
+                composed_validator(v)
+                res = user_val(v)
+                if res is False:
+                    raise ValueError("rejected by user validator")
+                return True
+            merged_fields["validator"] = final_validator
+    else:
+        merged_fields["validator"] = composed_validator
+
+    # Return new Struct (immutable)
+    return Struct(**merged_fields)
+
+
+def attr(*, type=None, mandatory=True, default=None):
+    return {
+        "type": type,
+        "metadata": {
+            "mandatory": mandatory,
+            "default": default,
+        }
+    }
+
+
+def _make_factory(type_struct):
+    """Return a factory that builds anonymous configured sub-types of type_struct.
+
+    The factory accepts only keyword arguments matching type_struct._allowed_attrs
+    (the full inherited chain). It validates each kwarg value and returns an
+    anonymous (unregistered) type struct.
+
+    When kwargs are provided, an extra_validator is composed so that the new
+    constraint values are enforced on top of the base validator chain.
+
+    Example:
+        typedef(name="age", base=integer(min=0, max=150))
+        # age() is injected into scope
+        child_age = age(max=17)   # anonymous sub-type enforcing max=17
+        typedef(name="teen", base=age(max=19))
+    """
+    allowed = type_struct._allowed_attrs
+    root_kind = python.getattr(type_struct, "_root_kind", None)
+
+    mandatory = python.getattr(type_struct, "_attrs_mandatory", set())
+    current_attrs = python.getattr(type_struct, "attributes", {})
+
+    def factory(**kwargs):
+        for k in kwargs:
+            if k not in allowed:
+                raise TypeError(
+                    type_struct.name + "() got unexpected attribute " + repr(k)
+                    + ". Allowed: " + repr(set(allowed))
+                )
+        for k, v in kwargs.items():
+            _validate_attr_value(k, v, allowed[k])
+
+        for k in mandatory:
+            if k not in current_attrs and k not in kwargs:
+                raise TypeError(
+                    type_struct.name + "() missing mandatory attribute " + repr(k)
+                )
+
+        if not kwargs:
+            return type_struct
+
+        # Compose an extra_validator that enforces the new constraint values
+        # using the primitive validator for the root kind.
+        captured_kwargs = dict(kwargs)
+        def extra_validator(value):
+            if root_kind in _PRIMITIVE_KINDS:
+                generic_validate(root_kind, captured_kwargs, value)
+            return True
+
+        return extend_attrs(
+            base=type_struct,
+            extra_attributes=captured_kwargs,
+            extra_validator=extra_validator,
+        )
+
+    return factory

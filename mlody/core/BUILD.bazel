@@ -1,5 +1,7 @@
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
+exports_files(["rule.mlody"])
+
 o_py_library(
     name = "targets_lib",
     srcs = ["targets.py"],
@@ -40,6 +42,7 @@ o_py_library(
         ":targets_lib",
         "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody/common:context_lib",
     ],
 )
 

@@ -101,8 +101,8 @@ class TestTwoPhaseLoading:
         ws = Workspace(monorepo_root=project)
         ws.load()
 
-        # models.mlody registers "bert" as a root
-        assert "bert" in ws.evaluator.roots
+        # models.mlody registers "bert" as a root; key is path-qualified
+        assert "mlody/teams/lexica/bert" in ws.evaluator.roots
 
     def test_phase2_skips_already_loaded_files(self, fs: FakeFilesystem, project: Path) -> None:
         # builtins.mlody is loaded in Phase 1 via roots.mlody's load() call.

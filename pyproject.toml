@@ -54,6 +54,9 @@ dependencies = [
   # See: https://github.com/nickel-lang/tree-sitter-starlark
   "tree-sitter-starlark",
 
+  # git repository introspection (branch, commit, etc.) for mlody context.
+  # See: https://gitpython.readthedocs.io/
+  "gitpython"
   # HuggingFace model hub client for downloading models.
   # See: https://github.com/huggingface/huggingface_hub
   "huggingface_hub",

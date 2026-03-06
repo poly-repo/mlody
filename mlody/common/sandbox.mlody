@@ -1,0 +1,376 @@
+# This file is a sandbox for playing with new features as they are developed. It is not part of MLody releases.
+
+## Roots
+load("//mlody/core/builtins.mlody", "root")
+load("@common//:types.mlody")
+load("//mlody/common/locations.mlody")
+
+print("===================================")
+
+world = "World"
+
+def hello(s):
+    print("Hello, " + world + "! this is : " + s)
+
+print(builtins.ctx)    
+
+print("===================================")
+
+# This is just for testing as root is the only thing we have defined for now
+root(
+    name = "mlody",
+    path = "//mlody",
+    description = "TODO: remove this",
+)
+
+typedef(
+    name = "integer",
+    base = integer(),
+)
+
+typedef(
+    name = "positive_integer",
+    base = integer(min=0),
+)
+
+typedef(
+    name = "even_natural_number",
+    base = integer(min=1),
+    predicate = lambda v: v % 2 == 0,
+)
+
+# -------------------------
+# Validator examples
+# -------------------------
+print(builtins.lookup("type", "positive_integer"))
+      
+# 1. Inline constraint: validate values directly against a type descriptor.
+age_type = integer(min=0, max=150)
+print("age_type.validator(25) =>", age_type.validator(25))   # passes
+print("age_type.validator(0)  =>", age_type.validator(0))    # boundary passes
+
+# 2. String type with a minimum length and a regex pattern.
+username_type = string(min_length=3, pattern=r"[a-z_][a-z0-9_]*")
+print("username_type.validator('alice') =>", username_type.validator("alice"))
+
+# 3. extend_attrs with a custom extra_validator (odd check).
+#    The composed validator first runs integer range checks, then the lambda.
+odd_integer = extend_attrs(
+    integer(),
+    type_name = "odd_integer",
+    extra_validator = lambda v: v % 2 != 0,
+)
+print("odd_integer.validator(7)  =>", odd_integer.validator(7))   # passes
+print("odd_integer.validator(-3) =>", odd_integer.validator(-3))  # passes (no min set)
+
+# 4. Look up a registered typedef and validate through it.
+#    positive_integer has min=0 baked into its base, so any non-negative int passes.
+pos_int_type = builtins.lookup("type", "positive_integer")
+print("pos_int_type.validator(42) =>", pos_int_type.validator(42))
+
+# -------------------------
+# Failing validation examples
+# -------------------------
+
+def _expect_error(label, fn):
+    """Call fn(); print the caught exception, fail loudly if no exception is raised."""
+    try:
+        fn()
+        print(label, "=> BUG: no error raised!")
+    except (TypeError, ValueError) as e:
+        print(label, "=>", e.__class__.__name__ + ":", e)
+
+# 5. Integer out of range.
+_expect_error("age_type.validator(-1)",  lambda: age_type.validator(-1))   # below min
+_expect_error("age_type.validator(200)", lambda: age_type.validator(200))  # above max
+
+# 6. Wrong Python type passed to an integer validator.
+_expect_error('age_type.validator("thirty")', lambda: age_type.validator("thirty"))
+_expect_error("age_type.validator(True)",     lambda: age_type.validator(True))   # bool != int
+
+# 7. String pattern mismatch and length violation.
+_expect_error('username_type.validator("AB")',    lambda: username_type.validator("AB"))   # too short + uppercase
+_expect_error('username_type.validator("no spaces")', lambda: username_type.validator("no spaces"))
+
+# 8. extra_validator rejection (even number fails the odd check).
+_expect_error("odd_integer.validator(4)", lambda: odd_integer.validator(4))
+
+# 9. Positive-integer typedef rejects negative values and non-integers.
+_expect_error("pos_int_type.validator(-5)",   lambda: pos_int_type.validator(-5))
+_expect_error('pos_int_type.validator(3.14)', lambda: pos_int_type.validator(3.14))
+
+# 11. even_natural_number: must be > 0 and even.
+enn = builtins.lookup("type", "even_natural_number")
+print("enn.validator(4) =>", enn.validator(4))   # passes
+_expect_error("enn.validator(0)",  lambda: enn.validator(0))   # not natural (min=1)
+_expect_error("enn.validator(3)",  lambda: enn.validator(3))   # odd
+_expect_error("enn.validator(-2)", lambda: enn.validator(-2))  # negative
+
+# 10. Factory-level attr type validation (caught at type-construction time, not value time).
+_expect_error('integer(min="zero")', lambda: integer(min="zero"))  # min must be integer
+_expect_error("integer(step=1)",     lambda: integer(step=1))      # step is not a known attr
+
+# -------------------------
+# map() examples
+# -------------------------
+print("===================================")
+print("=== map() examples ===")
+
+# Uniform: string keys, integer values
+scores = map(value_type=integer())
+print("scores.validator({'alice': 10, 'bob': 20}) =>", scores.validator({"alice": 10, "bob": 20}))  # passes
+_expect_error("scores.validator({'alice': 'ten'})", lambda: scores.validator({"alice": "ten"}))  # wrong value type
+_expect_error("scores.validator({1: 10})",          lambda: scores.validator({1: 10}))            # non-string key
+
+# Per-key typed record, extra keys allowed by default
+typedef(
+    name = "point2d",
+    fields = [field(name="x", type=float()), field(name="y", type=float())],
+)
+print("point2d({'x': 1.0, 'y': 2.5, 'z': 0.0}) =>", point2d().validator({"x": 1.0, "y": 2.5, "z": 0.0}))  # passes (z is extra, OK)
+_expect_error("point2d({'x': 1.0})", lambda: point2d().validator({"x": 1.0}))  # fails: "y" required
+
+# Per-key with optional field and strict=True
+typedef(
+    name = "named_point",
+    fields = [
+        field(name="x", type=float()),
+        field(name="y", type=float()),
+        field(name="label", type=string(), mandatory=False),
+    ],
+    strict = True,
+)
+print("named_point({'x': 1.0, 'y': 2.0}) =>",                  named_point().validator({"x": 1.0, "y": 2.0}))                  # passes (label optional)
+print("named_point({'x': 1.0, 'y': 2.0, 'label': 'A'}) =>",   named_point().validator({"x": 1.0, "y": 2.0, "label": "A"}))   # passes
+_expect_error("named_point with extra key",                       lambda: named_point().validator({"x": 1.0, "y": 2.0, "extra": "oops"}))  # fails: strict
+
+# Non-string keys: uniform integer→string map
+int_keyed = map(key_type=integer(), value_type=string())
+print("int_keyed.validator({0: 'zero', 1: 'one'}) =>", int_keyed.validator({0: "zero", 1: "one"}))  # passes
+_expect_error("int_keyed.validator({'a': 'alpha'})", lambda: int_keyed.validator({"a": "alpha"}))   # string key rejected
+_expect_error("int_keyed.validator({1: 42})",        lambda: int_keyed.validator({1: 42}))          # wrong value type
+
+# Non-string keys: per-key with explicit integer key_type (inline, not typedef)
+indexed_pair = map(
+    key_type = integer(),
+    fields = [
+        field(name=0, type=string()),
+        field(name=1, type=float()),
+    ],
+    strict = True,
+)
+print("indexed_pair.validator({0: 'hello', 1: 3.14}) =>", indexed_pair.validator({0: "hello", 1: 3.14}))  # passes
+_expect_error("indexed_pair.validator({'0': 'hello', '1': 3.14})", lambda: indexed_pair.validator({"0": "hello", "1": 3.14}))  # string keys rejected
+_expect_error("indexed_pair.validator({0: 'hello'})",              lambda: indexed_pair.validator({0: "hello"}))               # key 1 missing
+
+# -------------------------
+# typedef factory (auto-injected into scope)
+# -------------------------
+print("===================================")
+print("=== typedef factory examples ===")
+
+# After typedef(name="positive_integer", ...) above, positive_integer() is in scope.
+# Create an anonymous sub-type narrowing the max constraint.
+young_age = positive_integer(max=25)
+print("positive_integer(max=25).validator(20) =>", young_age.validator(20))  # passes
+_expect_error("positive_integer(max=25).validator(30)", lambda: young_age.validator(30))  # fails
+
+# Use the anonymous sub-type directly as a base.
+typedef(
+    name = "young_adult",
+    base = positive_integer(min=18, max=25),
+)
+print("young_adult:", builtins.lookup("type", "young_adult"))
+
+# -------------------------
+# HuggingFace config example
+# -------------------------
+print("===================================")
+print("=== HuggingFace config example ===")
+
+typedef(
+    name = "activation_fn",
+    base = string(),
+    predicate = lambda v: v in ["gelu", "relu", "silu", "tanh", "gelu_new"],
+)
+
+typedef(
+    name = "huggingface_config",
+    fields = [
+        field(name="model_type",              type=string()),
+        field(name="vocab_size",              type=integer(min=1)),
+        field(name="architectures",           type=vector(element_type=string()),  mandatory=False),
+        field(name="hidden_size",             type=integer(),                      mandatory=False),
+        field(name="num_hidden_layers",       type=integer(),                      mandatory=False),
+        field(name="num_attention_heads",     type=integer(),                      mandatory=False),
+        field(name="intermediate_size",       type=integer(),                      mandatory=False),
+        field(name="hidden_act",              type=activation_fn(),                mandatory=False),
+        field(name="max_position_embeddings", type=integer(),                      mandatory=False),
+        field(name="id2label",                type=map(value_type=string()),       mandatory=False),
+        field(name="label2id",                type=map(value_type=integer()),      mandatory=False),
+        field(name="torch_dtype",             type=string(),                       mandatory=False),
+        field(name="transformers_version",    type=string(),                       mandatory=False),
+    ],
+    # hidden_size must be divisible by num_attention_heads (when both are present)
+    predicate = lambda v: (
+        v.get("hidden_size") == None or
+        v.get("num_attention_heads") == None or
+        v.get("hidden_size") % v.get("num_attention_heads") == 0
+    ),
+)
+
+# Minimal valid config (only required fields)
+print("minimal bert config =>", huggingface_config().validator({
+    "model_type": "bert",
+    "vocab_size": 30522,
+}))
+
+# Full config
+print("full bert config =>", huggingface_config().validator({
+    "model_type": "bert",
+    "architectures": ["BertForMaskedLM"],
+    "vocab_size": 30522,
+    "hidden_size": 768,
+    "num_hidden_layers": 12,
+    "num_attention_heads": 12,
+    "intermediate_size": 3072,
+    "hidden_act": "gelu",
+    "max_position_embeddings": 512,
+    "id2label": {"0": "LABEL_0", "1": "LABEL_1"},
+    "label2id": {"LABEL_0": 0, "LABEL_1": 1},
+    "torch_dtype": "float32",
+    "transformers_version": "4.40.0",
+}))
+
+# Extra keys are fine (strict=False — the schema doesn't restrict additionalProperties)
+print("extra key '_comment' =>", huggingface_config().validator({
+    "model_type": "bert",
+    "vocab_size": 30522,
+    "_comment": "this unknown key is allowed",
+}))
+
+# Error cases
+_expect_error("missing vocab_size",  lambda: huggingface_config().validator({"model_type": "bert"}))
+_expect_error("bad vocab_size",      lambda: huggingface_config().validator({"model_type": "bert", "vocab_size": 0}))
+_expect_error("bad hidden_act",      lambda: huggingface_config().validator({"model_type": "bert", "vocab_size": 30522, "hidden_act": "swish"}))
+_expect_error("bad architectures",   lambda: huggingface_config().validator({"model_type": "bert", "vocab_size": 30522, "architectures": [42]}))
+
+# Cross-field predicate: hidden_size divisible by num_attention_heads
+print("divisibility ok (768/12) =>", huggingface_config().validator({
+    "model_type": "bert",
+    "vocab_size": 30522,
+    "hidden_size": 768,
+    "num_attention_heads": 12,
+}))
+print("divisibility ok (both absent) =>", huggingface_config().validator({
+    "model_type": "bert",
+    "vocab_size": 30522,
+}))
+_expect_error("hidden_size not divisible by num_attention_heads",
+    lambda: huggingface_config().validator({
+        "model_type": "bert",
+        "vocab_size": 30522,
+        "hidden_size": 768,
+        "num_attention_heads": 7,
+    })
+)
+
+# -------------------------
+# canonical() examples
+# -------------------------
+print("===================================")
+print("=== canonical() examples ===")
+
+typedef(
+    name = "email_address",
+    base = string(),
+    canonical = lambda v: v.strip().lower(),
+)
+print("canonical email =>", email_address().canonical("  USER@EXAMPLE.COM  "))
+# → user@example.com
+
+# Derived type inherits canonical
+typedef(
+    name = "gmail_address",
+    base = email_address(pattern=r".*@gmail\.com"),
+)
+print("gmail inherits canonical =>", gmail_address().canonical("  ME@GMAIL.COM  "))
+# → me@gmail.com
+
+# Canonical can return None (ambiguous / no canonical form)
+typedef(
+    name = "hex_prefix",
+    base = string(),
+    canonical = lambda v: v if len(v) == 40 else None,
+)
+print("short hash =>", hex_prefix().canonical("abc123"))           # → None
+print("full hash  =>", hex_prefix().canonical("a" * 40))           # → "aaa..."
+
+# Derived type overrides canonical
+typedef(
+    name = "upper_hex",
+    base = hex_prefix(),
+    canonical = lambda v: v.upper() if len(v) == 40 else None,
+)
+print("upper_hex canonical =>", upper_hex().canonical("abcd" * 10))  # uppercase
+
+# -------------------------
+# location() examples
+# -------------------------
+print("===================================")
+print("=== location() examples ===")
+
+# 1. Bare locations — no constraints, accept anything.
+any_s3    = s3()
+any_posix = posix()
+print("s3()    =>", any_s3)
+print("posix() =>", any_posix)
+print("s3().kind    =>", any_s3.kind)     # "location"
+print("s3().type    =>", any_s3.type)     # "s3"
+print("posix().type =>", any_posix.type)  # "posix"
+
+# 2. Narrowed S3 location — single-attribute constraint (v1 validator semantics:
+#    value is compared against the constrained attribute value directly).
+bucket_s3 = s3(bucket="team-prod")
+print("bucket_s3 attributes =>", bucket_s3.attributes)
+print("bucket_s3.validator('team-prod') =>", bucket_s3.validator("team-prod"))
+_expect_error("bucket_s3.validator('other')", lambda: bucket_s3.validator("other"))
+
+# Multi-attribute narrowing is valid for struct construction; validator semantics
+# for multiple constraints are deferred to v2 unification.
+prod_s3 = s3(bucket="team-prod", region="us-east-1")
+print("prod_s3 attributes =>", prod_s3.attributes)  # inspection only
+
+# 3. POSIX path constraint.
+data_dir = posix(path="/mnt/data/runs")
+print("data_dir.validator('/mnt/data/runs') =>", data_dir.validator("/mnt/data/runs"))
+_expect_error("data_dir.validator('/tmp')", lambda: data_dir.validator("/tmp"))
+
+# 4. User-defined location kind — team narrows S3 to a specific bucket.
+location(
+    name = "team_s3",
+    base = s3(bucket="team-prod"),
+    description = "All team outputs live in the team-prod bucket.",
+)
+print("team_s3().type =>", team_s3().type)        # "team_s3"
+print("team_s3().kind =>", team_s3().kind)        # "location"
+print("team_s3().attributes =>", team_s3().attributes)  # inherits bucket="team-prod"
+
+# Further narrowed: team_s3 with a prefix constraint (multi-attribute;
+# validator semantics deferred to v2 — inspect attributes only).
+model_output = team_s3(prefix="models/checkpoints/")
+print("model_output attributes =>", model_output.attributes)
+
+# 5. Location with a predicate — enforce a naming convention on S3 prefixes.
+#    Use bare s3() as base so only the predicate runs (v1 single-value validator).
+location(
+    name = "dated_prefix_s3",
+    base = s3(),
+    predicate = lambda v: v.startswith("runs/") or v.startswith("models/"),
+)
+print("dated_prefix_s3 accepts 'runs/...' =>", dated_prefix_s3().validator("runs/"))
+_expect_error("dated_prefix_s3 rejects 'tmp/'", lambda: dated_prefix_s3().validator("tmp/"))
+
+# 6. Look up a registered location by name.
+looked_up = builtins.lookup("location", "s3")
+print("lookup('location', 's3').type =>", looked_up.type)  # "s3"

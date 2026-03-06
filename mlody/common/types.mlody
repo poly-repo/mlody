@@ -1,0 +1,182 @@
+load("//mlody/core/rule.mlody", "rule")
+load("//mlody/common/attrs.mlody", "attr", "field", "extend_attrs", "_make_factory", "_validate_attr_value", "_PRIMITIVE_KINDS", "generic_validate", "_builtin_bool", "_builtin_float", "_builtin_tuple", "_PRIMITIVE_VALIDATORS", "_validate_map", "_validate_tuple")
+
+
+def _type_impl(ctx):
+    base_type = python.getattr(ctx.attr, 'base', None)
+
+    # Handle fields kwarg: per-key map typedef (e.g. typedef(name="point", fields=[field(...)]))
+    fields = python.getattr(ctx.attr, "fields", None)
+    if fields != None:
+        strict = python.getattr(ctx.attr, "strict", False)
+        captured_attrs = {"fields": fields, "strict": strict}
+        captured_predicate = python.getattr(ctx.attr, 'predicate', None)
+        captured_canonical = python.getattr(ctx.attr, 'canonical', None)
+        def _map_validator(value):
+            _validate_map(captured_attrs, value)
+            if captured_predicate != None:
+                res = captured_predicate(value)
+                if res is False:
+                    raise ValueError("cross-field predicate rejected the value")
+            return True
+        new_type_struct = Struct(
+            kind="type", type=ctx.attr.name, name=ctx.attr.name,
+            attributes=captured_attrs, _allowed_attrs={},
+            _root_kind="map", validator=_map_validator,
+            canonical=captured_canonical,
+        )
+        builtins.register(ctx.kind, new_type_struct)
+        builtins.inject(ctx.attr.name, _make_factory(new_type_struct))
+        return {}
+
+    # Handle list base: positional tuple schema (e.g. typedef(name="point", base=[float(), float()]))
+    if isinstance(base_type, list):
+        for i, item in enumerate(base_type):
+            if type(item) != "struct" or python.getattr(item, "kind", None) != "type":
+                raise TypeError(
+                    f"typedef {ctx.attr.name!r}: base list item {i} must be a type struct"
+                )
+        element_types = base_type
+        captured_attrs = {"_element_types": element_types}
+        captured_canonical = python.getattr(ctx.attr, 'canonical', None)
+        def _tuple_validator(value):
+            _validate_tuple(captured_attrs, value)
+            return True
+        new_type_struct = Struct(
+            kind="type", type=ctx.attr.name, name=ctx.attr.name,
+            attributes=captured_attrs, _allowed_attrs={},
+            _root_kind="tuple", validator=_tuple_validator,
+            canonical=captured_canonical,
+        )
+        builtins.register(ctx.kind, new_type_struct)
+        builtins.inject(ctx.attr.name, _make_factory(new_type_struct))
+        return {}
+
+    if base_type == None:
+        # No base given: bootstrap a minimal primitive base from the typedef name.
+        # Only valid for kinds handled by generic_validate (e.g. "integer", "float").
+        base_type = Struct(
+            kind="type", type=ctx.attr.name, name=ctx.attr.name,
+            attributes={}, _allowed_attrs={},
+        )
+    other_fields = {}
+    if python.hasattr(ctx.attr, 'description'):
+        other_fields['description'] = ctx.attr.description
+    canonical = python.getattr(ctx.attr, 'canonical', None)
+    if canonical != None:
+        other_fields['canonical'] = canonical
+    predicate = python.getattr(ctx.attr, 'predicate', None)
+
+    extra_attrs_spec = None
+    attrs_mandatory = set()
+    if python.hasattr(ctx.attr, 'attrs') and ctx.attr.attrs != None:
+        # ctx.attr.attrs is a Struct (rule.mlody coerces dicts via struct())
+        # Each field is itself a Struct: Struct(type="...", metadata=Struct(...))
+        for attr_name, attr_def in ctx.attr.attrs.as_mapping().items():
+            declared_type = python.getattr(attr_def, "type", None)
+            if declared_type == None:
+                raise ValueError(
+                    f"typedef {ctx.attr.name!r}: attrs[{attr_name!r}] must declare a type"
+                )
+            if extra_attrs_spec == None:
+                extra_attrs_spec = {}
+            extra_attrs_spec[attr_name] = declared_type
+            is_mandatory = python.getattr(attr_def.metadata, "mandatory", False)
+            if is_mandatory:
+                attrs_mandatory.add(attr_name)
+
+    if attrs_mandatory:
+        other_fields["_attrs_mandatory"] = attrs_mandatory
+
+    # Always explicitly set abstract (prevents inheriting True from an abstract base).
+    abstract = python.getattr(ctx.attr, 'abstract', None)
+    other_fields['abstract'] = abstract == True
+
+    # Primitive bootstrap types must anchor _root_kind to their own name so that
+    # generic_validate dispatch still works when the base is abstract.
+    if ctx.attr.name in _PRIMITIVE_KINDS:
+        other_fields['_root_kind'] = ctx.attr.name
+
+    new_type_struct = extend_attrs(
+        base=base_type,
+        type_name=ctx.attr.name,
+        extra_attrs_spec=extra_attrs_spec,
+        extra_validator=predicate,
+        **other_fields
+    )
+    builtins.register(ctx.kind, new_type_struct)
+    builtins.inject(ctx.attr.name, _make_factory(new_type_struct))
+    return {}
+
+
+typedef = rule(
+    implementation=_type_impl,
+    kind='type',
+    attrs={
+        "name":        attr(type="string"),
+        "description": attr(type="string",     mandatory=False),
+        "base":        attr(type="type",       mandatory=False, default=None),
+        "attrs":       attr(type="dict",       mandatory=False, default=None),
+        "predicate":   attr(type="callable",   mandatory=False, default=None),
+        "canonical":   attr(type="callable",   mandatory=False, default=None),
+        "fields":      attr(type="field_list", mandatory=False, default=None),
+        "strict":      attr(type="bool",       mandatory=False, default=None),
+        "abstract":    attr(type="bool",       mandatory=False, default=None),
+    }
+)
+
+# ---- Abstract hierarchy ----
+typedef(name="top",       abstract=True)
+typedef(name="scalar",    base=top(),       abstract=True)
+typedef(name="aggregate", base=top(),       abstract=True)
+
+# ---- Scalar primitives (inherit from scalar) ----
+typedef(
+    name = "integer",
+    base = scalar(),
+    attrs = {
+        "min": attr(type="integer", mandatory=False),
+        "max": attr(type="integer", mandatory=False),
+    },
+)
+typedef(name="bool", base=scalar())
+typedef(
+    name = "float",
+    base = scalar(),
+    attrs = {
+        "min": attr(type="float", mandatory=False),
+        "max": attr(type="float", mandatory=False),
+    },
+)
+
+# ---- Aggregate types (inherit from aggregate) ----
+typedef(
+    name = "vector",
+    base = aggregate(),
+    attrs = {
+        "element_type": attr(type="type",    mandatory=False),
+        "min_length":   attr(type="integer", mandatory=False),
+        "max_length":   attr(type="integer", mandatory=False),
+    },
+)
+typedef(name="tuple", base=aggregate())
+typedef(
+    name = "map",
+    base = aggregate(),
+    attrs = {
+        "key_type":   attr(type="type",       mandatory=False),
+        "value_type": attr(type="type",       mandatory=False),
+        "fields":     attr(type="field_list", mandatory=False),
+        "strict":     attr(type="bool",       mandatory=False),
+    },
+)
+
+# ---- String inherits from vector (sequence-like) ----
+# min_length/max_length are inherited from vector; only pattern is new.
+typedef(
+    name = "string",
+    base = vector(),
+    attrs = {
+        "pattern": attr(type="string", mandatory=False),
+    },
+)

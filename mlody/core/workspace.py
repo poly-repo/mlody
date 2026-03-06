@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
+from mlody.common.context import ctx as mlody_ctx
 from mlody.core.targets import TargetAddress, parse_target, resolve_target_value
 
 _logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class Workspace:
     ) -> None:
         self._monorepo_root = monorepo_root
         self._roots_file = roots_file or (monorepo_root / "mlody" / "roots.mlody")
-        self._evaluator = Evaluator(root=monorepo_root, print_fn=print_fn)
+        self._evaluator = Evaluator(root=monorepo_root, print_fn=print_fn, extra_ctx=mlody_ctx)
         self._root_infos: dict[str, RootInfo] = {}
 
     @property
@@ -54,7 +55,8 @@ class Workspace:
         self._evaluator.eval_file(self._roots_file)
 
         self._root_infos = {}
-        for name, root_obj in self._evaluator.roots.items():
+        for _key, root_obj in self._evaluator.roots.items():
+            name = root_obj.name
             self._root_infos[name] = RootInfo(
                 name=name,
                 path=getattr(root_obj, "path", ""),
@@ -75,4 +77,4 @@ class Workspace:
     def resolve(self, target: str | TargetAddress) -> object:
         """Parse (if string) and resolve a target to a value."""
         address = parse_target(target) if isinstance(target, str) else target
-        return resolve_target_value(address, self._evaluator.roots)
+        return resolve_target_value(address, self._evaluator._roots_by_name)
