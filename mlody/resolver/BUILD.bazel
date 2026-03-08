@@ -1,0 +1,40 @@
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
+
+o_py_library(
+    name = "resolver_lib",
+    srcs = [
+        "__init__.py",
+        "cache.py",
+        "errors.py",
+        "git_client.py",
+        "resolver.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//mlody/core:workspace_lib",
+    ],
+)
+
+o_py_test(
+    name = "errors_test",
+    srcs = ["errors_test.py"],
+    deps = [":resolver_lib"],
+)
+
+o_py_test(
+    name = "git_client_test",
+    srcs = ["git_client_test.py"],
+    deps = [":resolver_lib"],
+)
+
+o_py_test(
+    name = "cache_test",
+    srcs = ["cache_test.py"],
+    deps = [":resolver_lib"],
+)
+
+o_py_test(
+    name = "resolver_test",
+    srcs = ["resolver_test.py"],
+    deps = [":resolver_lib"],
+)

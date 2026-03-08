@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -44,8 +45,10 @@ class TestVerifyMonorepoRoot:
 @click.pass_context
 def _test_probe(ctx: click.Context) -> None:
     """Test-only subcommand that echoes context values."""
-    click.echo(f"workspace={ctx.obj.get('workspace') is not None}")
+    # Scenario: cli group no longer constructs workspace — probe checks monorepo_root
+    click.echo(f"monorepo_root={ctx.obj.get('monorepo_root') is not None}")
     click.echo(f"verbose={ctx.obj.get('verbose')}")
+    click.echo(f"workspace={ctx.obj.get('workspace') is not None}")
 
 
 # ---------------------------------------------------------------------------
@@ -56,17 +59,31 @@ def _test_probe(ctx: click.Context) -> None:
 class TestContextPropagation:
     """Requirement: Click entry point structure — context propagation."""
 
-    def test_subcommand_receives_workspace(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_subcommand_receives_monorepo_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Scenario: cli group no longer constructs Workspace; it sets monorepo_root
         (tmp_path / "MODULE.bazel").touch()
         monkeypatch.chdir(tmp_path)
 
         runner = CliRunner()
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            mock_ws_cls.return_value = MagicMock()
-            result = runner.invoke(cli, ["_test_probe"])
+        result = runner.invoke(cli, ["_test_probe"])
 
         assert result.exit_code == 0
-        assert "workspace=True" in result.output
+        assert "monorepo_root=True" in result.output
+
+    def test_workspace_not_set_by_cli_group(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Scenario: ctx.obj["workspace"] is NOT set by the cli callback
+        (tmp_path / "MODULE.bazel").touch()
+        monkeypatch.chdir(tmp_path)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["_test_probe"])
+
+        assert result.exit_code == 0
+        assert "workspace=False" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -75,31 +92,37 @@ class TestContextPropagation:
 
 
 class TestRootsOption:
-    """Requirement: Global CLI options — --roots."""
+    """Requirement: Global CLI options — --roots stored in ctx for subcommands."""
 
-    def test_custom_roots_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_roots_stored_in_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         (tmp_path / "MODULE.bazel").touch()
         monkeypatch.chdir(tmp_path)
 
-        runner = CliRunner()
+        @cli.command("_test_roots_probe")
+        @click.pass_context
+        def _test_roots_probe(ctx: click.Context) -> None:
+            click.echo(f"roots={ctx.obj.get('roots')}")
+
         custom_roots = tmp_path / "custom" / "roots.mlody"
+        runner = CliRunner()
+        runner.invoke(cli, ["--roots", str(custom_roots), "_test_roots_probe"])
 
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            mock_ws_cls.return_value = MagicMock()
-            runner.invoke(cli, ["--roots", str(custom_roots), "_test_probe"])
-
-        mock_ws_cls.assert_called_once_with(monorepo_root=tmp_path, roots_file=custom_roots)
-
-    def test_default_roots_when_omitted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_roots_default_is_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         (tmp_path / "MODULE.bazel").touch()
         monkeypatch.chdir(tmp_path)
 
-        runner = CliRunner()
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            mock_ws_cls.return_value = MagicMock()
-            runner.invoke(cli, ["_test_probe"])
+        @cli.command("_test_roots_default")
+        @click.pass_context
+        def _test_roots_default(ctx: click.Context) -> None:
+            click.echo(f"roots_is_none={ctx.obj.get('roots') is None}")
 
-        mock_ws_cls.assert_called_once_with(monorepo_root=tmp_path, roots_file=None)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["_test_roots_default"])
+        assert "roots_is_none=True" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -115,9 +138,7 @@ class TestVerboseFlag:
         monkeypatch.chdir(tmp_path)
 
         runner = CliRunner()
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            mock_ws_cls.return_value = MagicMock()
-            result = runner.invoke(cli, ["--verbose", "_test_probe"])
+        result = runner.invoke(cli, ["--verbose", "_test_probe"])
 
         assert result.exit_code == 0
         assert "verbose=True" in result.output
@@ -127,9 +148,7 @@ class TestVerboseFlag:
         monkeypatch.chdir(tmp_path)
 
         runner = CliRunner()
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            mock_ws_cls.return_value = MagicMock()
-            result = runner.invoke(cli, ["_test_probe"])
+        result = runner.invoke(cli, ["_test_probe"])
 
         assert result.exit_code == 0
         assert "verbose=False" in result.output
@@ -143,17 +162,17 @@ class TestVerboseFlag:
 class TestHelp:
     """Requirement: Help does not trigger workspace loading."""
 
-    def test_help_does_not_load_workspace(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        # No MODULE.bazel — would fail if workspace loading triggered
+    def test_help_does_not_verify_monorepo_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No MODULE.bazel — would fail if verify_monorepo_root triggered
         monkeypatch.chdir(tmp_path)
 
         runner = CliRunner()
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            result = runner.invoke(cli, ["--help"])
+        result = runner.invoke(cli, ["--help"])
 
         assert result.exit_code == 0
         assert "mlody" in result.output
-        mock_ws_cls.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -162,47 +181,18 @@ class TestHelp:
 
 
 class TestErrorHandling:
-    """Requirement: Workspace loading errors surface cleanly."""
+    """Requirement: Monorepo root errors surface cleanly at the CLI level."""
 
-    def test_missing_roots_file_produces_cli_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        (tmp_path / "MODULE.bazel").touch()
+    def test_missing_module_bazel_produces_cli_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No MODULE.bazel present — cli group must exit with code 1
         monkeypatch.chdir(tmp_path)
 
         runner = CliRunner()
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            mock_ws_cls.return_value.load.side_effect = FileNotFoundError("Roots file not found: /bad/path")
-            result = runner.invoke(cli, ["_test_probe"])
+        result = runner.invoke(cli, ["_test_probe"])
 
         assert result.exit_code == 1
-        assert "Roots file not found" in result.output
-
-    def test_evaluation_error_produces_cli_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        (tmp_path / "MODULE.bazel").touch()
-        monkeypatch.chdir(tmp_path)
-
-        runner = CliRunner()
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            mock_ws_cls.return_value.load.side_effect = SyntaxError("invalid .mlody file")
-            result = runner.invoke(cli, ["_test_probe"])
-
-        assert result.exit_code == 1
-        assert "invalid .mlody file" in result.output
-
-    def test_no_traceback_on_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        (tmp_path / "MODULE.bazel").touch()
-        monkeypatch.chdir(tmp_path)
-
-        runner = CliRunner()
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            mock_ws_cls.return_value.load.side_effect = FileNotFoundError("Roots file not found")
-            result = runner.invoke(cli, ["_test_probe"])
-
-        assert "Traceback" not in result.output
-
-
-# ---------------------------------------------------------------------------
-# main() entry point
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +212,6 @@ class TestLoggingConfiguration:
     def test_verbose_sets_debug_level(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import logging
-
         monkeypatch.setattr(logging.getLogger(), "level", logging.NOTSET)
         _configure_logging(verbose=True)
         assert logging.getLogger().level == logging.DEBUG
@@ -231,8 +219,6 @@ class TestLoggingConfiguration:
     def test_default_sets_warning_level(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import logging
-
         monkeypatch.setattr(logging.getLogger(), "level", logging.NOTSET)
         _configure_logging(verbose=False)
         assert logging.getLogger().level == logging.WARNING
@@ -243,11 +229,6 @@ class TestLoggingConfiguration:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        import logging
-
-        # Workspace debug output (e.g. "Loading root: ...") must surface when
-        # --verbose is active.  We emit a synthetic record at the right logger
-        # name to avoid needing a real filesystem layout.
         (tmp_path / "MODULE.bazel").touch()
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(logging.getLogger(), "level", logging.NOTSET)
@@ -272,9 +253,7 @@ class TestMain:
         monkeypatch.chdir(tmp_path)
 
         runner = CliRunner()
-        with patch("mlody.cli.main.Workspace") as mock_ws_cls:
-            mock_ws_cls.return_value = MagicMock()
-            result = runner.invoke(cli, ["_test_probe"])
+        result = runner.invoke(cli, ["_test_probe"])
 
         assert result.exit_code == 0
 

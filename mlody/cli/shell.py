@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import functools
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -32,15 +31,21 @@ def _get_history_path() -> Path:
     return history_file
 
 
-def _build_repl_namespace(workspace: Workspace) -> dict[str, object]:
+def _build_repl_namespace(workspace: Workspace, monorepo_root: Path) -> dict[str, object]:
     """Construct the REPL namespace exposed to the user.
 
-    Exposes `show` as a partial over show_fn with workspace already closed over,
-    so shell users call `show("@root//pkg:target")` rather than passing workspace
-    explicitly. `workspace` is also exposed directly for advanced inspection.
+    Exposes `show` as a callable that accepts a raw label string and resolves
+    it via show_fn (which handles committoid-qualified labels). `workspace` is
+    also exposed directly for advanced inspection of the cwd workspace.
     """
+    def _show(*labels: str) -> object | list[object]:
+        results = [show_fn(label, monorepo_root=monorepo_root) for label in labels]
+        if len(results) == 1:
+            return results[0]
+        return results
+
     return {
-        "show": functools.partial(show_fn, workspace),
+        "show": _show,
         "workspace": workspace,
     }
 
@@ -69,7 +74,28 @@ def shell(ctx: click.Context) -> None:
       show("@root//pkg:target")  — resolve and return a pipeline value
       workspace                  — the loaded Workspace instance
     """
-    workspace: Workspace = ctx.obj["workspace"]
+    # Support legacy test injection of a pre-built workspace via ctx.obj
+    if "workspace" in ctx.obj:
+        workspace: Workspace = ctx.obj["workspace"]
+        monorepo_root: Path = ctx.obj.get("monorepo_root", Path.cwd())
+        history_file = _get_history_path()
+        namespace = _build_repl_namespace(workspace, monorepo_root)
+        _launch_repl(namespace, history_file)
+        return
+
+    monorepo_root = ctx.obj["monorepo_root"]
+    roots: Path | None = ctx.obj.get("roots")
+
+    from mlody.resolver import resolve_workspace
+
+    # Load the cwd workspace to expose as the `workspace` REPL variable.
+    # An @-prefixed dummy label with just the root marker is used to trigger
+    # the cwd path through resolve_workspace.
+    workspace_obj, _sha = resolve_workspace(
+        "@//:_shell_init",
+        monorepo_root=monorepo_root,
+        roots_file=roots,
+    )
     history_file = _get_history_path()
-    namespace = _build_repl_namespace(workspace)
+    namespace = _build_repl_namespace(workspace_obj, monorepo_root)
     _launch_repl(namespace, history_file)

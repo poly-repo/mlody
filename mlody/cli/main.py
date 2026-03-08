@@ -10,8 +10,6 @@ from pathlib import Path
 import click
 from rich.logging import RichHandler
 
-from mlody.core.workspace import Workspace
-
 
 def _configure_logging(verbose: bool) -> None:
     """Configure console logging for the CLI.
@@ -69,19 +67,15 @@ def cli(ctx: click.Context, roots: Path | None, verbose: bool) -> None:
     ctx.obj["verbose"] = verbose
     _configure_logging(verbose)
 
-    # Allow tests to inject a pre-loaded workspace via ctx.obj
-    if "workspace" in ctx.obj:
+    # Allow tests to inject pre-built context objects without triggering
+    # filesystem verification. Tests may inject either workspace (legacy) or
+    # monorepo_root (new-style) to bypass the verify step.
+    if "monorepo_root" in ctx.obj or "workspace" in ctx.obj:
         return
 
     monorepo_root = verify_monorepo_root()
-    try:
-        workspace = Workspace(monorepo_root=monorepo_root, roots_file=roots)
-        workspace.load()
-    except Exception as exc:  # noqa: BLE001
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
-
-    ctx.obj["workspace"] = workspace
+    ctx.obj["monorepo_root"] = monorepo_root
+    ctx.obj["roots"] = roots
 
 
 def main() -> None:

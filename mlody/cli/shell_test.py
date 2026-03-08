@@ -20,46 +20,47 @@ from mlody.cli.shell import _build_repl_namespace, _get_history_path
 class TestBuildReplNamespace:
     """Requirement: REPL namespace exposes show and workspace."""
 
-    def test_namespace_contains_show_and_workspace(self) -> None:
+    def test_namespace_contains_show_and_workspace(self, tmp_path: Path) -> None:
         ws = MagicMock()
-        namespace = _build_repl_namespace(ws)
+        namespace = _build_repl_namespace(ws, monorepo_root=tmp_path)
 
         assert set(namespace.keys()) == {"show", "workspace"}
 
-    def test_workspace_in_namespace_is_same_object(self) -> None:
+    def test_workspace_in_namespace_is_same_object(self, tmp_path: Path) -> None:
         ws = MagicMock()
-        namespace = _build_repl_namespace(ws)
+        namespace = _build_repl_namespace(ws, monorepo_root=tmp_path)
 
         assert namespace["workspace"] is ws
 
-    def test_show_resolves_single_target(self) -> None:
-        # show() in the namespace must delegate to show_fn(workspace, target),
-        # so callers don't need to know about the workspace at all.
+    def test_show_delegates_to_show_fn(self, tmp_path: Path) -> None:
+        # show() in the namespace delegates to show_fn with the monorepo_root
         ws = MagicMock()
-        ws.resolve.return_value = 0.001
-        namespace = _build_repl_namespace(ws)
+        namespace = _build_repl_namespace(ws, monorepo_root=tmp_path)
 
-        result = namespace["show"]("@bert//:lr")
+        with patch("mlody.cli.shell.show_fn") as mock_show_fn:
+            mock_show_fn.return_value = 0.001
+            result = namespace["show"]("@bert//:lr")
 
         assert result == 0.001
-        ws.resolve.assert_called_once_with("@bert//:lr")
+        mock_show_fn.assert_called_once_with("@bert//:lr", monorepo_root=tmp_path)
 
-    def test_show_resolves_multiple_targets_returns_list(self) -> None:
+    def test_show_resolves_multiple_targets_returns_list(self, tmp_path: Path) -> None:
         ws = MagicMock()
-        ws.resolve.side_effect = [0.001, "adam"]
-        namespace = _build_repl_namespace(ws)
+        namespace = _build_repl_namespace(ws, monorepo_root=tmp_path)
 
-        result = namespace["show"]("@bert//:lr", "@bert//:optimizer")
+        with patch("mlody.cli.shell.show_fn") as mock_show_fn:
+            mock_show_fn.side_effect = [0.001, "adam"]
+            result = namespace["show"]("@bert//:lr", "@bert//:optimizer")
 
         assert result == [0.001, "adam"]
 
-    def test_show_raises_key_error_on_unknown_target(self) -> None:
+    def test_show_propagates_exceptions(self, tmp_path: Path) -> None:
         ws = MagicMock()
-        ws.resolve.side_effect = KeyError("NONEXISTENT")
-        namespace = _build_repl_namespace(ws)
+        namespace = _build_repl_namespace(ws, monorepo_root=tmp_path)
 
-        with pytest.raises(KeyError, match="NONEXISTENT"):
-            namespace["show"]("@NONEXISTENT//:x")
+        with patch("mlody.cli.shell.show_fn", side_effect=KeyError("NONEXISTENT")):
+            with pytest.raises(KeyError, match="NONEXISTENT"):
+                namespace["show"]("@NONEXISTENT//:x")
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +125,9 @@ class TestShellCommand:
         ) as mock_hist:
             mock_hist.return_value = tmp_path / "repl_history"
             runner = CliRunner()
-            result = runner.invoke(cli, ["shell"], obj={"workspace": ws, "verbose": False})
+            result = runner.invoke(
+                cli, ["shell"], obj={"workspace": ws, "verbose": False, "monorepo_root": tmp_path}
+            )
 
         assert result.exit_code == 0
         mock_launch.assert_called_once()

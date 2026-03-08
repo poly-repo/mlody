@@ -65,5 +65,9 @@ o_py_library(
         "workspace.py",
     ],
     visibility = ["//:__subpackages__"],
-    deps = ["//common/python/starlarkish/evaluator:evaluator_lib"],
+    deps = [
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody:mlody_lib",
+        "//mlody/common:context_lib",
+    ],
 )

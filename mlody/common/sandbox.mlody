@@ -4,6 +4,7 @@
 load("//mlody/core/builtins.mlody", "root")
 load("@common//:types.mlody")
 load("//mlody/common/locations.mlody")
+load("//mlody/common/values.mlody")
 
 print("===================================")
 
@@ -374,3 +375,67 @@ _expect_error("dated_prefix_s3 rejects 'tmp/'", lambda: dated_prefix_s3().valida
 # 6. Look up a registered location by name.
 looked_up = builtins.lookup("location", "s3")
 print("lookup('location', 's3').type =>", looked_up.type)  # "s3"
+
+# -------------------------
+# value() examples
+# -------------------------
+print("===================================")
+print("=== value() examples ===")
+
+# 1. Basic value: direct type and location structs.
+value(
+    name = "raw_scores",
+    type = integer(min=0),
+    location = s3(bucket="team-prod"),
+)
+raw_scores = builtins.lookup("value", "raw_scores")
+print("raw_scores.kind     =>", raw_scores.kind)          # "value"
+print("raw_scores.type     =>", raw_scores.type)          # integer(min=0) struct
+print("raw_scores.location =>", raw_scores.location)      # s3(bucket="team-prod") struct
+
+# 2. Using string labels — shorthand for referencing registered types/locations by name.
+value(
+    name = "label_lookup_example",
+    type = "integer",       # resolves to the registered integer type
+    location = "s3",        # resolves to the registered s3 location
+)
+ex = builtins.lookup("value", "label_lookup_example")
+print("resolved type.name     =>", ex.type.name)      # "integer"
+print("resolved location.name =>", ex.location.name)  # "s3"
+
+# 3. User-defined type and location in a value.
+typedef(
+    name = "score",
+    base = integer(min=0, max=100),
+)
+location(
+    name = "results_bucket",
+    base = s3(bucket="ml-results", region="us-east-1"),
+)
+value(
+    name = "eval_scores",
+    type = score(),
+    location = results_bucket(),
+)
+ev = builtins.lookup("value", "eval_scores")
+print("eval_scores.type.name     =>", ev.type.name)      # "score"
+print("eval_scores.location.type =>", ev.location.type)  # "results_bucket"
+
+# 4. POSIX-based value — training checkpoints on local disk.
+value(
+    name = "checkpoints",
+    type = "string",
+    location = posix(path="/mnt/data/checkpoints"),
+)
+ckpt = builtins.lookup("value", "checkpoints")
+print("checkpoints.location.attributes =>", ckpt.location.attributes)  # {path: "/mnt/..."}
+
+# 5. Error cases.
+_expect_error(
+    "value type=s3() (location struct as type)",
+    lambda: value(name="bad1", type=s3(), location=s3()),
+)
+_expect_error(
+    "value location=integer() (type struct as location)",
+    lambda: value(name="bad2", type=integer(), location=integer()),
+)

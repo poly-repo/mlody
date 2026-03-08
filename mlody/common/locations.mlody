@@ -106,12 +106,32 @@ location(
     attrs = {
         "bucket": attr(type="string", mandatory=False),
         "prefix": attr(type="string", mandatory=False),
-        "region": attr(type="string", mandatory=False),
+        "region": attr(type="string", mandatory=False), # probably only meaningful for AWS S3
+	"endpoint": attr(type="string", mandatory=False), # for minio etx
     },
 )
+
 location(
     name = "posix",
     attrs = {
         "path": attr(type="string", mandatory=False),
     },
 )
+
+location(
+    name = "git_repository",
+    attrs = {
+	# should endpoint be called remote as in bazel?
+	"endpoint": attr(type="string", mandatory=True),
+	# exactly one of the following three shall be specified. Not able to state that with the types we have.
+	"branch": attr(type="string", mandatory=False),
+	"tag": attr(type="string", mandatory=False),
+	"commit": attr(type="string", mandatory=False),
+
+        # we should get a path type. Needed in labels as well.
+        "path": attr(type="string", mandatory=False),
+        # whether to include submodules
+	"submodules": attr(type="bool", mandatory=False),
+    },
+)
+

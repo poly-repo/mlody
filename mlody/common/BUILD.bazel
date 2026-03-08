@@ -26,9 +26,9 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
+        "//common/python/starlarkish",
         "//common/python/starlarkish/evaluator:evaluator_lib",
-        "//common/python/starlarkish/evaluator:testing",
-        "@pip//pyfakefs",
+        "@pip//pytest",
     ],
 )
 
@@ -42,7 +42,38 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
+        "//common/python/starlarkish",
         "//common/python/starlarkish/evaluator:evaluator_lib",
-        "//common/python/starlarkish/evaluator:testing",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
+    name = "common_lib",
+    srcs = [
+        "context.py",
+        "struct.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//common/python/starlarkish/core:core_lib",
+        "@pip//gitpython",
+    ],
+)
+
+o_py_test(
+    name = "values_test",
+    srcs = ["values_test.py"],
+    data = [
+        "attrs.mlody",
+        "locations.mlody",
+        "types.mlody",
+        "values.mlody",
+        "//mlody/core:rule.mlody",
+    ],
+    deps = [
+        "//common/python/starlarkish",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "@pip//pytest",
     ],
 )

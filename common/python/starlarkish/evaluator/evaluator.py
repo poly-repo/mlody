@@ -200,9 +200,11 @@ class Evaluator:
         self.roots: dict[str, Named] = dict()
         self.types: dict[str, Named] = dict()
         self.locations: dict[str, Named] = dict()
+        self.values: dict[str, Named] = dict()
         self._roots_by_name: dict[str, Named] = {}
         self._types_by_name: dict[str, Named] = {}
         self._locations_by_name: dict[str, Named] = {}
+        self._values_by_name: dict[str, Named] = {}
         for _pname in ["integer", "string", "bool", "float"]:
             _sentinel: Named = Struct(  # type: ignore[assignment]
                 kind="type", type=_pname, name=_pname, attributes={}, _allowed_attrs={}
@@ -237,9 +239,12 @@ class Evaluator:
         elif kind == 'location':
             self.locations[key] = thing
             self._locations_by_name[thing.name] = thing
+        elif kind == 'value':
+            self.values[key] = thing
+            self._values_by_name[thing.name] = thing
         else:
             raise ValueError(
-                f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location'."
+                f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location', 'value'."
             )
         _log.debug("Registering %s as %s with key %r", thing, kind, key)
 
@@ -256,8 +261,12 @@ class Evaluator:
             if name not in self._locations_by_name:
                 raise NameError(f"No location {name!r}. Available: {sorted(self._locations_by_name)}")
             return self._locations_by_name[name]
+        elif kind == "value":
+            if name not in self._values_by_name:
+                raise NameError(f"No value {name!r}. Available: {sorted(self._values_by_name)}")
+            return self._values_by_name[name]
         else:
-            raise ValueError(f"Unknown lookup kind {kind!r}. Supported: 'root', 'type', 'location'.")
+            raise ValueError(f"Unknown lookup kind {kind!r}. Supported: 'root', 'type', 'location', 'value'.")
 
     def _load(self, path: str, *symbols: str, current_file: Path, caller_globals: dict[str, Any]) -> None:  # pyright: ignore[reportExplicitAny]
         """

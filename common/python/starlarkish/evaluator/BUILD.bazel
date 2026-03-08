@@ -23,6 +23,7 @@ o_py_test(
     deps = [
         ":evaluator_lib",
         "//common/python/starlarkish",
+        "//common/python/starlarkish/core:core_lib",
         "@pip//pyfakefs",
         "@pip//pytest",
     ],

@@ -1,0 +1,47 @@
+load("//mlody/core/rule.mlody", "rule")
+load("//mlody/common/attrs.mlody", "attr")
+
+
+def _resolve_type_ref(value):
+    if isinstance(value, str):
+        return builtins.lookup("type", value)
+    if type(value) != "struct" or python.getattr(value, "kind", None) != "type":
+        raise TypeError(
+            "Expected a type struct or string name, got " + repr(type(value))
+        )
+    return value
+
+
+def _resolve_location_ref(value):
+    if isinstance(value, str):
+        return builtins.lookup("location", value)
+    if type(value) != "struct" or python.getattr(value, "kind", None) != "location":
+        raise TypeError(
+            "Expected a location struct or string name, got " + repr(type(value))
+        )
+    return value
+
+
+def _value_impl(ctx):
+    type_ref = _resolve_type_ref(ctx.attr.type)
+    loc_ref = _resolve_location_ref(ctx.attr.location)
+
+    value_struct = Struct(
+        kind="value",
+        name=ctx.attr.name,
+        type=type_ref,
+        location=loc_ref,
+    )
+    builtins.register(ctx.kind, value_struct)
+    return {}
+
+
+value = rule(
+    implementation=_value_impl,
+    kind="value",
+    attrs={
+        "name":     attr(type="string"),
+        "type":     attr(type="type_ref"),
+        "location": attr(type="location_ref"),
+    },
+)

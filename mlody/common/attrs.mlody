@@ -37,6 +37,26 @@ def _validate_attr_value(attr_name: str, value: python.Any, type_ref: python.Any
                     f"Attribute {attr_name!r} expects a location struct, got {type(value)!r}"
                 )
             return
+        if type_ref == "type_ref":
+            # Accepts a type struct OR a string name (resolved by the impl at call time)
+            if isinstance(value, str):
+                return
+            if type(value) != "struct" or python.getattr(value, "kind", None) != "type":
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects a type struct or string name, "
+                    f"got {type(value)!r}"
+                )
+            return
+        if type_ref == "location_ref":
+            # Accepts a location struct OR a string name (resolved by the impl at call time)
+            if isinstance(value, str):
+                return
+            if type(value) != "struct" or python.getattr(value, "kind", None) != "location":
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects a location struct or string name, "
+                    f"got {type(value)!r}"
+                )
+            return
         if type_ref == "field_list":
             if not isinstance(value, list):
                 raise TypeError(f"Attribute {attr_name!r} expects a list of field() specs")
