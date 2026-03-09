@@ -11,11 +11,12 @@ import click
 from rich.pretty import pretty_repr
 
 from mlody.cli.main import cli
-from mlody.core.workspace import Workspace
+from mlody.core.workspace import Workspace, WorkspaceLoadError
 from mlody.resolver import resolve_workspace
 from mlody.resolver.errors import WorkspaceResolutionError
 
 _logger = logging.getLogger(__name__)
+
 
 
 def show_fn(
@@ -87,6 +88,10 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
 
             _committoid, inner_label = _parse_inner(target)
             value = workspace.resolve(inner_label)
+        except WorkspaceLoadError as exc:
+            has_error = True
+            click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
+            continue
         except WorkspaceResolutionError as exc:
             has_error = True
             click.echo(click.style(f"Error: {exc}", fg="red"), err=True)

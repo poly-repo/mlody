@@ -76,6 +76,7 @@ o_py_test(
     deps = [
         ":cli_lib",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/resolver:resolver_lib",
         "@pip//click",
         "@pip//pytest",
     ],

@@ -18,6 +18,7 @@ o_py_library(
         "//mlody/core:core_lib",
         "@pip//lsprotocol",
         "@pip//pygls",
+        "@pip//rich",
         "@pip//tree_sitter",
         "@pip//tree_sitter_starlark",
     ],

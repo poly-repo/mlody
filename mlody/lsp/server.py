@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import tree_sitter
 from lsprotocol import types
 from pygls.lsp.server import LanguageServer
 from pygls.uris import to_fs_path
+from rich.console import Console
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from mlody.core.workspace import Workspace
@@ -179,6 +181,11 @@ def _noop_print(*_args: object, **_kwargs: object) -> None:
     print() is silently discarded instead of touching stdout.
     """
 
+
+# Sink for the Workspace registry dump (rich Console output).
+# The LSP server must not write anything to stdout beyond JSON-RPC framing.
+_null_console = Console(file=io.StringIO())
+
 # Module-level evaluator state — set on INITIALIZED, read by all request handlers.
 # None indicates that the workspace failed to load; handlers degrade gracefully.
 _evaluator: Evaluator | None = None
@@ -222,7 +229,7 @@ async def on_initialized(params: types.InitializedParams) -> None:
     logging.getLogger().addHandler(LSPLogHandler(server))
 
     try:
-        workspace = Workspace(monorepo_root=monorepo_root, print_fn=_noop_print)
+        workspace = Workspace(monorepo_root=monorepo_root, print_fn=_noop_print, console=_null_console)
         workspace.load()
         _evaluator = workspace.evaluator
         _eval_error = None
@@ -269,7 +276,7 @@ def on_changed_watched_files(params: types.DidChangeWatchedFilesParams) -> None:
     global _evaluator, _eval_error  # noqa: PLW0603
 
     try:
-        workspace = Workspace(monorepo_root=_monorepo_root, print_fn=_noop_print)
+        workspace = Workspace(monorepo_root=_monorepo_root, print_fn=_noop_print, console=_null_console)
         workspace.load()
         _evaluator = workspace.evaluator
         _eval_error = None

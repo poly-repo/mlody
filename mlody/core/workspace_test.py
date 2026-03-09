@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import dataclasses
+import io
 from pathlib import Path
 
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
+from rich.console import Console
 
 from mlody.core.targets import TargetAddress
-from mlody.core.workspace import RootInfo, Workspace
+from mlody.core.workspace import RootInfo, Workspace, WorkspaceLoadError
 
 ROOT = Path("/project")
 
@@ -102,7 +104,7 @@ class TestTwoPhaseLoading:
         ws.load()
 
         # models.mlody registers "bert" as a root; key is path-qualified
-        assert "mlody/teams/lexica/bert" in ws.evaluator.roots
+        assert "mlody/teams/lexica/models:bert" in ws.evaluator.roots
 
     def test_phase2_skips_already_loaded_files(self, fs: FakeFilesystem, project: Path) -> None:
         # builtins.mlody is loaded in Phase 1 via roots.mlody's load() call.
@@ -218,17 +220,87 @@ class TestPrintFn:
     def test_custom_print_fn_suppresses_stdout(
         self, fs: FakeFilesystem, project: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        # LSP usage: passing a no-op prevents sandbox print() from corrupting
-        # the stdout JSON-RPC transport.
+        # LSP usage: passing a no-op print_fn prevents sandbox print() from
+        # corrupting the stdout JSON-RPC transport; a null console prevents the
+        # registry dump from reaching stdout.
         fs.create_file(
             str(project / "mlody" / "teams" / "lexica" / "printer.mlody"),
             contents='print("should be suppressed")\n',
         )
-        ws = Workspace(monorepo_root=project, print_fn=lambda *_, **__: None)
+        ws = Workspace(
+            monorepo_root=project,
+            print_fn=lambda *_, **__: None,
+            console=Console(file=io.StringIO()),
+        )
         ws.load()
 
         captured = capsys.readouterr()
         assert captured.out == ""
+
+
+# ---------------------------------------------------------------------------
+# Error collection (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceLoadError:
+    """Requirement: Phase 2 errors are collected and raised as WorkspaceLoadError."""
+
+    def test_single_bad_file_raises(self, fs: FakeFilesystem, project: Path) -> None:
+        fs.create_file(
+            str(project / "mlody" / "teams" / "lexica" / "broken.mlody"),
+            contents="this is not valid starlark !!!\n",
+        )
+        ws = Workspace(monorepo_root=project)
+        with pytest.raises(WorkspaceLoadError) as exc_info:
+            ws.load()
+        assert len(exc_info.value.failures) == 1
+        path, _exc = exc_info.value.failures[0]
+        assert path.name == "broken.mlody"
+
+    def test_multiple_bad_files_collected(self, fs: FakeFilesystem, project: Path) -> None:
+        fs.create_file(
+            str(project / "mlody" / "teams" / "lexica" / "bad_a.mlody"),
+            contents="syntax error !!!\n",
+        )
+        fs.create_file(
+            str(project / "mlody" / "teams" / "lexica" / "bad_b.mlody"),
+            contents="another error ???\n",
+        )
+        ws = Workspace(monorepo_root=project)
+        with pytest.raises(WorkspaceLoadError) as exc_info:
+            ws.load()
+        assert len(exc_info.value.failures) == 2
+        failed_names = {p.name for p, _ in exc_info.value.failures}
+        assert failed_names == {"bad_a.mlody", "bad_b.mlody"}
+
+    def test_error_message_lists_files(self, fs: FakeFilesystem, project: Path) -> None:
+        fs.create_file(
+            str(project / "mlody" / "teams" / "lexica" / "broken.mlody"),
+            contents="syntax error !!!\n",
+        )
+        ws = Workspace(monorepo_root=project)
+        with pytest.raises(WorkspaceLoadError) as exc_info:
+            ws.load()
+        msg = str(exc_info.value)
+        assert "1 file(s) failed to load" in msg
+        assert "broken.mlody" in msg
+
+    def test_good_files_still_loaded_alongside_bad(
+        self, fs: FakeFilesystem, project: Path
+    ) -> None:
+        """Good files evaluated before the bad one are still registered."""
+        # models.mlody (good) is alphabetically before broken.mlody
+        # but we use sorted(), so: broken < models — both are attempted.
+        fs.create_file(
+            str(project / "mlody" / "teams" / "lexica" / "broken.mlody"),
+            contents="syntax error !!!\n",
+        )
+        ws = Workspace(monorepo_root=project)
+        with pytest.raises(WorkspaceLoadError):
+            ws.load()
+        # models.mlody was processed; "bert" root should be registered
+        assert "mlody/teams/lexica/models:bert" in ws.evaluator.roots
 
 
 class TestStdoutSafety:
@@ -243,7 +315,14 @@ class TestStdoutSafety:
     def test_load_does_not_write_to_stdout(
         self, project: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        ws = Workspace(monorepo_root=project)
+        # The LSP server always supplies a no-op print_fn and a null console so
+        # that neither sandbox print() calls nor the post-load registry dump
+        # reach stdout.
+        ws = Workspace(
+            monorepo_root=project,
+            print_fn=lambda *_, **__: None,
+            console=Console(file=io.StringIO()),
+        )
         ws.load()
 
         captured = capsys.readouterr()

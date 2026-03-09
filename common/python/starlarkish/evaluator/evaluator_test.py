@@ -65,9 +65,9 @@ builtins.register("root", struct(name="simple_root", value=42))
     evaluator = Evaluator(project_root)
     evaluator.eval_file(project_root / "simple.mlody")
 
-    assert "simple_root" in evaluator.roots
-    assert evaluator.roots["simple_root"].name == "simple_root"
-    assert evaluator.roots["simple_root"].value == 42  # type: ignore[attr-defined]
+    assert "simple:simple_root" in evaluator.roots
+    assert evaluator.roots["simple:simple_root"].name == "simple_root"
+    assert evaluator.roots["simple:simple_root"].value == 42  # type: ignore[attr-defined]
 
 
 def test_load_and_registration(fs: FakeFilesystem, project_root: Path) -> None:
@@ -75,8 +75,8 @@ def test_load_and_registration(fs: FakeFilesystem, project_root: Path) -> None:
     evaluator = Evaluator(project_root)
     evaluator.eval_file(project_root / "entry.mlody")
 
-    assert "entry_point" in evaluator.roots
-    root_obj = evaluator.roots["entry_point"]
+    assert "entry:entry_point" in evaluator.roots
+    root_obj = evaluator.roots["entry:entry_point"]
     assert root_obj.name == "entry_point"
     assert root_obj.const == "hello from lib"  # type: ignore[attr-defined]
     assert root_obj.helper == "helper"  # type: ignore[attr-defined]
@@ -102,8 +102,8 @@ builtins.register("root", struct(name="loaded_all", const=MY_CONSTANT, func_resu
     evaluator = Evaluator(project_root)
     evaluator.eval_file(project_root / "load_all.mlody")
 
-    assert "loaded_all" in evaluator.roots
-    root_obj = evaluator.roots["loaded_all"]
+    assert "load_all:loaded_all" in evaluator.roots
+    root_obj = evaluator.roots["load_all:loaded_all"]
     assert root_obj.const == "hello from lib"  # type: ignore[attr-defined]
     assert root_obj.func_result == "data from func"  # type: ignore[attr-defined]
 
@@ -244,8 +244,8 @@ builtins.register("root", struct(name="preloaded", value=99))
     evaluator = Evaluator(project_root, init_files=[project_root / "init.mlody"])
 
     # Root must be registered without any eval_file() call
-    assert "preloaded" in evaluator.roots
-    assert evaluator.roots["preloaded"].value == 99  # type: ignore[attr-defined]
+    assert "init:preloaded" in evaluator.roots
+    assert evaluator.roots["init:preloaded"].value == 99  # type: ignore[attr-defined]
 
 
 def test_load_at_root_with_package(fs: FakeFilesystem, project_root: Path) -> None:
@@ -268,7 +268,7 @@ builtins.register("root", struct(name="myroot", path="//mlody/lib"))
     ev.eval_file(project_root / "mlody/roots.mlody")
     ev.eval_file(project_root / "mlody/consumer.mlody")
 
-    assert ev.roots["mlody/consumer"].value == "bert-base"  # type: ignore[attr-defined]
+    assert ev.roots["mlody/consumer:consumer"].value == "bert-base"  # type: ignore[attr-defined]
 
 
 def test_load_at_root_no_package(fs: FakeFilesystem, project_root: Path) -> None:
@@ -289,7 +289,7 @@ def test_load_at_root_no_package(fs: FakeFilesystem, project_root: Path) -> None
     ev.eval_file(project_root / "lib_root.mlody")
     ev.eval_file(project_root / "mlody/consumer.mlody")
 
-    assert ev.roots["mlody/r"].value == "ok"  # type: ignore[attr-defined]
+    assert ev.roots["mlody/consumer:r"].value == "ok"  # type: ignore[attr-defined]
 
 
 def test_load_at_root_idempotent_with_direct_load(
@@ -490,14 +490,14 @@ def test_lookup_accessible_from_script(fs: FakeFilesystem) -> None:
     )
     ev = Evaluator(root)
     ev.eval_file(root / "test.mlody")
-    assert ev.roots["r"].type_name == "integer"  # type: ignore[attr-defined]
+    assert ev.roots["test:r"].type_name == "integer"  # type: ignore[attr-defined]
 
 
 def test_lookup_unknown_kind_raises_value_error(fs: FakeFilesystem) -> None:
     """builtins.lookup with an unknown kind raises ValueError."""
     root = Path("/project")
     root.mkdir()
-    fs.create_file("/project/bad.mlody", contents='builtins.lookup("action", "foo")\n')
+    fs.create_file("/project/bad.mlody", contents='builtins.lookup("widget", "foo")\n')
     ev = Evaluator(root)
     with pytest.raises(ValueError, match="Unknown lookup kind"):
         ev.eval_file(root / "bad.mlody")
@@ -527,7 +527,7 @@ def test_lookup_returns_registered_type(fs: FakeFilesystem) -> None:
     )
     ev = Evaluator(root)
     ev.eval_file(root / "test.mlody")
-    assert ev.roots["r"].found_name == "my_type"  # type: ignore[attr-defined]
+    assert ev.roots["test:r"].found_name == "my_type"  # type: ignore[attr-defined]
 
 
 def test_inmemoryfs_roots_smoketest() -> None:
@@ -546,6 +546,6 @@ def test_inmemoryfs_roots_smoketest() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "smoke.mlody")
 
-    assert "smoke_root" in ev.roots
-    assert ev.roots["smoke_root"].name == "smoke_root"
-    assert ev.roots["smoke_root"].path == "//smoke"  # type: ignore[attr-defined]
+    assert "smoke:smoke_root" in ev.roots
+    assert ev.roots["smoke:smoke_root"].name == "smoke_root"
+    assert ev.roots["smoke:smoke_root"].path == "//smoke"  # type: ignore[attr-defined]

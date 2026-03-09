@@ -7,6 +7,15 @@ from pathlib import Path
 
 from mlody.resolver.errors import GitNetworkError
 
+# Top-level directories to include in the sparse checkout. Add an entry here
+# to extend the sparse checkout to a new monorepo subtree — no changes to
+# clone logic are needed.
+SPARSE_INCLUDE: list[str] = ["mlody"]
+
+# Sub-paths within included directories to exclude. Add an entry here to drop
+# a subtree that is irrelevant to value resolution (e.g. large binary assets).
+SPARSE_EXCLUDE: list[str] = ["mlody/docs"]
+
 
 class GitClient:
     """Wraps git CLI calls with typed inputs and outputs.
@@ -68,13 +77,21 @@ class GitClient:
         return result.stdout.strip()
 
     def clone_local(self, dest: Path, sha: str) -> None:
-        """Clone from the local monorepo using file:// transport.
+        """Clone from the local monorepo using file:// transport with sparse checkout.
 
-        Uses --local to enable hardlinks (fast, no network). Checks out `sha`
-        after cloning. Raises GitNetworkError on any subprocess failure.
+        Uses --local to enable hardlinks (fast, no network). Applies the same
+        sparse-checkout patterns as clone_remote so that only the directories
+        declared in SPARSE_INCLUDE (minus SPARSE_EXCLUDE) are checked out.
+        Raises GitNetworkError on any subprocess failure.
         """
+        patterns: list[str] = [f"/{d}/" for d in SPARSE_INCLUDE] + [
+            f"!/{e}/" for e in SPARSE_EXCLUDE
+        ]
         url = f"file:///{self._root}"
         self._run(["git", "clone", "--local", "--no-checkout", url, str(dest)])
+        self._run(
+            ["git", "-C", str(dest), "sparse-checkout", "set", "--no-cone"] + patterns
+        )
         # Fetch the specific SHA in case it's not a branch tip reachable by clone
         try:
             self._run(["git", "-C", str(dest), "fetch", "--depth", "1", "origin", sha])
@@ -84,14 +101,29 @@ class GitClient:
         self._run(["git", "-C", str(dest), "checkout", sha])
 
     def clone_remote(self, dest: Path, sha: str) -> None:
-        """Clone from origin with minimal blob transfer.
+        """Clone from origin with minimal blob and tree transfer.
 
-        Uses --filter=blob:none to defer blob downloads until objects are
-        accessed, keeping the initial clone fast. Raises GitNetworkError on
-        any subprocess failure.
+        Uses --filter=blob:none --sparse to defer blob downloads and limit
+        tree traversal to the directories listed in SPARSE_INCLUDE (minus
+        SPARSE_EXCLUDE). This keeps the initial clone fast even on large
+        monorepos. Raises GitNetworkError on any subprocess failure.
         """
+        patterns: list[str] = [f"/{d}/" for d in SPARSE_INCLUDE] + [
+            f"!/{e}/" for e in SPARSE_EXCLUDE
+        ]
         self._run(
-            ["git", "clone", "--filter=blob:none", "--no-checkout", "origin", str(dest)]
+            [
+                "git",
+                "clone",
+                "--filter=blob:none",
+                "--no-checkout",
+                "--sparse",
+                "origin",
+                str(dest),
+            ]
+        )
+        self._run(
+            ["git", "-C", str(dest), "sparse-checkout", "set", "--no-cone"] + patterns
         )
         self._run(["git", "-C", str(dest), "fetch", "--depth", "1", "origin", sha])
         self._run(["git", "-C", str(dest), "checkout", sha])

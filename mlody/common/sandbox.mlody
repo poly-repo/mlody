@@ -5,6 +5,15 @@ load("//mlody/core/builtins.mlody", "root")
 load("@common//:types.mlody")
 load("//mlody/common/locations.mlody")
 load("//mlody/common/values.mlody")
+load("//mlody/common/action.mlody")
+load("//mlody/common/task.mlody")
+
+action(
+    name    = "train_model",
+    inputs  = [],
+    outputs = [],
+    config  = {"epochs": 10, "lr": 0.001, "optimizer": "adam"},
+)
 
 print("===================================")
 
@@ -439,3 +448,85 @@ _expect_error(
     "value location=integer() (type struct as location)",
     lambda: value(name="bad2", type=integer(), location=integer()),
 )
+
+# -------------------------
+# action() examples
+# -------------------------
+print("===================================")
+print("=== action() examples ===")
+
+# 1. String labels — canonical form; the resolve phase replaces them with structs.
+action(
+    name    = "train_model",
+    inputs  = [":raw_scores"],
+    outputs = [":eval_scores"],
+    config  = {"epochs": 10, "lr": 0.001, "optimizer": "adam"},
+)
+train_action = builtins.lookup("action", "train_model")
+print("train_model.kind      =>", train_action.kind)        # "action"
+print("train_model.inputs[0] =>", train_action.inputs[0])   # ":raw_scores" (pre-resolve)
+print("train_model.config.epochs =>", train_action.config.epochs)  # 10
+
+# 2. Reference inputs/outputs — local ':name' labels; resolved after all files load.
+action(
+    name    = "export_checkpoints",
+    inputs  = [":eval_scores"],
+    outputs = [":checkpoints"],
+)
+export_action = builtins.lookup("action", "export_checkpoints")
+print("export_checkpoints.inputs[0]  =>", export_action.inputs[0])   # ":eval_scores" (pre-resolve)
+print("export_checkpoints.outputs[0] =>", export_action.outputs[0])  # ":checkpoints" (pre-resolve)
+
+# 3. No config — defaults to empty map.
+action(name="noop_action", inputs=[], outputs=[])
+noop = builtins.lookup("action", "noop_action")
+print("noop_action.config =>", noop.config)  # struct()
+
+# -------------------------
+# task() examples
+# -------------------------
+print("===================================")
+print("=== task() examples ===")
+
+# 1. String labels — canonical form; the resolve phase replaces them with structs.
+task(
+    name    = "weekly_training_run",
+    action  = ":train_model",
+    inputs  = [":raw_scores"],
+    outputs = [":eval_scores"],
+    config  = {"batch_size": 64, "seed": 42},
+)
+t1 = builtins.lookup("task", "weekly_training_run")
+print("weekly_training_run.kind        =>", t1.kind)         # "task"
+print("weekly_training_run.action      =>", t1.action)       # ":train_model" (pre-resolve)
+print("weekly_training_run.inputs[0]   =>", t1.inputs[0])    # ":raw_scores" (pre-resolve)
+print("weekly_training_run.config.seed =>", t1.config.seed)  # 42
+
+# 2. Reference action and values — local ':name' labels for everything.
+#    Most concise form; labels are resolved after all files finish loading.
+task(
+    name    = "nightly_export",
+    action  = ":export_checkpoints",
+    inputs  = [":eval_scores"],
+    outputs = [":checkpoints"],
+)
+t2 = builtins.lookup("task", "nightly_export")
+print("nightly_export.action    =>", t2.action)     # ":export_checkpoints" (pre-resolve)
+print("nightly_export.inputs[0] =>", t2.inputs[0])  # ":eval_scores" (pre-resolve)
+
+# 3. Mixed — inline action struct, local ':name' value labels.
+task(
+    name    = "adhoc_train",
+    action  = ":train_model",
+    inputs  = [":raw_scores"],
+    outputs = [":eval_scores"],
+    config  = {"epochs": 1},
+)
+t3 = builtins.lookup("task", "adhoc_train")
+print("adhoc_train.action        =>", t3.action)          # ":train_model" (pre-resolve)
+print("adhoc_train.config.epochs =>", t3.config.epochs)   # 1
+
+# 4. No config — defaults to empty map.
+task(name="bare_task", action=":noop_action", inputs=[], outputs=[])
+t4 = builtins.lookup("task", "bare_task")
+print("bare_task.config =>", t4.config)  # struct()

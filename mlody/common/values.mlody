@@ -5,21 +5,37 @@ load("//mlody/common/attrs.mlody", "attr")
 def _resolve_type_ref(value):
     if isinstance(value, str):
         return builtins.lookup("type", value)
-    if type(value) != "struct" or python.getattr(value, "kind", None) != "type":
-        raise TypeError(
-            "Expected a type struct or string name, got " + repr(type(value))
-        )
-    return value
+    if type(value) == "struct":
+        got_kind = python.getattr(value, "kind", None)
+        if got_kind != "type":
+            got_t = python.getattr(value, "type", None)
+            raise TypeError(
+                "Expected a type struct (kind='type'), got a "
+                + repr(got_kind) + " struct"
+                + (" of type " + repr(got_t) if got_t != None else "")
+            )
+        return value
+    raise TypeError(
+        "Expected a type struct or string name, got " + repr(type(value))
+    )
 
 
 def _resolve_location_ref(value):
     if isinstance(value, str):
         return builtins.lookup("location", value)
-    if type(value) != "struct" or python.getattr(value, "kind", None) != "location":
-        raise TypeError(
-            "Expected a location struct or string name, got " + repr(type(value))
-        )
-    return value
+    if type(value) == "struct":
+        got_kind = python.getattr(value, "kind", None)
+        if got_kind != "location":
+            got_t = python.getattr(value, "type", None)
+            raise TypeError(
+                "Expected a location struct (kind='location'), got a "
+                + repr(got_kind) + " struct"
+                + (" of type " + repr(got_t) if got_t != None else "")
+            )
+        return value
+    raise TypeError(
+        "Expected a location struct or string name, got " + repr(type(value))
+    )
 
 
 def _value_impl(ctx):

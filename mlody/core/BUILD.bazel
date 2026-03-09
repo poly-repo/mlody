@@ -43,6 +43,7 @@ o_py_library(
         "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody/common:context_lib",
+        "@pip//rich",
     ],
 )
 
@@ -53,6 +54,7 @@ o_py_test(
         ":core_lib",
         "@pip//pyfakefs",
         "@pip//pytest",
+        "@pip//rich",
     ],
 )
 
@@ -69,5 +71,6 @@ o_py_library(
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody:mlody_lib",
         "//mlody/common:context_lib",
+        "@pip//rich",
     ],
 )

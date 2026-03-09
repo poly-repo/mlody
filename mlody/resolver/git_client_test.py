@@ -122,6 +122,21 @@ class TestCatFileType:
 class TestCloneLocal:
     """Requirement: GitClient.clone_local uses file:// transport, no network."""
 
+    def test_clone_local_applies_sparse_checkout(self, tmp_path: Path) -> None:
+        dest = tmp_path / "dest"
+        client = GitClient(tmp_path)
+        with patch("subprocess.run", return_value=_ok("")) as mock_run:
+            client.clone_local(dest, "deadbeef")
+
+        cmds = [c.args[0] for c in mock_run.call_args_list]
+        sparse_cmds = [c for c in cmds if "sparse-checkout" in c]
+        assert len(sparse_cmds) == 1
+        sparse_cmd = sparse_cmds[0]
+        assert "set" in sparse_cmd
+        assert "--no-cone" in sparse_cmd
+        assert "/mlody/" in sparse_cmd
+        assert "!/mlody/docs/" in sparse_cmd
+
     def test_runs_clone_and_checkout(self, tmp_path: Path) -> None:
         dest = tmp_path / "dest"
         sha = "abc" * 13 + "a"  # 40-char SHA
@@ -186,6 +201,51 @@ class TestCloneRemote:
         with patch("subprocess.run", return_value=_fail("remote error", 128)):
             with pytest.raises(GitNetworkError):
                 client.clone_remote(dest, "deadbeef")
+
+    def test_clone_cmd_includes_sparse_flag(self, tmp_path: Path) -> None:
+        # The clone step must request a sparse checkout; the set step configures patterns
+        dest = tmp_path / "dest"
+        client = GitClient(tmp_path)
+        with patch("subprocess.run", return_value=_ok("")) as mock_run:
+            client.clone_remote(dest, "deadbeef")
+
+        calls = mock_run.call_args_list
+        clone_cmd = calls[0].args[0]
+        assert "--sparse" in clone_cmd
+
+        sparse_cmd = calls[1].args[0]
+        assert "sparse-checkout" in sparse_cmd
+        assert "set" in sparse_cmd
+        assert "--no-cone" in sparse_cmd
+
+    def test_sparse_checkout_patterns_include_negation_for_exclude(
+        self, tmp_path: Path
+    ) -> None:
+        # SPARSE_EXCLUDE entries must appear as negation patterns ("!dir/") so git
+        # omits those subtrees during checkout despite being under an included dir
+        dest = tmp_path / "dest"
+        client = GitClient(tmp_path)
+        with patch("subprocess.run", return_value=_ok("")) as mock_run:
+            client.clone_remote(dest, "deadbeef")
+
+        sparse_cmd = mock_run.call_args_list[1].args[0]
+        assert "/mlody/" in sparse_cmd
+        assert "!/mlody/docs/" in sparse_cmd
+
+    def test_additional_include_appears_in_sparse_checkout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import mlody.resolver.git_client as git_client_module
+
+        monkeypatch.setattr(git_client_module, "SPARSE_INCLUDE", ["mlody", "common"])
+        dest = tmp_path / "dest"
+        client = GitClient(tmp_path)
+        with patch("subprocess.run", return_value=_ok("")) as mock_run:
+            client.clone_remote(dest, "deadbeef")
+
+        sparse_cmd = mock_run.call_args_list[1].args[0]
+        assert "/common/" in sparse_cmd
+        assert "/mlody/" in sparse_cmd
 
 
 class TestRemoteUrl:

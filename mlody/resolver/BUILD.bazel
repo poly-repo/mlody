@@ -11,30 +11,42 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
-        "//mlody/core:workspace_lib",
+        "//mlody/core:core_lib",
     ],
 )
 
 o_py_test(
     name = "errors_test",
     srcs = ["errors_test.py"],
-    deps = [":resolver_lib"],
+    deps = [
+        ":resolver_lib",
+        "@pip//pytest",
+    ],
 )
 
 o_py_test(
     name = "git_client_test",
     srcs = ["git_client_test.py"],
-    deps = [":resolver_lib"],
+    deps = [
+        ":resolver_lib",
+        "@pip//pytest",
+    ],
 )
 
 o_py_test(
     name = "cache_test",
     srcs = ["cache_test.py"],
-    deps = [":resolver_lib"],
+    deps = [
+        ":resolver_lib",
+        "@pip//pytest",
+    ],
 )
 
 o_py_test(
     name = "resolver_test",
     srcs = ["resolver_test.py"],
-    deps = [":resolver_lib"],
+    deps = [
+        ":resolver_lib",
+        "@pip//pytest",
+    ],
 )

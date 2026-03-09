@@ -2,16 +2,32 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+from rich.console import Console
+from rich.syntax import Syntax
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from mlody.common.context import ctx as mlody_ctx
 from mlody.core.targets import TargetAddress, parse_target, resolve_target_value
 
 _logger = logging.getLogger(__name__)
+
+
+class WorkspaceLoadError(Exception):
+    """One or more .mlody files failed to evaluate during Phase 2 loading."""
+
+    def __init__(self, failures: list[tuple[Path, Exception]]) -> None:
+        self.failures = failures
+        lines = "\n".join(
+            f"  {path}: {type(exc).__name__}: {exc}"
+            for path, exc in failures
+        )
+        super().__init__(f"{len(failures)} file(s) failed to load:\n{lines}")
 
 
 @dataclass(frozen=True)
@@ -31,9 +47,11 @@ class Workspace:
         monorepo_root: Path,
         roots_file: Path | None = None,
         print_fn: Callable[..., None] = print,
+        console: Console | None = None,
     ) -> None:
         self._monorepo_root = monorepo_root
         self._roots_file = roots_file or (monorepo_root / "mlody" / "roots.mlody")
+        self._console = console if console is not None else Console()
         self._evaluator = Evaluator(root=monorepo_root, print_fn=print_fn, extra_ctx=mlody_ctx)
         self._root_infos: dict[str, RootInfo] = {}
 
@@ -64,6 +82,7 @@ class Workspace:
             )
 
         # Phase 2: Full evaluation
+        load_errors: list[tuple[Path, Exception]] = []
         for info in self._root_infos.values():
             root_abs = self._monorepo_root / info.path.lstrip("/")
             _logger.debug("Loading root: %s", root_abs)
@@ -72,7 +91,20 @@ class Workspace:
             for mlody_file in sorted(root_abs.glob("**/*.mlody")):
                 if mlody_file in self._evaluator.loaded_files:
                     continue
-                self._evaluator.eval_file(mlody_file)
+                try:
+                    self._evaluator.eval_file(mlody_file)
+                except Exception as exc:
+                    _logger.error(
+                        "Failed to load %s: %s: %s", mlody_file, type(exc).__name__, exc
+                    )
+                    load_errors.append((mlody_file, exc))
+
+        if load_errors:
+            raise WorkspaceLoadError(load_errors)
+
+        self._evaluator.resolve()
+        data = {k: v.to_dict() if hasattr(v, "to_dict") else v for k, v in self._evaluator.all.items()}
+        self._console.print(Syntax(json.dumps(data, indent=2, default=repr), "json"))
 
     def resolve(self, target: str | TargetAddress) -> object:
         """Parse (if string) and resolve a target to a value."""

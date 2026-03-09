@@ -56,7 +56,7 @@ dependencies = [
 
   # git repository introspection (branch, commit, etc.) for mlody context.
   # See: https://gitpython.readthedocs.io/
-  "gitpython"
+  "gitpython",
   # HuggingFace model hub client for downloading models.
   # See: https://github.com/huggingface/huggingface_hub
   "huggingface_hub",

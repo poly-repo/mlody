@@ -205,12 +205,18 @@ class Evaluator:
         self._types_by_name: dict[str, Named] = {}
         self._locations_by_name: dict[str, Named] = {}
         self._values_by_name: dict[str, Named] = {}
+        self.actions: dict[str, Named] = {}
+        self._actions_by_name: dict[str, Named] = {}
+        self.tasks: dict[str, Named] = {}
+        self._tasks_by_name: dict[str, Named] = {}
+        self.all: dict[str, Named] = {}
         for _pname in ["integer", "string", "bool", "float"]:
             _sentinel: Named = Struct(  # type: ignore[assignment]
                 kind="type", type=_pname, name=_pname, attributes={}, _allowed_attrs={}
             )
             self.types[_pname] = _sentinel          # bare key — no file ctx at init time
             self._types_by_name[_pname] = _sentinel
+            self.all[f"type/{_pname}"] = _sentinel
         self._module_globals: dict[Path, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
         # Override print in the sandbox so callers can suppress stdout writes
         # (e.g. the LSP server, which uses stdout as its JSON-RPC transport).
@@ -226,10 +232,11 @@ class Evaluator:
 
     def _register(self, kind: str, thing: Named, ctx: Struct) -> None:
         try:
-            rel_dir = ctx.directory.relative_to(self.root_path)
-        except ValueError:
-            rel_dir = Path(".")
-        key = str(rel_dir / thing.name)
+            rel_file = ctx.file.relative_to(self.root_path)
+            _stem = str(rel_file.with_suffix(""))
+        except (ValueError, AttributeError):
+            _stem = getattr(ctx, "file", Path("unknown")).stem
+        key = f"{_stem}:{thing.name}"
         if kind == 'root':
             self.roots[key] = thing
             self._roots_by_name[thing.name] = thing
@@ -242,13 +249,23 @@ class Evaluator:
         elif kind == 'value':
             self.values[key] = thing
             self._values_by_name[thing.name] = thing
+        elif kind == 'action':
+            self.actions[key] = thing
+            self._actions_by_name[thing.name] = thing
+        elif kind == 'task':
+            self.tasks[key] = thing
+            self._tasks_by_name[thing.name] = thing
         else:
             raise ValueError(
-                f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location', 'value'."
+                f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location', 'value', 'action', 'task'."
             )
-        _log.debug("Registering %s as %s with key %r", thing, kind, key)
+        self.all[f"{kind}/{key}"] = thing
+        _log.debug("Registered %r as %s", key, kind)
 
     def _lookup(self, kind: str, name: str) -> Any:  # pyright: ignore[reportExplicitAny]
+        # Strip leading ':' so local-reference syntax (":foo") resolves like "foo".
+        if name.startswith(":"):
+            name = name[1:]
         if kind == "type":
             if name not in self._types_by_name:
                 raise NameError(f"No type {name!r}. Available: {sorted(self._types_by_name)}")
@@ -265,8 +282,16 @@ class Evaluator:
             if name not in self._values_by_name:
                 raise NameError(f"No value {name!r}. Available: {sorted(self._values_by_name)}")
             return self._values_by_name[name]
+        elif kind == "action":
+            if name not in self._actions_by_name:
+                raise NameError(f"No action {name!r}. Available: {sorted(self._actions_by_name)}")
+            return self._actions_by_name[name]
+        elif kind == "task":
+            if name not in self._tasks_by_name:
+                raise NameError(f"No task {name!r}. Available: {sorted(self._tasks_by_name)}")
+            return self._tasks_by_name[name]
         else:
-            raise ValueError(f"Unknown lookup kind {kind!r}. Supported: 'root', 'type', 'location', 'value'.")
+            raise ValueError(f"Unknown lookup kind {kind!r}. Supported: 'root', 'type', 'location', 'value', 'action', 'task'.")
 
     def _load(self, path: str, *symbols: str, current_file: Path, caller_globals: dict[str, Any]) -> None:  # pyright: ignore[reportExplicitAny]
         """
@@ -377,7 +402,7 @@ class Evaluator:
                 "__MLODY__": True,
             }
 
-            ctx_kwargs: dict[str, Any] = {"directory": file_path.parent}  # pyright: ignore[reportExplicitAny]
+            ctx_kwargs: dict[str, Any] = {"directory": file_path.parent, "file": file_path}  # pyright: ignore[reportExplicitAny]
             if self._extra_ctx is not None:
                 ctx_kwargs.update(self._extra_ctx.as_mapping())
             ctx_struct = Struct(**ctx_kwargs)
@@ -391,6 +416,7 @@ class Evaluator:
                 current_file = self._eval_stack[-1] if self._eval_stack else file_path
                 call_ctx = Struct(**{  # pyright: ignore[reportExplicitAny]
                     "directory": current_file.parent,
+                    "file": current_file,
                     **(self._extra_ctx.as_mapping() if self._extra_ctx is not None else {}),
                 })
                 self._register(kind, thing, ctx=call_ctx)
@@ -424,8 +450,6 @@ class Evaluator:
             # Execute the file in its sandbox
             exec(script_content, sandbox_globals)
 
-            _log.debug("Globals for %s: %s", file_path, list(sandbox_globals.keys()))
-
             return sandbox_globals
         finally:
             self._eval_stack.pop()
@@ -441,3 +465,40 @@ class Evaluator:
             entrypoint_file: The path to the root script to execute.
         """
         self._execute_file(entrypoint_file)
+
+    def resolve(self) -> None:
+        """Resolution phase: replace string labels in actions/tasks with entity references.
+
+        Must be called after all files have been evaluated (loading phase complete).
+        Raises NameError for any unresolvable label.
+        """
+        def _resolve_value(v: object) -> Named:
+            if isinstance(v, str):
+                return self._lookup("value", v)
+            return v  # type: ignore[return-value]
+
+        def _resolve_action(v: object) -> Named:
+            if isinstance(v, str):
+                return self._lookup("action", v)
+            return v  # type: ignore[return-value]
+
+        # Resolve actions: string labels in inputs/outputs → value structs
+        for key, entity in list(self.actions.items()):
+            fields = dict(entity.as_mapping())
+            fields["inputs"]  = [_resolve_value(v) for v in fields.get("inputs", [])]
+            fields["outputs"] = [_resolve_value(v) for v in fields.get("outputs", [])]
+            new_entity = Struct(**fields)
+            self.actions[key] = new_entity
+            self._actions_by_name[entity.name] = new_entity
+            self.all[f"action/{key}"] = new_entity
+
+        # Resolve tasks: string labels in inputs/outputs/action → entity structs
+        for key, entity in list(self.tasks.items()):
+            fields = dict(entity.as_mapping())
+            fields["inputs"]  = [_resolve_value(v) for v in fields.get("inputs", [])]
+            fields["outputs"] = [_resolve_value(v) for v in fields.get("outputs", [])]
+            fields["action"]  = _resolve_action(fields.get("action"))
+            new_entity = Struct(**fields)
+            self.tasks[key] = new_entity
+            self._tasks_by_name[entity.name] = new_entity
+            self.all[f"task/{key}"] = new_entity

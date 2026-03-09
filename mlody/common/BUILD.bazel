@@ -77,3 +77,42 @@ o_py_test(
         "@pip//pytest",
     ],
 )
+
+o_py_test(
+    name = "action_test",
+    srcs = ["action_test.py"],
+    data = [
+        "action.mlody",
+        "attrs.mlody",
+        "locations.mlody",
+        "types.mlody",
+        "values.mlody",
+        "//mlody/core:rule.mlody",
+    ],
+    deps = [
+        "//common/python/starlarkish",
+        "//common/python/starlarkish/core:core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "task_test",
+    srcs = ["task_test.py"],
+    data = [
+        "action.mlody",
+        "attrs.mlody",
+        "locations.mlody",
+        "task.mlody",
+        "types.mlody",
+        "values.mlody",
+        "//mlody/core:rule.mlody",
+    ],
+    deps = [
+        "//common/python/starlarkish",
+        "//common/python/starlarkish/core:core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "@pip//pytest",
+    ],
+)

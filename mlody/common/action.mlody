@@ -1,0 +1,46 @@
+load("//mlody/core/rule.mlody", "rule")
+load("//mlody/common/attrs.mlody", "attr")
+
+
+def _validate_value_refs(attr_name, items):
+    for item in items:
+        if not isinstance(item, str) and not (type(item) == "struct" and python.getattr(item, "kind", None) == "value"):
+            raise TypeError(
+                attr_name + ": expected a value struct or string label, got "
+                + repr(type(item))
+            )
+    return list(items)
+
+
+def _action_impl(ctx):
+    inputs  = _validate_value_refs("inputs",  ctx.attr.inputs)
+    outputs = _validate_value_refs("outputs", ctx.attr.outputs)
+    config_raw = python.getattr(ctx.attr, "config", {})
+    if config_raw == None:
+        config_raw = {}
+    if type(config_raw) == "struct":
+        config = config_raw
+    else:
+        config = Struct(**config_raw)
+
+    action_struct = Struct(
+        kind    = "action",
+        name    = ctx.attr.name,
+        inputs  = inputs,
+        outputs = outputs,
+        config  = config,
+    )
+    builtins.register(ctx.kind, action_struct)
+    return {}
+
+
+action = rule(
+    implementation = _action_impl,
+    kind           = "action",
+    attrs          = {
+        "name":    attr(type="string"),
+        "inputs":  attr(type="value_ref_list"),
+        "outputs": attr(type="value_ref_list"),
+        "config":  attr(type="map", mandatory=False),
+    },
+)

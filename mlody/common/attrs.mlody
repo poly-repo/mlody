@@ -57,6 +57,34 @@ def _validate_attr_value(attr_name: str, value: python.Any, type_ref: python.Any
                     f"got {type(value)!r}"
                 )
             return
+        if type_ref == "value_ref_list":
+            # Accepts a list; each element is a value struct OR a string name
+            if not isinstance(value, list):
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects a list of values or string labels, "
+                    f"got {type(value)!r}"
+                )
+            for item in value:
+                if isinstance(item, str):
+                    continue
+                if type(item) != "struct" or python.getattr(item, "kind", None) != "value":
+                    raise TypeError(
+                        f"Attribute {attr_name!r}: each element must be a value struct or "
+                        f"string label, got {type(item)!r}"
+                    )
+            return
+
+        if type_ref == "action_ref":
+            # Accepts an action struct OR a string name
+            if isinstance(value, str):
+                return
+            if type(value) != "struct" or python.getattr(value, "kind", None) != "action":
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects an action struct or string name, "
+                    f"got {type(value)!r}"
+                )
+            return
+
         if type_ref == "field_list":
             if not isinstance(value, list):
                 raise TypeError(f"Attribute {attr_name!r} expects a list of field() specs")
