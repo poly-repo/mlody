@@ -16,15 +16,23 @@ from starlarkish.core.struct import Struct
 _SENTINEL = object()
 
 
+def is_virtual_value(value: object) -> bool:
+    """Return True when *value* is a typed virtual value Struct."""
+    if not isinstance(value, Struct):
+        return False
+    if getattr(value, "kind", None) != "value":
+        return False
+    loc = getattr(value, "location", None)
+    return loc is not None and getattr(loc, "type", None) == "virtual"
+
+
 def force_virtual_value(value: object) -> object:
     """Materialize a virtual value Struct; return all other inputs unchanged."""
-    if not isinstance(value, Struct):
+    if not is_virtual_value(value):
         return value
-    if getattr(value, "kind", None) != "value":
-        return value
+    assert isinstance(value, Struct)
     loc = getattr(value, "location", None)
-    if loc is None or getattr(loc, "type", None) != "virtual":
-        return value
+    assert loc is not None
     materializer = getattr(loc, "materializer", None)
     if materializer is None:
         return value
@@ -85,6 +93,32 @@ def lookup_declared_attribute(value_type: object, segment: str) -> object | None
     return None
 
 
+def iter_declared_attributes(value_type: object) -> tuple[object, ...]:
+    """Return declared child attributes in deterministic traversal order."""
+    attrs: list[object] = []
+    seen: set[str] = set()
+
+    direct_virtual = getattr(value_type, "virtual_attributes", None)
+    type_attrs = getattr(value_type, "attributes", None)
+    attrs_virtual = type_attrs.get("virtual_attributes") if isinstance(type_attrs, dict) else None
+    for attr_obj in list(direct_virtual or attrs_virtual or []):
+        name = getattr(attr_obj, "name", None)
+        if isinstance(name, str) and name not in seen:
+            attrs.append(attr_obj)
+            seen.add(name)
+
+    if is_record_type(value_type):
+        direct_fields = getattr(value_type, "fields", None)
+        attrs_fields = type_attrs.get("fields") if isinstance(type_attrs, dict) else None
+        for field_obj in list(direct_fields or attrs_fields or []):
+            name = getattr(field_obj, "name", None)
+            if isinstance(name, str) and name not in seen:
+                attrs.append(field_obj)
+                seen.add(name)
+
+    return tuple(attrs)
+
+
 def make_virtual_value(
     *,
     value_type: object,
@@ -109,6 +143,33 @@ def make_virtual_value(
     if name is not None:
         fields["name"] = name
     return Struct(**fields)
+
+
+def _child_label(value: Struct, segment: str) -> str:
+    parent_label = getattr(value, "label", None)
+    if isinstance(parent_label, str) and parent_label != "":
+        return f"{parent_label}.{segment}"
+    return segment
+
+
+def step_virtual_value(value: Struct, segment: str) -> Struct:
+    """Traverse one declared segment on a virtual value."""
+    if not is_virtual_value(value):
+        raise TypeError(f"expected virtual value Struct, got {type(value).__name__}")
+    return traverse_virtual_value(value, (segment,), _child_label(value, segment))
+
+
+def iter_virtual_children(value: Struct) -> tuple[tuple[str, Struct], ...]:
+    """Return the declared virtual children of *value* as typed child values."""
+    if not is_virtual_value(value):
+        return ()
+
+    children: list[tuple[str, Struct]] = []
+    for attr_obj in iter_declared_attributes(getattr(value, "type", None)):
+        name = getattr(attr_obj, "name", None)
+        if isinstance(name, str):
+            children.append((name, step_virtual_value(value, name)))
+    return tuple(children)
 
 
 def traverse_virtual_value(value: Struct, path: tuple[str, ...], label: str) -> Struct:

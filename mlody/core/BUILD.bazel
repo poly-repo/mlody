@@ -1,6 +1,82 @@
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
+    name = "place",
+    srcs = ["place.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":traversal_grammar",
+    ],
+)
+
+o_py_test(
+    name = "place_test",
+    srcs = ["place_test.py"],
+    deps = [
+        ":place",
+        ":traversal_grammar",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
+    name = "lineage",
+    srcs = ["lineage.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":place",
+        "//common/python/starlarkish/core:core_lib",
+    ],
+)
+
+o_py_test(
+    name = "lineage_test",
+    srcs = ["lineage_test.py"],
+    deps = [
+        ":lineage",
+        "//common/python/starlarkish/core:core_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
+    name = "setf_strategies",
+    srcs = ["setf_strategies.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":place",
+        ":virtual_value",
+        "//common/python/starlarkish/core:core_lib",
+    ],
+)
+
+o_py_library(
+    name = "setf",
+    srcs = ["setf.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":lineage",
+        ":place",
+        ":setf_strategies",
+        ":traversal_grammar",
+        ":traversal_parser",
+        ":virtual_value",
+        "//common/python/starlarkish/core:core_lib",
+    ],
+)
+
+o_py_test(
+    name = "setf_test",
+    srcs = ["setf_test.py"],
+    deps = [
+        ":setf",
+        ":traversal_grammar",
+        "//common/python/starlarkish/core:core_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
     name = "traversal_grammar",
     srcs = ["traversal_grammar.py"],
     visibility = ["//:__subpackages__"],
@@ -113,6 +189,15 @@ o_py_library(
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody/common:context_lib",  # keep
         "@pip//rich",
+    ],
+)
+
+o_py_library(
+    name = "virtual_value",
+    srcs = ["virtual_value.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//common/python/starlarkish/core:core_lib",
     ],
 )
 

@@ -17,6 +17,7 @@ import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 
 from mlody.core.label import parse_label
+from mlody.core.virtual_value import force_virtual_value
 from mlody.core.workspace import Workspace
 from mlody.resolver.label_value import (
     TRAVERSAL_STRATEGIES,
@@ -464,6 +465,19 @@ class TestWorkspaceVirtualAttributes:
         assert getattr(result.struct, "kind", None) == "value"
         assert getattr(getattr(result.struct, "type", None), "name", None) == "string"
         assert getattr(getattr(result.struct, "location", None), "type", None) == "virtual"
+
+    def test_workspace_info_branch_still_materializes_to_workspace_state(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        """Regression: public read traversal still materializes virtual leaves."""
+        ws = _make_workspace(fs)
+
+        label = parse_label("'info.branch")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyValueValue)
+        assert force_virtual_value(result.struct) == ws.info.branch
 
     def test_missing_workspace_virtual_attribute_returns_unresolved(self, fs: FakeFilesystem) -> None:
         ws = _make_workspace(fs)

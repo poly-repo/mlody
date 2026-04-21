@@ -479,7 +479,7 @@ print("export_checkpoints.inputs[0]  =>", export_action.inputs[0])   # ":eval_sc
 print("export_checkpoints.outputs[0] =>", export_action.outputs[0])  # ":checkpoints" (pre-resolve)
 
 # 3. No config — defaults to empty list.
-action(name="noop_action", inputs=[], outputs=[], implementation=["dummy"])
+action(name="noop_action", inputs=[], outputs=[], implementation="dummy")
 noop = builtins.lookup("action", "noop_action")
 print("noop_action.config =>", noop.config)  # []
 
