@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+from pyfakefs.fake_filesystem import FakeFilesystem
 
 from starlarkish.core.struct import Struct
 
-from mlody.core.setf import can_setf, resolve_places, setf
+from mlody.core.setf import can_setf, resolve_places, setf, setf_root
 from mlody.core.setf_strategies import StructFieldSetter
 from mlody.core.traversal_grammar import FieldSegment, PathExpression
 from mlody.core.virtual_value import make_virtual_value
+from mlody.core.workspace import Workspace
 
 
 _STRING_TYPE = Struct(kind="type", type="string", name="string")
@@ -23,6 +27,104 @@ _WORKSPACE_INFO_TYPE = Struct(
         Struct(name="sha", type=_STRING_TYPE),
     ],
 )
+
+_WORKSPACE_ROOT = Path("/workspace")
+_BUILTINS_MLODY = """\
+def root(name, path, description=""):
+    builtins.register("root", struct(
+        name=name,
+        path=path,
+        description=description,
+    ))
+"""
+_ROOTS_MLODY = """\
+load("//mlody/core/builtins.mlody", "root")
+
+root(name="lexica", path="//mlody/teams/lexica", description="team root")
+"""
+_TYPES_MLODY = """\
+builtins.register("type", struct(
+    kind="type", type="mlody_workspace_info", name="mlody_workspace_info",
+    fields=[
+        struct(name="path", type=struct(kind="type", type="string", name="string")),
+        struct(name="branch", type=struct(kind="type", type="string", name="string")),
+        struct(name="sha", type=struct(kind="type", type="string", name="string")),
+        struct(name="roots", type=struct(kind="type", type="vector", name="vector")),
+    ],
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-workspace", name="mlody-workspace",
+    attributes={}, _allowed_attrs={},
+    virtual_attributes=[
+        struct(name="info", type=struct(kind="type", type="mlody_workspace_info", name="mlody_workspace_info", _root_kind="record", fields=[
+            struct(name="path", type=struct(kind="type", type="string", name="string")),
+            struct(name="branch", type=struct(kind="type", type="string", name="string")),
+            struct(name="sha", type=struct(kind="type", type="string", name="string")),
+            struct(name="roots", type=struct(kind="type", type="vector", name="vector")),
+        ])),
+    ],
+))
+"""
+
+
+def _create_workspace_project(
+    fs: FakeFilesystem,
+    root: Path,
+    *,
+    api_sha: str = "old-api",
+    web_sha: str = "old-web",
+) -> Path:
+    fs.create_file(str(root / "mlody/core/builtins.mlody"), contents=_BUILTINS_MLODY)
+    fs.create_file(str(root / "mlody/roots.mlody"), contents=_ROOTS_MLODY)
+    fs.create_file(str(root / "mlody/common/types.mlody"), contents=_TYPES_MLODY)
+    fs.create_file(
+        str(root / "mlody/teams/lexica/services/release/api/image.mlody"),
+        contents=f"""\
+builtins.register("value", Struct(
+    kind="value",
+    name="image",
+    config=Struct(commit_sha="{api_sha}"),
+    _lineage=[],
+))
+""",
+    )
+    fs.create_file(
+        str(root / "mlody/teams/lexica/services/release/web/image.mlody"),
+        contents=f"""\
+builtins.register("value", Struct(
+    kind="value",
+    name="image",
+    config=Struct(commit_sha="{web_sha}"),
+    _lineage=[],
+))
+""",
+    )
+    fs.create_file(
+        str(root / "mlody/teams/lexica/services/broken/image.mlody"),
+        contents="""\
+builtins.register("value", Struct(
+    kind="value",
+    name="image",
+    config=Struct(version="1"),
+    _lineage=[],
+))
+""",
+    )
+    return root
+
+
+@pytest.fixture()
+def workspace_project(fs: FakeFilesystem) -> Path:
+    return _create_workspace_project(fs, _WORKSPACE_ROOT)
+
+
+@pytest.fixture()
+def loaded_workspace(workspace_project: Path) -> Workspace:
+    ws = Workspace(monorepo_root=workspace_project)
+    ws.load()
+    return ws
 
 
 def _virtual_workspace_info() -> Struct:
@@ -136,7 +238,7 @@ class TestSetfModuleSkeleton:
         """Task 3.1 / 4.4: direct Struct field writes rebuild the path safely."""
         root = Struct(config=Struct(learning_rate=0.1))
 
-        updated = setf(root, ".config.learning_rate", 0.2)
+        updated = setf_root(root, ".config.learning_rate", 0.2)
 
         assert updated.config.learning_rate == 0.2
         assert root.config.learning_rate == 0.1
@@ -145,7 +247,7 @@ class TestSetfModuleSkeleton:
         """Task 3.2 / 4.4: direct list index writes are supported."""
         root = Struct(items=[1, 2, 3])
 
-        updated = setf(root, ".items[1]", 99)
+        updated = setf_root(root, ".items[1]", 99)
 
         assert updated.items == [1, 99, 3]
         assert root.items == [1, 2, 3]
@@ -154,7 +256,7 @@ class TestSetfModuleSkeleton:
         """Task 3.3 / 4.4: direct dict key writes are supported."""
         root = {"config": {"learning_rate": 0.1}}
 
-        updated = setf(root, '["config"]["learning_rate"]', 0.2)
+        updated = setf_root(root, '["config"]["learning_rate"]', 0.2)
 
         assert updated["config"]["learning_rate"] == 0.2
         assert root["config"]["learning_rate"] == 0.1
@@ -163,7 +265,7 @@ class TestSetfModuleSkeleton:
         """Task 3.4 / 4.4: projected slice writes update every selected index."""
         root = Struct(items=[0, 1, 2, 3, 4])
 
-        updated = setf(root, ".items[::2]", 42)
+        updated = setf_root(root, ".items[::2]", 42)
 
         assert updated.items == [42, 1, 42, 3, 42]
         assert root.items == [0, 1, 2, 3, 4]
@@ -175,7 +277,7 @@ class TestSetfModuleSkeleton:
             second=Struct(inner=Struct(sha="old")),
         )
 
-        updated = setf(root, "...sha", "new")
+        updated = setf_root(root, "...sha", "new")
 
         assert updated.first.sha == "new"
         assert updated.second.inner.sha == "new"
@@ -192,7 +294,7 @@ class TestSetfModuleSkeleton:
         )
 
         with pytest.raises(ValueError, match="uniform declared type"):
-            setf(root, ".values[*]", Struct(payload="new"))
+            setf_root(root, ".values[*]", Struct(payload="new"))
 
         assert root.values[0].payload == 1
         assert root.values[1].payload == "x"
@@ -202,7 +304,7 @@ class TestSetfModuleSkeleton:
         root = Struct(config=Struct(value=1, _lineage=[]))
         replacement = Struct(value=2, _lineage=[])
 
-        updated = setf(
+        updated = setf_root(
             root,
             ".config",
             replacement,
@@ -220,7 +322,7 @@ class TestSetfModuleSkeleton:
         """Task 5.5: projected writes preserve the aggregate accessor in lineage."""
         root = {"items": [0, 1, 2, 3], "_lineage": []}
 
-        updated = setf(
+        updated = setf_root(
             root,
             '["items"][::2]',
             42,
@@ -246,11 +348,119 @@ class TestSetfModuleSkeleton:
         root = Struct(items=[1, 2])
 
         with pytest.raises(IndexError):
-            setf(root, ".items[5]", 99)
+            setf_root(root, ".items[5]", 99)
 
     def test_setf_raises_for_missing_dict_key(self) -> None:
         """Task 3.7: missing dict-key targets fail immediately."""
         root = {"config": {"learning_rate": 0.1}}
 
         with pytest.raises(KeyError):
-            setf(root, '["config"]["missing"]', 0.2)
+            setf_root(root, '["config"]["missing"]', 0.2)
+
+
+class TestWorkspaceFirstSetf:
+    """Workspace-first label-aware `setf` acceptance tests."""
+
+    def test_setf_updates_unqualified_label_against_explicit_workspace(
+        self, loaded_workspace: Workspace
+    ) -> None:
+        updated_workspace = setf(
+            "@lexica//services/release/api/image:image.config.commit_sha",
+            "new-api",
+            workspace=loaded_workspace,
+        )
+
+        assert updated_workspace is loaded_workspace
+        assert (
+            updated_workspace.resolve(
+                "@lexica//services/release/api/image:image.config.commit_sha"
+            )
+            == "new-api"
+        )
+
+    def test_setf_uses_cwd_workspace_for_unqualified_labels(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        workspace_project: Path,
+    ) -> None:
+        monkeypatch.chdir(workspace_project)
+
+        updated_workspace = setf(
+            "@lexica//services/release/api/image:image.config.commit_sha",
+            "cwd-sha",
+        )
+
+        assert (
+            updated_workspace.resolve(
+                "@lexica//services/release/api/image:image.config.commit_sha"
+            )
+            == "cwd-sha"
+        )
+
+    def test_setf_rejects_explicit_workspace_qualifiers(
+        self, loaded_workspace: Workspace
+    ) -> None:
+        with pytest.raises(ValueError, match="relative to the current workspace"):
+            setf(
+                "main|@lexica//services/release/api/image:image.config.commit_sha",
+                "resolved-sha",
+                workspace=loaded_workspace,
+            )
+
+    def test_setf_uses_expand_wildcard_label_and_preserves_transactionality(
+        self,
+        loaded_workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        calls: list[str] = []
+        real_expand = loaded_workspace.expand_wildcard_label
+
+        def _record_expand(inner_label: str) -> list[str]:
+            calls.append(inner_label)
+            _ = real_expand
+            return [
+                "@lexica//services/release/api/image:image.config.commit_sha",
+                "@lexica//services/release/web/image:image.config.commit_sha",
+                "@lexica//services/broken/image:image.config.commit_sha",
+            ]
+
+        monkeypatch.setattr(loaded_workspace, "expand_wildcard_label", _record_expand)
+
+        with pytest.raises(AttributeError):
+            setf(
+                "@lexica//services/...:image.config.commit_sha",
+                "bulk-sha",
+                workspace=loaded_workspace,
+            )
+
+        assert calls == ["@lexica//services/...:image.config.commit_sha"]
+        assert (
+            loaded_workspace.resolve(
+                "@lexica//services/release/api/image:image.config.commit_sha"
+            )
+            == "old-api"
+        )
+        assert (
+            loaded_workspace.resolve(
+                "@lexica//services/release/web/image:image.config.commit_sha"
+            )
+            == "old-web"
+        )
+
+    def test_setf_lowers_entity_field_path_into_root_engine(
+        self, loaded_workspace: Workspace
+    ) -> None:
+        setf(
+            "@lexica//services/release/web/image:image.config.commit_sha",
+            "field-path-sha",
+            workspace=loaded_workspace,
+        )
+
+        entity = loaded_workspace.resolve("@lexica//services/release/web/image:image")
+        assert entity.config.commit_sha == "field-path-sha"
+
+    def test_setf_rejects_workspace_virtual_attributes_as_writable_targets(
+        self, loaded_workspace: Workspace
+    ) -> None:
+        with pytest.raises(NotImplementedError, match="workspace attribute"):
+            setf("'info.branch", "release", workspace=loaded_workspace)

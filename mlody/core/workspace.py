@@ -53,6 +53,17 @@ class RootInfo:
     description: str
 
 
+@dataclass(frozen=True)
+class LabelWriteAnchor:
+    """Writable anchor for a resolved label target."""
+
+    root_value: object
+    writeback_kind: str
+    writeback_locator: object | None
+    field_parts: tuple[str, ...] = ()
+    entity_query: str | None = None
+
+
 class Workspace:
     """Wraps the starlarkish Evaluator with two-phase loading and target resolution."""
 
@@ -118,6 +129,212 @@ class Workspace:
             branch=_git("branch", "--show-current"),
             sha=_git("rev-parse", "HEAD"),
             roots=sorted(self._root_infos.keys()),
+        )
+
+    @staticmethod
+    def _step_resolved_object(obj: object, segment: str) -> object:
+        """Traverse one field while preserving list-by-name resolution."""
+        if isinstance(obj, list):
+            for item in obj:
+                if getattr(item, "name", None) == segment:
+                    return item
+            raise KeyError(segment)
+        return getattr(obj, segment)
+
+    def _match_registry_entity_label(
+        self,
+        target: str,
+        *,
+        entity: object,
+        attribute_path: tuple[str, ...] | None,
+    ) -> LabelWriteAnchor | None:
+        """Return a registry-backed label anchor when the entity is registered."""
+        entity_root = getattr(entity, "root", None)
+        entity_path = getattr(entity, "path", None)
+        entity_name = getattr(entity, "name", None)
+        entity_field_path = getattr(entity, "field_path", ()) or ()
+        entity_query = getattr(entity, "entity_query", None)
+
+        if entity_name is None:
+            return None
+
+        name_parts = entity_name.split(".")
+        base_name = name_parts[0]
+        if entity_field_path:
+            field_parts = entity_field_path
+        else:
+            field_parts = tuple(name_parts[1:])
+        if attribute_path:
+            field_parts = field_parts + attribute_path
+
+        stem_parts: list[str] = []
+        can_registry_resolve = True
+        if entity_root is not None:
+            if entity_root in self._root_infos:
+                root_rel = self._root_infos[entity_root].path.lstrip("/").rstrip("/")
+                if root_rel:
+                    stem_parts.append(root_rel)
+            elif entity_root in self._evaluator._roots_by_name:
+                can_registry_resolve = False
+            else:
+                available = sorted(self._evaluator._roots_by_name)
+                msg = f"Root {entity_root!r} not found; available roots: {available}"
+                raise KeyError(msg)
+        if entity_path:
+            stem_parts.append(entity_path.lstrip("/").rstrip("/"))
+        stem = "/".join([part for part in stem_parts if part])
+        path_suffix = entity_path.lstrip("/").rstrip("/") if entity_path else ""
+        root_prefix = None
+        if entity_root is not None and entity_root in self._root_infos:
+            root_prefix = self._root_infos[entity_root].path.lstrip("/").rstrip("/")
+
+        matches: list[tuple[tuple[object, object, object], object]] = []
+        if can_registry_resolve:
+            for key, value in self._evaluator.all.items():
+                if (
+                    isinstance(key, tuple)
+                    and len(key) == 3
+                    and key[1] == stem
+                    and key[2] == base_name
+                ):
+                    matches.append((key, value))
+
+        if can_registry_resolve and not matches:
+            for key, value in self._evaluator.all.items():
+                if not (isinstance(key, tuple) and len(key) == 3 and key[2] == base_name):
+                    continue
+                key_stem = key[1]
+                if not isinstance(key_stem, str):
+                    continue
+                if root_prefix and not key_stem.startswith(root_prefix):
+                    continue
+                if path_suffix and not key_stem.endswith(path_suffix):
+                    continue
+                matches.append((key, value))
+
+        if not matches:
+            if can_registry_resolve and entity_root is not None:
+                msg = (
+                    f"Entity {base_name!r} not found"
+                    + (f" in module {stem!r}" if stem else "")
+                    + f" (label: {target!r})"
+                )
+                raise KeyError(msg)
+            return None
+
+        kind_order = {
+            "task": 0,
+            "action": 1,
+            "value": 2,
+            "type": 3,
+            "location": 4,
+            "root": 5,
+        }
+        matches.sort(key=lambda kv: kind_order.get(kv[0][0], 99))
+        match_key, match_value = matches[0]
+        return LabelWriteAnchor(
+            root_value=match_value,
+            writeback_kind="registry_entity",
+            writeback_locator=match_key,
+            field_parts=field_parts,
+            entity_query=entity_query,
+        )
+
+    def resolve_label_anchor(self, target: str) -> LabelWriteAnchor:
+        """Resolve a label string into a writable anchor plus residual path."""
+        from mlody.core.label import parse_label as _core_parse_label
+
+        lbl = _core_parse_label(target)
+
+        if lbl.attribute_path is not None:
+            root_attr = lbl.attribute_path[0]
+            root_value = self.resolve(f"'{root_attr}")
+            return LabelWriteAnchor(
+                root_value=root_value,
+                writeback_kind="workspace_attribute",
+                writeback_locator=root_attr,
+                field_parts=lbl.attribute_path[1:],
+            )
+
+        if lbl.entity is None:
+            msg = f"Label {target!r} does not select a writable anchor"
+            raise ValueError(msg)
+
+        registry_anchor = self._match_registry_entity_label(
+            target,
+            entity=lbl.entity,
+            attribute_path=lbl.attribute_path,
+        )
+        if registry_anchor is not None:
+            return registry_anchor
+
+        entity = lbl.entity
+        name = entity.name
+        if name is not None and entity.root is not None and entity.root in self._evaluator._roots_by_name:
+            name_parts = name.split(".")
+            field_parts = entity.field_path or tuple(name_parts[1:])
+            if lbl.attribute_path:
+                field_parts = field_parts + lbl.attribute_path
+            return LabelWriteAnchor(
+                root_value=self._evaluator._roots_by_name[entity.root],
+                writeback_kind="root_object",
+                writeback_locator=entity.root,
+                field_parts=(name_parts[0],) + field_parts,
+                entity_query=lbl.entity_query,
+            )
+
+        if name is not None and entity.root is None:
+            file_path = self._monorepo_root / (entity.path.lstrip("/") + ".mlody")
+            if file_path not in self._evaluator.loaded_files:
+                self._evaluator.eval_file(file_path)
+            module_globals: dict[str, object] = self._evaluator._module_globals.get(file_path, {})  # type: ignore[attr-defined]
+            name_parts = name.split(".")
+            if name_parts[0] not in module_globals:
+                raise KeyError(f"Entity {name_parts[0]!r} not found in {file_path}")
+            field_parts = entity.field_path or tuple(name_parts[1:])
+            if lbl.attribute_path:
+                field_parts = field_parts + lbl.attribute_path
+            return LabelWriteAnchor(
+                root_value=module_globals[name_parts[0]],
+                writeback_kind="module_global",
+                writeback_locator=(file_path, name_parts[0]),
+                field_parts=field_parts,
+                entity_query=lbl.entity_query,
+            )
+
+        roots = self._evaluator._roots_by_name
+        if entity.root is not None:
+            if entity.root not in roots:
+                available = sorted(roots)
+                msg = f"Root {entity.root!r} not found; available roots: {available}"
+                raise KeyError(msg)
+            if entity.path and entity.root in self._root_infos:
+                stem_parts_mod: list[str] = []
+                root_rel_mod = self._root_infos[entity.root].path.lstrip("/").rstrip("/")
+                if root_rel_mod:
+                    stem_parts_mod.append(root_rel_mod)
+                stem_parts_mod.append(entity.path.lstrip("/").rstrip("/"))
+                mod_stem = "/".join([part for part in stem_parts_mod if part])
+                module_value = {
+                    f"{key[0]}/{key[2]}": value
+                    for key, value in self._evaluator.all.items()
+                    if isinstance(key, tuple) and len(key) == 3 and key[1] == mod_stem
+                }
+                return LabelWriteAnchor(
+                    root_value=module_value,
+                    writeback_kind="module_aggregate",
+                    writeback_locator=(entity.root, mod_stem),
+                )
+            return LabelWriteAnchor(
+                root_value=roots[entity.root],
+                writeback_kind="root_object",
+                writeback_locator=entity.root,
+            )
+
+        return LabelWriteAnchor(
+            root_value=dict(roots),
+            writeback_kind="root_collection",
+            writeback_locator=None,
         )
 
     @staticmethod
@@ -298,15 +515,6 @@ class Workspace:
           entities registered from that module, keyed by ``"kind/name"``
         - Workspace-level attribute labels: 'attr, 'attr.subfield
         """
-        def _step(obj: object, segment: str) -> object:
-            # Support list traversal by value name, e.g. outputs.model.
-            if isinstance(obj, list):
-                for item in obj:
-                    if getattr(item, "name", None) == segment:
-                        return item
-                raise KeyError(segment)
-            return getattr(obj, segment)
-
         if isinstance(target, str) and target.startswith("'"):
             # Workspace-attribute label: return a virtual value Struct whose
             # materializer forces the attribute access lazily.
@@ -351,256 +559,112 @@ class Workspace:
             except _LabelParseError:
                 pass  # fall through to parse_target for legacy error handling
             else:
-                if lbl.entity is not None and lbl.entity.name is not None:
+                if lbl.entity is not None:
+                    anchor = self.resolve_label_anchor(target)
+                    obj = anchor.root_value
+                    field_parts = anchor.field_parts
+
+                    if anchor.writeback_kind in {
+                        "module_aggregate",
+                        "root_collection",
+                    } and not field_parts and anchor.entity_query is None:
+                        return obj
+
                     # Resolve direct entity labels (with optional dotted field path)
                     # against evaluator registrations by (stem, name), where:
                     #   stem = "<root_path>/<entity.path>" for @root labels
                     #   stem = "<entity.path>" for // labels
-                    entity = lbl.entity
-                    name_parts = entity.name.split(".")
-                    base_name = name_parts[0]
-                    # entity.field_path carries dot-segments after the entity
-                    # name (e.g. "outputs.weights" from ":task.outputs.weights").
-                    # The parser stores these in field_path; name_parts[1:] is
-                    # kept as a legacy fallback for labels parsed without the
-                    # core parser's field_path support.
-                    if entity.field_path:
-                        field_parts = entity.field_path
-                    else:
-                        field_parts = tuple(name_parts[1:])
-                    if lbl.attribute_path:
-                        field_parts = field_parts + lbl.attribute_path
-
-                    stem_parts: list[str] = []
-                    can_registry_resolve = True
-                    if entity.root is not None:
-                        if entity.root in self._root_infos:
-                            root_rel = self._root_infos[entity.root].path.lstrip("/").rstrip("/")
-                            if root_rel:
-                                stem_parts.append(root_rel)
-                        elif entity.root in self._evaluator._roots_by_name:
-                            # Dynamic/runtime roots (e.g. @bert in tests) do not have
-                            # RootInfo metadata; defer to legacy parse_target path.
-                            can_registry_resolve = False
-                        else:
-                            available = sorted(self._evaluator._roots_by_name)
-                            msg = f"Root {entity.root!r} not found; available roots: {available}"
-                            raise KeyError(msg)
-                    if entity.path:
-                        stem_parts.append(entity.path.lstrip("/").rstrip("/"))
-                    stem = "/".join([p for p in stem_parts if p])
-                    path_suffix = entity.path.lstrip("/").rstrip("/") if entity.path else ""
-                    root_prefix = None
-                    if entity.root is not None and entity.root in self._root_infos:
-                        root_prefix = self._root_infos[entity.root].path.lstrip("/").rstrip("/")
-
-                    matches: list[tuple[str, object]] = []
-                    if can_registry_resolve:
-                        for key, value in self._evaluator.all.items():
-                            if (
-                                isinstance(key, tuple)
-                                and len(key) == 3
-                                and key[1] == stem
-                                and key[2] == base_name
-                            ):
-                                matches.append((key[0], value))
-
-                    if can_registry_resolve and not matches:
-                        # Fallback: match by entity name plus path suffix/root prefix.
-                        for key, value in self._evaluator.all.items():
-                            if not (isinstance(key, tuple) and len(key) == 3 and key[2] == base_name):
-                                continue
-                            key_stem = key[1]
-                            if not isinstance(key_stem, str):
-                                continue
-                            if root_prefix and not key_stem.startswith(root_prefix):
-                                continue
-                            if path_suffix and not key_stem.endswith(path_suffix):
-                                continue
-                            matches.append((key[0], value))
-
-                    if matches:
-                        kind_order = {
-                            "task": 0,
-                            "action": 1,
-                            "value": 2,
-                            "type": 3,
-                            "location": 4,
-                            "root": 5,
-                        }
-                        matches.sort(key=lambda kv: kind_order.get(kv[0], 99))
-                        obj = matches[0][1]
-
-                        # Record-traversal branch: activates when the resolved
-                        # base value is a record-typed value struct with one or
-                        # more field-path segments.  Uses _traverse_one_step for
-                        # each segment so location composition is applied at
-                        # every level (OQ-12 deduplication).
-                        #
-                        # NOTE: avoid `isinstance(obj, Struct)` here — `Struct`
-                        # is re-imported as a local variable later in this
-                        # function (workspace-attribute branch), causing an
-                        # UnboundLocalError before that assignment.  getattr
-                        # guards are sufficient.
-                        obj_type = getattr(obj, "type", None)
-                        _is_record_type = (
-                            getattr(obj_type, "kind", None) == "record"
-                            or getattr(obj_type, "_root_kind", None) == "record"
+                    # Record-traversal branch: activates when the resolved
+                    # base value is a record-typed value struct with one or
+                    # more field-path segments.  Uses _traverse_one_step for
+                    # each segment so location composition is applied at
+                    # every level (OQ-12 deduplication).
+                    obj_type = getattr(obj, "type", None)
+                    _is_record_type = (
+                        getattr(obj_type, "kind", None) == "record"
+                        or getattr(obj_type, "_root_kind", None) == "record"
+                    )
+                    if (
+                        len(field_parts) >= 1
+                        and getattr(obj, "kind", None) == "value"
+                        and _is_record_type
+                    ):
+                        from mlody.resolver.label_value import (  # noqa: PLC0415
+                            MlodyUnresolvedValue as _MlodyUnresolvedValue,
+                            TraversalErrorPolicy as _TraversalErrorPolicy,
+                            _RawAttrValue as _RawAttrValue_t,
+                            _traverse_one_step as _ts,
                         )
-                        if (
-                            len(field_parts) >= 1
-                            and getattr(obj, "kind", None) == "value"
-                            and _is_record_type
-                        ):
-                            # Local imports kept local to limit the scope of the
-                            # new workspace → resolver dependency direction.
-                            from mlody.resolver.label_value import (  # noqa: PLC0415
-                                MlodyUnresolvedValue as _MlodyUnresolvedValue,
-                                TraversalErrorPolicy as _TraversalErrorPolicy,
-                                _RawAttrValue as _RawAttrValue_t,
-                                _traverse_one_step as _ts,
+                        from mlody.core.traversal_parser import (  # noqa: PLC0415
+                            TraversalParseError as _TraversalParseError,
+                            parse_traversal_expression as _parse_traversal,
+                        )
+
+                        current: object = obj
+                        for fp_i, fp_seg in enumerate(field_parts):
+                            step_result = _ts(
+                                current, fp_seg, tuple(field_parts[:fp_i]), lbl
                             )
-                            from mlody.core.label import (  # noqa: PLC0415
-                                parse_label as _core_parse_label,
-                            )
-                            from mlody.core.traversal_parser import (  # noqa: PLC0415
-                                TraversalParseError as _TraversalParseError,
-                                parse_traversal_expression as _parse_traversal,
-                            )
+                            if isinstance(step_result, _MlodyUnresolvedValue):
+                                return step_result
+                            if isinstance(step_result, tuple):
+                                current = step_result[0]
+                            else:
+                                current = step_result
+                                break
 
-                            lbl_str = target if isinstance(target, str) else str(target)
-                            lbl_obj = _core_parse_label(lbl_str) if isinstance(lbl_str, str) else lbl_str
-
-                            current: object = obj
-                            for fp_i, fp_seg in enumerate(field_parts):
-                                step_result = _ts(
-                                    current, fp_seg, tuple(field_parts[:fp_i]), lbl_obj
-                                )
-                                if isinstance(step_result, _MlodyUnresolvedValue):
-                                    return step_result
-                                # step_result is (rebuilt_struct, False) on success,
-                                # or _RawAttrValue if the fallback returned a non-Struct.
-                                # _RawAttrValue is a MlodyValue but not a tuple, so check
-                                # tuple first.
-                                if isinstance(step_result, tuple):
-                                    current = step_result[0]
-                                else:
-                                    # Non-Struct fallback: accumulate and break so that
-                                    # entity_query can still be applied below.
-                                    current = step_result
-                                    break
-
-                            # Apply entity_query (e.g. [1], ["key"], [*]) if present.
-                            # The label parser strips brackets and stores the inner
-                            # content, so we reconstruct "[query]" for the parser.
-                            eq = lbl_obj.entity_query
-                            if eq is not None:
-                                try:
-                                    expr = _parse_traversal(f"[{eq}]")
-                                except _TraversalParseError:
-                                    expr = None
-                                if expr is not None and expr.segments:
-                                    seg = expr.segments[0]
-                                    q_result = _ts(
-                                        current,
-                                        seg,
-                                        field_parts,
-                                        lbl_obj,
-                                        _TraversalErrorPolicy.RAISE,
-                                    )
-                                    if isinstance(q_result, _MlodyUnresolvedValue):
-                                        return q_result
-                                    if isinstance(q_result, tuple):
-                                        current = q_result[0]
-                                    else:
-                                        return getattr(q_result, "value", q_result)
-
-                            # Unwrap _RawAttrValue for callers that expect plain values.
-                            if isinstance(current, _RawAttrValue_t):
-                                return current.value
-                            return current
-
-                        for field in field_parts:
-                            obj = _step(obj, field)
-
-                        # Apply entity_query (e.g. [1], ["key"]) if present.
-                        eq = lbl.entity_query
+                        eq = anchor.entity_query
                         if eq is not None:
-                            from mlody.core.traversal_parser import (  # noqa: PLC0415
-                                TraversalParseError as _TraversalParseError2,
-                                parse_traversal_expression as _parse_traversal2,
-                            )
                             try:
-                                expr2 = _parse_traversal2(f"[{eq}]")
-                            except _TraversalParseError2:
-                                expr2 = None
-                            if expr2 is not None and expr2.segments:
-                                from mlody.core.traversal_grammar import (  # noqa: PLC0415
-                                    IndexSegment as _IndexSegment,
-                                    KeySegment as _KeySegment,
-                                    WildcardSegment as _WildcardSegment,
+                                expr = _parse_traversal(f"[{eq}]")
+                            except _TraversalParseError:
+                                expr = None
+                            if expr is not None and expr.segments:
+                                seg = expr.segments[0]
+                                q_result = _ts(
+                                    current,
+                                    seg,
+                                    field_parts,
+                                    lbl,
+                                    _TraversalErrorPolicy.RAISE,
                                 )
-                                seg2 = expr2.segments[0]
-                                if isinstance(seg2, _IndexSegment) and isinstance(obj, (list, tuple)):
-                                    obj = obj[seg2.index]
-                                elif isinstance(seg2, _KeySegment) and isinstance(obj, dict):
-                                    obj = obj[seg2.key]
-                                elif isinstance(seg2, _WildcardSegment) and isinstance(obj, (list, tuple, dict)):
-                                    obj = list(obj.values()) if isinstance(obj, dict) else list(obj)
-                        return obj
+                                if isinstance(q_result, _MlodyUnresolvedValue):
+                                    return q_result
+                                if isinstance(q_result, tuple):
+                                    current = q_result[0]
+                                else:
+                                    return getattr(q_result, "value", q_result)
 
-                    if can_registry_resolve and entity.root is not None:
-                        # We tried the registry-based path but found nothing.
-                        # Give a clear error rather than falling through to parse_target
-                        # which would produce a confusing "root not found" message.
-                        label_str = target if isinstance(target, str) else str(target)
-                        msg = (
-                            f"Entity {base_name!r} not found"
-                            + (f" in module {stem!r}" if stem else "")
-                            + f" (label: {label_str!r})"
+                        if isinstance(current, _RawAttrValue_t):
+                            return current.value
+                        return current
+
+                    for field in field_parts:
+                        obj = self._step_resolved_object(obj, field)
+
+                    eq = anchor.entity_query
+                    if eq is not None:
+                        from mlody.core.traversal_parser import (  # noqa: PLC0415
+                            TraversalParseError as _TraversalParseError2,
+                            parse_traversal_expression as _parse_traversal2,
                         )
-                        raise KeyError(msg)
-
-                if lbl.entity is not None and lbl.entity.name is None:
-                    # No specific entity name.
-                    roots = self._evaluator._roots_by_name
-                    if lbl.entity.root is not None:
-                        if lbl.entity.root not in roots:
-                            available = sorted(roots)
-                            msg = f"Root {lbl.entity.root!r} not found; available roots: {available}"
-                            raise KeyError(msg)
-                        if lbl.entity.path and lbl.entity.root in self._root_infos:
-                            # Module-level label (e.g. @common//huggingface/downloader):
-                            # return all entities registered from that module as a dict.
-                            stem_parts_mod: list[str] = []
-                            root_rel_mod = self._root_infos[lbl.entity.root].path.lstrip("/").rstrip("/")
-                            if root_rel_mod:
-                                stem_parts_mod.append(root_rel_mod)
-                            stem_parts_mod.append(lbl.entity.path.lstrip("/").rstrip("/"))
-                            mod_stem = "/".join([p for p in stem_parts_mod if p])
-                            return {
-                                f"{k[0]}/{k[2]}": v
-                                for k, v in self._evaluator.all.items()
-                                if isinstance(k, tuple) and len(k) == 3 and k[1] == mod_stem
-                            }
-                        return roots[lbl.entity.root]
-                    # No root and no name: return all roots dict
-                    return dict(roots)
-
-                if lbl.entity is not None and lbl.entity.root is None and lbl.entity.name is not None:
-                    # No @root prefix: path is relative to monorepo top.
-                    # Resolve by looking up the entity name directly in the
-                    # evaluated file's module globals.
-                    file_path = self._monorepo_root / (lbl.entity.path.lstrip("/") + ".mlody")
-                    if file_path not in self._evaluator.loaded_files:
-                        self._evaluator.eval_file(file_path)
-                    module_globals: dict[str, object] = self._evaluator._module_globals.get(file_path, {})  # type: ignore[attr-defined]
-                    name_parts = lbl.entity.name.split(".")
-                    if name_parts[0] not in module_globals:
-                        raise KeyError(f"Entity {name_parts[0]!r} not found in {file_path}")
-                    obj = module_globals[name_parts[0]]
-                    for field in name_parts[1:]:
-                        obj = _step(obj, field)
+                        try:
+                            expr2 = _parse_traversal2(f"[{eq}]")
+                        except _TraversalParseError2:
+                            expr2 = None
+                        if expr2 is not None and expr2.segments:
+                            from mlody.core.traversal_grammar import (  # noqa: PLC0415
+                                IndexSegment as _IndexSegment,
+                                KeySegment as _KeySegment,
+                                WildcardSegment as _WildcardSegment,
+                            )
+                            seg2 = expr2.segments[0]
+                            if isinstance(seg2, _IndexSegment) and isinstance(obj, (list, tuple)):
+                                obj = obj[seg2.index]
+                            elif isinstance(seg2, _KeySegment) and isinstance(obj, dict):
+                                obj = obj[seg2.key]
+                            elif isinstance(seg2, _WildcardSegment) and isinstance(obj, (list, tuple, dict)):
+                                obj = list(obj.values()) if isinstance(obj, dict) else list(obj)
                     return obj
 
         address = parse_target(target) if isinstance(target, str) else target

@@ -61,7 +61,9 @@ o_py_library(
         ":traversal_grammar",
         ":traversal_parser",
         ":virtual_value",
+        ":workspace_lib",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/resolver:resolver_lib",
     ],
 )
 
@@ -71,7 +73,10 @@ o_py_test(
     deps = [
         ":setf",
         ":traversal_grammar",
+        ":workspace_lib",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/resolver:resolver_lib",
+        "@pip//pyfakefs",
         "@pip//pytest",
     ],
 )
