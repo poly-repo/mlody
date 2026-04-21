@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from runtime import SessionConfig, run_camera_session
+from .runtime import SessionConfig, run_camera_session
 
 
 @click.command()

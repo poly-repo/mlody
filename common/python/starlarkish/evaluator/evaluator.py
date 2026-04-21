@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from starlarkish.core.struct import Struct, struct
+from common.python.starlarkish.core.struct import Struct, struct
 
 _log = logging.getLogger(__name__)
 

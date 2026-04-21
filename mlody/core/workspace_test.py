@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 from rich.console import Console
-from starlarkish.core.struct import Struct
+from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.targets import TargetAddress
 from mlody.core.workspace import RootInfo, Workspace, WorkspaceLoadError
@@ -284,7 +284,7 @@ class TestResolve:
             ws.resolve("@bert//models:lr.nonexistent_field")
 
     def test_resolve_workspace_attr_returns_value_struct(self, project: Path) -> None:
-        from starlarkish.core.struct import Struct
+        from common.python.starlarkish.core.struct import Struct
 
         ws = Workspace(monorepo_root=project)
         ws.load()
@@ -296,7 +296,7 @@ class TestResolve:
         assert getattr(result, "label", None) == "'info"
 
     def test_resolve_nested_workspace_attr_returns_typed_value_struct(self, project: Path) -> None:
-        from starlarkish.core.struct import Struct
+        from common.python.starlarkish.core.struct import Struct
 
         ws = Workspace(monorepo_root=project)
         ws.load()
@@ -346,7 +346,7 @@ class TestResolve:
         self, project: Path, fs: FakeFilesystem
     ) -> None:
         """@root//path without :name returns all entities from that module as a dict."""
-        from starlarkish.core.struct import Struct
+        from common.python.starlarkish.core.struct import Struct
 
         fs.create_file(
             str(ROOT / "mlody/teams/lexica/pipeline.mlody"),

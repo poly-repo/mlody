@@ -23,7 +23,7 @@ single-subject capture, and calibrated metric output over raw framerate.
 
 ### 2.1 In Scope
 
-- Standalone `o_py_binary` under `mlody/teams/framera/pose-estimation/`.
+- Standalone `o_py_binary` under `mlody/teams/framera/pose_estimation/`.
 - Live webcam input only.
 - Single primary subject.
 - Face landmarks plus full-body pose landmarks.

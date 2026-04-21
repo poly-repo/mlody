@@ -7,7 +7,9 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from pose_estimator import cli
+from mlody.teams.framera.pose_estimation import pose_estimator as pose_estimator_module
+
+cli = pose_estimator_module.cli
 
 
 def test_cli_invokes_runtime_with_expected_config(tmp_path: Path) -> None:
@@ -22,7 +24,7 @@ def test_cli_invokes_runtime_with_expected_config(tmp_path: Path) -> None:
 
     runner = CliRunner()
 
-    with patch("pose_estimator.run_camera_session") as mock_run:
+    with patch.object(pose_estimator_module, "run_camera_session") as mock_run:
         result = runner.invoke(
             cli,
             [
@@ -83,7 +85,7 @@ def test_cli_allows_unused_optional_models_without_body_or_hands(tmp_path: Path)
 
     runner = CliRunner()
 
-    with patch("pose_estimator.run_camera_session") as mock_run:
+    with patch.object(pose_estimator_module, "run_camera_session") as mock_run:
         result = runner.invoke(
             cli,
             [

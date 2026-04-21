@@ -13,8 +13,8 @@ from textwrap import dedent
 import networkx
 import pytest
 
-from starlarkish.evaluator.evaluator import Evaluator
-from starlarkish.evaluator.testing import InMemoryFS
+from common.python.starlarkish.evaluator.evaluator import Evaluator
+from common.python.starlarkish.evaluator.testing import InMemoryFS
 from mlody.core.dag import (
     Edge,
     PathError,

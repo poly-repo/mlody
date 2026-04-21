@@ -7,7 +7,7 @@ from typing import cast
 
 import click
 
-from runtime import (
+from mlody.teams.framera.yolo26.runtime import (
     SUPPORTED_TASKS,
     SessionConfig,
     TaskName,

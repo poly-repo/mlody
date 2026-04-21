@@ -1,6 +1,6 @@
 """Executable shim for the framera camera calibration utility."""
 
-from camera_calibrate import main
+from mlody.teams.framera.pose_estimation.camera_calibrate import main
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from starlarkish.evaluator.evaluator import SAFE_BUILTINS
+from common.python.starlarkish.evaluator.evaluator import SAFE_BUILTINS
 from mlody.lsp.completion import (
     _builtin_member_completions,
     _detect_context,

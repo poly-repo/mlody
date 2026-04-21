@@ -39,6 +39,15 @@ o_py_test(
     ],
 )
 
+o_py_test(
+    name = "import_paths_test",
+    srcs = ["import_paths_test.py"],
+    deps = [
+        "//mlody/common:common_lib",
+        "@pip//pytest",
+    ],
+)
+
 o_py_library(
     name = "setf_strategies",
     srcs = ["setf_strategies.py"],

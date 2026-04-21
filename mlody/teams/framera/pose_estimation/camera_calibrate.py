@@ -11,7 +11,7 @@ import click
 import numpy as np
 import numpy.typing as npt
 
-from calibration import CameraCalibration
+from .calibration import CameraCalibration
 
 
 FloatArray = npt.NDArray[np.float32]

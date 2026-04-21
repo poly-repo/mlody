@@ -7,8 +7,10 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from runtime import default_model_path_for_task
-from yolo26_detector import cli
+from mlody.teams.framera.yolo26 import yolo26_detector as detector_module
+from mlody.teams.framera.yolo26.runtime import default_model_path_for_task
+
+cli = detector_module.cli
 
 
 def test_cli_invokes_runtime_with_expected_config(tmp_path: Path) -> None:
@@ -16,7 +18,7 @@ def test_cli_invokes_runtime_with_expected_config(tmp_path: Path) -> None:
     model_path.write_text("weights")
     runner = CliRunner()
 
-    with patch("yolo26_detector.run_camera_session") as mock_run:
+    with patch.object(detector_module, "run_camera_session") as mock_run:
         result = runner.invoke(
             cli,
             [
@@ -71,7 +73,7 @@ def test_cli_surfaces_runtime_errors(tmp_path: Path) -> None:
     model_path.write_text("weights")
     runner = CliRunner()
 
-    with patch("yolo26_detector.run_camera_session", side_effect=RuntimeError("boom")):
+    with patch.object(detector_module, "run_camera_session", side_effect=RuntimeError("boom")):
         result = runner.invoke(
             cli,
             [
@@ -89,7 +91,7 @@ def test_cli_defaults_device_to_one(tmp_path: Path) -> None:
     model_path.write_text("weights")
     runner = CliRunner()
 
-    with patch("yolo26_detector.run_camera_session") as mock_run:
+    with patch.object(detector_module, "run_camera_session") as mock_run:
         result = runner.invoke(
             cli,
             [
@@ -107,7 +109,7 @@ def test_cli_defaults_device_to_one(tmp_path: Path) -> None:
 def test_cli_defaults_model_from_task_when_model_not_provided() -> None:
     runner = CliRunner()
 
-    with patch("yolo26_detector.run_camera_session") as mock_run:
+    with patch.object(detector_module, "run_camera_session") as mock_run:
         result = runner.invoke(cli, [])
 
     assert result.exit_code == 0
@@ -119,7 +121,7 @@ def test_cli_defaults_model_from_task_when_model_not_provided() -> None:
 def test_cli_uses_segmentation_default_model_when_task_is_segmentation() -> None:
     runner = CliRunner()
 
-    with patch("yolo26_detector.run_camera_session") as mock_run:
+    with patch.object(detector_module, "run_camera_session") as mock_run:
         result = runner.invoke(cli, ["--task", "segmentation"])
 
     assert result.exit_code == 0

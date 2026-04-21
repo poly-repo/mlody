@@ -11,8 +11,8 @@ from typing import Any, Callable, cast
 from rich.console import Console
 from rich.syntax import Syntax
 
-from starlarkish.core.struct import Struct
-from starlarkish.evaluator.evaluator import Evaluator
+from common.python.starlarkish.core.struct import Struct
+from common.python.starlarkish.evaluator.evaluator import Evaluator
 from mlody.common.context import build_ctx
 from mlody.core.source_parser import extract_entity_ranges
 from mlody.core.targets import TargetAddress, parse_target, resolve_target_value
@@ -110,7 +110,7 @@ class Workspace:
         """
         import subprocess
 
-        from starlarkish.core.struct import struct
+        from common.python.starlarkish.core.struct import struct
 
         def _git(*args: str) -> str:
             try:

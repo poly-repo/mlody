@@ -12,7 +12,7 @@ from pygls.lsp.server import LanguageServer
 from pygls.uris import to_fs_path
 from rich.console import Console
 
-from starlarkish.evaluator.evaluator import Evaluator
+from common.python.starlarkish.evaluator.evaluator import Evaluator
 from mlody.core.workspace import Workspace
 from mlody.lsp.completion import get_completions
 from mlody.lsp.definition import _resolve_load_path, get_definition

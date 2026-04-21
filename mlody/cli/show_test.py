@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import networkx
 import pytest
 from click.testing import CliRunner
-from starlarkish.core.struct import struct
+from common.python.starlarkish.core.struct import struct
 
 from mlody.cli.main import cli
 from mlody.cli.show import show_fn

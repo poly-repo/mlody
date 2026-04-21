@@ -6,7 +6,7 @@ import os
 import uuid
 
 import git
-from starlarkish.core.struct import struct
+from common.python.starlarkish.core.struct import struct
 
 
 def get_git_info(monorepo_root: Path | str | None = None) -> dict[str, str]:

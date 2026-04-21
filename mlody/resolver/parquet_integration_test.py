@@ -264,7 +264,7 @@ class TestParquetChainedAccess:
         """Scenario: Missing location path returns MlodyUnresolvedValue."""
         from mlody.resolver.label_value import ParquetTraversalStrategy
         from mlody.core.traversal_grammar import IndexSegment
-        from starlarkish.core.struct import Struct
+        from common.python.starlarkish.core.struct import Struct
 
         label = parse_label("@data//pkg/dataset:my_dataset")
         struct_no_path = Struct(
@@ -290,7 +290,7 @@ class TestParquetChainedAccess:
         """Scenario: File not found returns MlodyUnresolvedValue."""
         from mlody.resolver.label_value import ParquetTraversalStrategy
         from mlody.core.traversal_grammar import IndexSegment
-        from starlarkish.core.struct import Struct
+        from common.python.starlarkish.core.struct import Struct
 
         label = parse_label("@data//pkg/dataset:my_dataset")
         struct_bad_path = Struct(

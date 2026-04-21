@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from starlarkish.core.struct import Struct
+from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.place import AssignmentMode, Place
 from mlody.core.traversal_grammar import FieldSegment, IndexSegment, KeySegment, SliceSegment

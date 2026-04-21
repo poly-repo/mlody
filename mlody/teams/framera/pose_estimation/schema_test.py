@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from schema import FramePacket, Landmark3D
+from mlody.teams.framera.pose_estimation.schema import FramePacket, Landmark3D
 
 
 def test_frame_packet_serializes_status_and_landmarks() -> None:

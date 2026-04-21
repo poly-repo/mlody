@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from schema import Detection, FramePacket
+from mlody.teams.framera.yolo26.schema import Detection, FramePacket
 
 
 def test_frame_packet_serializes_detections() -> None:

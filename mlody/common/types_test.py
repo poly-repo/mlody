@@ -10,8 +10,8 @@ from textwrap import dedent
 
 import pytest
 
-from starlarkish.evaluator.evaluator import Evaluator
-from starlarkish.evaluator.testing import InMemoryFS
+from common.python.starlarkish.evaluator.evaluator import Evaluator
+from common.python.starlarkish.evaluator.testing import InMemoryFS
 
 # ---------------------------------------------------------------------------
 # Read real .mlody sources at import time (before any filesystem mocking)

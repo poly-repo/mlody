@@ -31,7 +31,7 @@ import glob
 import os
 from typing import Callable
 
-from starlarkish.core.struct import Struct
+from common.python.starlarkish.core.struct import Struct
 
 
 class _LocationComposeError(Exception):

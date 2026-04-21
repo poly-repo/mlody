@@ -1,13 +1,13 @@
 # SPEC: framera Pose Estimator
 
 **Version:** 1.0 **Date:** 2026-04-09 **Architect:** @vitruvius **Status:**
-Draft **Requirements:** `mlody/teams/framera/pose-estimation/REQUIREMENTS.md`
+Draft **Requirements:** `mlody/teams/framera/pose_estimation/REQUIREMENTS.md`
 
 ---
 
 ## Executive Summary
 
-This change introduces a standalone webcam-driven pose-estimation binary for the
+This change introduces a standalone webcam-driven pose_estimation binary for the
 `framera` team. The binary reads from a live camera, performs face landmarking
 and full-body pose estimation, emits periodic JSONL frames to stdout, and can
 optionally display a realtime overlay window.
@@ -22,7 +22,7 @@ camera while isolating external-library usage behind narrow seams.
 ## Architecture Overview
 
 ```
-mlody/teams/framera/pose-estimation/
+mlody/teams/framera/pose_estimation/
   pose-estimator.py         executable shim requested by stakeholder
   pose_estimator.py         Click CLI entrypoint
   calibration.py            OpenCV-style calibration loading and validation
@@ -60,8 +60,8 @@ Runtime flow:
 
 ### CLI
 
-- Entry module: `mlody/teams/framera/pose-estimation/pose_estimator.py`
-- Executable shim: `mlody/teams/framera/pose-estimation/pose-estimator.py`
+- Entry module: `mlody/teams/framera/pose_estimation/pose_estimator.py`
+- Executable shim: `mlody/teams/framera/pose_estimation/pose-estimator.py`
 - Flags:
   `--device`, `--width`, `--height`, `--fps`, `--emit-interval-ms`,
   `--calibration`, `--gui`

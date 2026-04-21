@@ -9,7 +9,7 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
-        "//common/python:python_pkg",
+        "//common/python/starlarkish:pkg_init",
         "//common/python/starlarkish/core:core_lib",
     ],
 )

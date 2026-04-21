@@ -415,7 +415,7 @@ def _wrap_raw(obj: object, label: "Label") -> MlodyValue:
 
 def _is_record_struct(value: object) -> bool:
     """Return True when *value* is a Starlark Struct with a record type."""
-    from starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
+    from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
 
     if not isinstance(value, _Struct):
         return False
@@ -591,7 +591,7 @@ def _collect_record_fields(
     Uses ``_traverse_one_step`` so that each child gets a composed location.
     Returns an empty list for non-record or empty structs.
     """
-    from starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
+    from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
 
     if not isinstance(value, _Struct):
         return []
@@ -650,7 +650,7 @@ def _engine_wildcard_step(
         return MlodyVectorValue(elements=tuple(children))
 
     # Case 3: record-typed Struct
-    from starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
+    from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
 
     if isinstance(current, (MlodyValueValue, MlodyTaskValue, MlodyActionValue)):
         struct_obj = current.struct  # type: ignore[union-attr]
@@ -709,7 +709,7 @@ def _engine_recursive_descent_step(
         the engine can be called directly with an unwrapped struct (e.g. from
         tests or mapped-traversal intermediates) without extra wrapping.
         """
-        from starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
+        from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
 
         if isinstance(node, MlodyVectorValue):
             return list(node.elements)
@@ -740,7 +740,7 @@ def _engine_recursive_descent_step(
             _dfs(child)
 
     # Check that the root is traversable (not a scalar/unresolvable leaf)
-    from starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
+    from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
 
     root_is_traversable = (
         isinstance(current, MlodyVectorValue)
@@ -841,7 +841,7 @@ def _traverse_one_step(
         LocationComposeError,
         compose_location,
     )
-    from starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
+    from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
 
     # Normalise: wrap plain str in FieldSegment for unified dispatch.
     if isinstance(field_name, str):
@@ -971,7 +971,7 @@ class ValueTraversalStrategy:
         *,
         traversal_error_policy: TraversalErrorPolicy = TraversalErrorPolicy.RAISE,
     ) -> MlodyValue:
-        from starlarkish.core.struct import Struct  # noqa: PLC0415
+        from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
         from mlody.core.virtual_value import traverse_virtual_value  # noqa: PLC0415
         from mlody.core.traversal_grammar import PathSegment, FieldSegment  # noqa: PLC0415
 

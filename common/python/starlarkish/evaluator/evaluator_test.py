@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 
-from starlarkish.evaluator import evaluator as evaluator_module
-from starlarkish.evaluator.evaluator import Evaluator
-from starlarkish.evaluator.testing import InMemoryFS
-from starlarkish.core.struct import Struct
+from common.python.starlarkish.evaluator import evaluator as evaluator_module
+from common.python.starlarkish.evaluator.evaluator import Evaluator
+from common.python.starlarkish.evaluator.testing import InMemoryFS
+from common.python.starlarkish.core.struct import Struct
 
 
 @pytest.fixture
@@ -360,7 +360,7 @@ def test_register_receives_ctx(fs: FakeFilesystem, project_root: Path) -> None:
     The ctx is bound transparently via functools.partial — .mlody scripts still
     call builtins.register(kind, thing) with two arguments.
     """
-    from starlarkish.core.struct import Struct as StructType
+    from common.python.starlarkish.core.struct import Struct as StructType
 
     captured: list[StructType] = []
 
@@ -389,7 +389,7 @@ def test_register_ctx_directory_reflects_caller_file(
     ctx.directory to the helper's own directory.  The closure re-reads
     _eval_stack at call time so the caller's directory is always used.
     """
-    from starlarkish.core.struct import Struct as StructType
+    from common.python.starlarkish.core.struct import Struct as StructType
 
     captured: list[StructType] = []
 

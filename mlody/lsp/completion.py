@@ -8,7 +8,7 @@ from typing import Literal
 import tree_sitter
 from lsprotocol.types import CompletionItem
 
-from starlarkish.evaluator.evaluator import SAFE_BUILTINS, Evaluator
+from common.python.starlarkish.evaluator.evaluator import SAFE_BUILTINS, Evaluator
 from mlody.lsp.parser import (
     _FRAMEWORK_INTERNALS,
     extract_top_level_symbols,

@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from starlarkish.core.struct import Struct
+from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.location_composition import (
     _LOCATION_COMPOSERS,

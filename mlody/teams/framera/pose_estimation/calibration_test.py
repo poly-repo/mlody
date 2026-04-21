@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from calibration import CameraCalibration, load_calibration
+from mlody.teams.framera.pose_estimation.calibration import CameraCalibration, load_calibration
 
 
 def _write_json_calibration(path: Path) -> None:

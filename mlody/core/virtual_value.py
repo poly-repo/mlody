@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from starlarkish.core.struct import Struct
+from common.python.starlarkish.core.struct import Struct
 
 
 _SENTINEL = object()

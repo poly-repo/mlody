@@ -1,7 +1,14 @@
+import importlib
 import pytest
 import pickle
 from types import MappingProxyType
-from starlarkish.core.struct import struct, Struct
+from common.python.starlarkish.core.struct import struct, Struct
+
+
+def test_short_starlarkish_import_path_is_not_available():
+    """Only the monorepo-relative common.python path should be importable."""
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("starlarkish.core.struct")
 
 def test_basic_creation_and_access():
     """Tests basic struct creation and attribute access."""

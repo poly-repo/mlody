@@ -7,9 +7,9 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from calibration import CameraCalibration
-from mediapipe_adapter import NormalizedLandmark
-from schema import Landmark3D
+from .calibration import CameraCalibration
+from .mediapipe_adapter import NormalizedLandmark
+from .schema import Landmark3D
 
 
 _FACE_ANCHOR_MODEL_METERS: dict[int, tuple[float, float, float]] = {

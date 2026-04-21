@@ -1,16 +1,14 @@
-"""Public API surface for the Starlarkish package.
+"""Public API surface for the Starlarkish package."""
 
-Exports the three primary symbols consumers need:
-
-* ``Struct`` — the immutable, hashable, equality-comparable value type
-* ``struct`` — the factory function (coerces nested dicts to Struct)
-* ``Evaluator`` — the sandboxed .mlody script execution engine
-
-Existing import paths (e.g.
-``from starlarkish.core.struct import struct``) continue to
-work unchanged.
-"""
-from starlarkish.core.struct import Struct, struct
-from starlarkish.evaluator.evaluator import Evaluator
+from common.python.starlarkish.core.struct import Struct, struct
 
 __all__ = ["Struct", "struct", "Evaluator"]
+
+
+def __getattr__(name: str) -> object:
+    """Lazily expose Evaluator without forcing evaluator deps on core users."""
+    if name == "Evaluator":
+        from common.python.starlarkish.evaluator.evaluator import Evaluator
+
+        return Evaluator
+    raise AttributeError(name)

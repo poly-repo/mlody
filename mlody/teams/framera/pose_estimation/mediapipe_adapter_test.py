@@ -7,14 +7,18 @@ from unittest.mock import patch
 
 import pytest
 
-from mediapipe_adapter import MediaPipeTracker, _try_load_mediapipe_solutions
+from mlody.teams.framera.pose_estimation import mediapipe_adapter as mediapipe_adapter_module
+from mlody.teams.framera.pose_estimation.mediapipe_adapter import (
+    MediaPipeTracker,
+    _try_load_mediapipe_solutions,
+)
 
 
 def test_try_load_mediapipe_solutions_uses_top_level_module_when_available() -> None:
     fake_solutions = SimpleNamespace(name="top-level")
     fake_mp = SimpleNamespace(solutions=fake_solutions)
 
-    with patch("mediapipe_adapter._import_mediapipe", return_value=fake_mp):
+    with patch.object(mediapipe_adapter_module, "_import_mediapipe", return_value=fake_mp):
         solutions = _try_load_mediapipe_solutions()
 
     assert solutions is fake_solutions
@@ -23,7 +27,7 @@ def test_try_load_mediapipe_solutions_uses_top_level_module_when_available() -> 
 def test_try_load_mediapipe_solutions_returns_none_when_missing() -> None:
     fake_mp = SimpleNamespace()
 
-    with patch("mediapipe_adapter._import_mediapipe", return_value=fake_mp):
+    with patch.object(mediapipe_adapter_module, "_import_mediapipe", return_value=fake_mp):
         solutions = _try_load_mediapipe_solutions()
 
     assert solutions is None
@@ -32,8 +36,9 @@ def test_try_load_mediapipe_solutions_returns_none_when_missing() -> None:
 def test_tracker_raises_clear_error_when_tasks_only_and_model_missing() -> None:
     tracker = MediaPipeTracker()
 
-    with patch(
-        "mediapipe_adapter._try_load_mediapipe_solutions",
+    with patch.object(
+        mediapipe_adapter_module,
+        "_try_load_mediapipe_solutions",
         return_value=None,
     ):
         with pytest.raises(RuntimeError, match="--holistic-model"):
@@ -46,8 +51,9 @@ def test_tracker_requires_hand_model_for_split_tasks_hands() -> None:
         hands_enabled=True,
     )
 
-    with patch(
-        "mediapipe_adapter._try_load_mediapipe_solutions",
+    with patch.object(
+        mediapipe_adapter_module,
+        "_try_load_mediapipe_solutions",
         return_value=None,
     ):
         with pytest.raises(RuntimeError, match="--hand-model"):
@@ -60,8 +66,9 @@ def test_tracker_requires_pose_model_when_body_enabled() -> None:
         body_enabled=True,
     )
 
-    with patch(
-        "mediapipe_adapter._try_load_mediapipe_solutions",
+    with patch.object(
+        mediapipe_adapter_module,
+        "_try_load_mediapipe_solutions",
         return_value=None,
     ):
         with pytest.raises(RuntimeError, match="--pose-model"):
@@ -78,11 +85,11 @@ def test_tracker_ignores_unused_pose_and_hand_models_without_flags() -> None:
     )
 
     with (
-        patch("mediapipe_adapter._try_load_mediapipe_solutions", return_value=None),
-        patch("mediapipe_adapter._import_mediapipe", return_value=object()),
-        patch("mediapipe_adapter._create_task_face_landmarker", return_value=object()) as face_mock,
-        patch("mediapipe_adapter._create_task_pose_landmarker") as pose_mock,
-        patch("mediapipe_adapter._create_task_hand_landmarker") as hand_mock,
+        patch.object(mediapipe_adapter_module, "_try_load_mediapipe_solutions", return_value=None),
+        patch.object(mediapipe_adapter_module, "_import_mediapipe", return_value=object()),
+        patch.object(mediapipe_adapter_module, "_create_task_face_landmarker", return_value=object()) as face_mock,
+        patch.object(mediapipe_adapter_module, "_create_task_pose_landmarker") as pose_mock,
+        patch.object(mediapipe_adapter_module, "_create_task_hand_landmarker") as hand_mock,
     ):
         entered = tracker.__enter__()
 

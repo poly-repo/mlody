@@ -6,13 +6,14 @@ from unittest.mock import patch
 
 import numpy as np
 
-from calibration import CameraCalibration
-from geometry import (
+from mlody.teams.framera.pose_estimation import geometry as geometry_module
+from mlody.teams.framera.pose_estimation.calibration import CameraCalibration
+from mlody.teams.framera.pose_estimation.geometry import (
     reconstruct_face_landmarks_camera_space,
     reconstruct_hand_landmarks_camera_space,
     reconstruct_pose_landmarks_camera_space,
 )
-from mediapipe_adapter import NormalizedLandmark
+from mlody.teams.framera.pose_estimation.mediapipe_adapter import NormalizedLandmark
 
 
 def _calibration() -> CameraCalibration:
@@ -62,7 +63,7 @@ def test_reconstruct_face_uses_selected_anchor_points() -> None:
         },
     )
 
-    with patch("geometry._load_cv2", return_value=fake_cv2):
+    with patch.object(geometry_module, "_load_cv2", return_value=fake_cv2):
         face, degraded, warnings = reconstruct_face_landmarks_camera_space(
             calibration=_calibration(),
             face_landmarks=face_landmarks,
@@ -98,7 +99,7 @@ def test_reconstruct_hand_uses_world_landmarks_when_available() -> None:
         for index in range(4)
     )
 
-    with patch("geometry._load_cv2", return_value=fake_cv2):
+    with patch.object(geometry_module, "_load_cv2", return_value=fake_cv2):
         hand, degraded, warnings = reconstruct_hand_landmarks_camera_space(
             calibration=_calibration(),
             hand_landmarks=hand_landmarks,

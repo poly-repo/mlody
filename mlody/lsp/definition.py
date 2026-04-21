@@ -8,7 +8,7 @@ from pathlib import Path
 import tree_sitter
 from lsprotocol.types import Location, Position, Range
 
-from starlarkish.evaluator.evaluator import SAFE_BUILTINS, Evaluator
+from common.python.starlarkish.evaluator.evaluator import SAFE_BUILTINS, Evaluator
 from mlody.lsp.parser import find_ancestor, get_load_statements, node_at_position
 
 # Matches a symbol definition line: `NAME = ...` or `def NAME`.

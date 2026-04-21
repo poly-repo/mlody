@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from runtime import FpsCounter, build_overlay_lines, EmissionGate, choose_status
+from mlody.teams.framera.pose_estimation.runtime import (
+    EmissionGate,
+    FpsCounter,
+    build_overlay_lines,
+    choose_status,
+)
 
 
 def test_emission_gate_allows_first_emit_and_respects_interval() -> None:

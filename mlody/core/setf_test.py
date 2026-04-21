@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 
-from starlarkish.core.struct import Struct
+from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.setf import can_setf, resolve_places, setf, setf_root
 from mlody.core.setf_strategies import StructFieldSetter

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from schema import Detection, FramePacket
+from mlody.teams.framera.yolo26.schema import Detection, FramePacket
 
 TaskName = Literal["detection", "segmentation"]
 SUPPORTED_TASKS: tuple[TaskName, ...] = ("detection", "segmentation")

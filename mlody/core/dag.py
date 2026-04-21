@@ -35,7 +35,7 @@ from typing import Iterator
 
 import networkx
 
-from starlarkish.evaluator.evaluator import Evaluator
+from common.python.starlarkish.evaluator.evaluator import Evaluator
 from mlody.core.workspace import Workspace
 
 # ── Section 1: Types ─────────────────────────────────────────────────────────

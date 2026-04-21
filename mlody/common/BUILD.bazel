@@ -70,10 +70,12 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        "//mlody:mlody_lib",
         "//common/python/starlarkish/core:core_lib",
         "@pip//gitpython",
     ],
 )
+
 
 o_py_test(
     name = "values_test",

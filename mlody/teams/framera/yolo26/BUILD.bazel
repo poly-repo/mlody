@@ -10,6 +10,7 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        "//mlody:mlody_lib",
         "@pip//click",
         "@pip//opencv_python",
         "@pip//torch",
@@ -40,4 +41,3 @@ o_py_test(
     ],
     visibility = ["//visibility:public"],
 )
-

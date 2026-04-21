@@ -841,7 +841,7 @@ def _make_label() -> Any:
 
 def _make_struct(**kwargs: object) -> Any:
     """Construct a Starlark Struct from keyword arguments."""
-    from starlarkish.core.struct import Struct
+    from common.python.starlarkish.core.struct import Struct
 
     return Struct(**kwargs)
 

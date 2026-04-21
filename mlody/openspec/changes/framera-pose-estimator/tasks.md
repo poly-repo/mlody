@@ -2,16 +2,16 @@
 
 **Change:** framera-pose-estimator **Spec:**
 `mlody/openspec/changes/framera-pose-estimator/SPEC.md`
-**Requirements:** `mlody/teams/framera/pose-estimation/REQUIREMENTS.md`
+**Requirements:** `mlody/teams/framera/pose_estimation/REQUIREMENTS.md`
 
 ---
 
 ## Task 1 — OpenSpec and package scaffolding
 
-- Create `mlody/teams/framera/pose-estimation/REQUIREMENTS.md`.
+- Create `mlody/teams/framera/pose_estimation/REQUIREMENTS.md`.
 - Create `mlody/openspec/changes/framera-pose-estimator/SPEC.md`.
 - Create `mlody/openspec/changes/framera-pose-estimator/tasks.md`.
-- Create the `mlody/teams/framera/pose-estimation/` Python package structure and executable shim
+- Create the `mlody/teams/framera/pose_estimation/` Python package structure and executable shim
   `pose-estimator.py`.
 
 Status: [x]
@@ -66,12 +66,12 @@ Status: [x]
 - Add `numpy`, `opencv-python`, and `mediapipe` to `pyproject.toml`.
 - Run `o-repin`.
 - Run `bazel run :gazelle`.
-- Ensure `//mlody/teams/framera/pose-estimation/...` builds and tests.
+- Ensure `//mlody/teams/framera/pose_estimation/...` builds and tests.
 
 Status: [ ]
 
-Note: `o-repin` completed and `//mlody/teams/framera/pose-estimation:framera_test` plus
-`//mlody/teams/framera/pose-estimation:framera_pose_estimator` both succeed. `bazel run
+Note: `o-repin` completed and `//mlody/teams/framera/pose_estimation:framera_test` plus
+`//mlody/teams/framera/pose_estimation:framera_pose_estimator` both succeed. `bazel run
 //:gazelle` is currently blocked by unrelated pre-existing repo issues outside
 the new `framera` package, so this change keeps a focused hand-authored
 `BUILD.bazel` as a temporary fallback.

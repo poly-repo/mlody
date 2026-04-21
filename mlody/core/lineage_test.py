@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from starlarkish.core.struct import Struct
+from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.lineage import append_lineage, build_lineage_event
 

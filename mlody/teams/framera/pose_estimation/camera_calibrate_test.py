@@ -9,8 +9,9 @@ from unittest.mock import patch
 import numpy as np
 from click.testing import CliRunner
 
-from calibration import CameraCalibration
-from camera_calibrate import (
+from mlody.teams.framera.pose_estimation import camera_calibrate as camera_calibrate_module
+from mlody.teams.framera.pose_estimation.calibration import CameraCalibration
+from mlody.teams.framera.pose_estimation.camera_calibrate import (
     CalibrationResult,
     build_object_points,
     cli,
@@ -80,8 +81,9 @@ def test_cli_invokes_calibration_pipeline(tmp_path: Path) -> None:
     )
 
     runner = CliRunner()
-    with patch(
-        "camera_calibrate.calibrate_from_directory",
+    with patch.object(
+        camera_calibrate_module,
+        "calibrate_from_directory",
         return_value=fake_result,
     ) as mock_calibrate:
         result = runner.invoke(
@@ -117,11 +119,13 @@ def test_cli_capture_mode_collects_images_before_calibration(tmp_path: Path) -> 
     )
 
     runner = CliRunner()
-    with patch(
-        "camera_calibrate.capture_chessboard_images",
+    with patch.object(
+        camera_calibrate_module,
+        "capture_chessboard_images",
         return_value=9,
-    ) as mock_capture, patch(
-        "camera_calibrate.calibrate_from_directory",
+    ) as mock_capture, patch.object(
+        camera_calibrate_module,
+        "calibrate_from_directory",
         return_value=fake_result,
     ) as mock_calibrate:
         result = runner.invoke(

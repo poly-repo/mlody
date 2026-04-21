@@ -5,7 +5,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from runtime import (
+from mlody.teams.framera.yolo26.runtime import (
     GREEN_BGR,
     EmissionGate,
     FpsCounter,
@@ -19,7 +19,7 @@ from runtime import (
     _extract_detections,
     _format_detection_label,
 )
-from schema import Detection
+from mlody.teams.framera.yolo26.schema import Detection
 
 
 class _FakeTensor:

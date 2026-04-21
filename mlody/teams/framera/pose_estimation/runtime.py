@@ -7,15 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from calibration import CameraCalibration, load_calibration
-from geometry import (
+from .calibration import CameraCalibration, load_calibration
+from .geometry import (
     reconstruct_face_landmarks_camera_space,
     reconstruct_hand_landmarks_camera_space,
     reconstruct_pose_landmarks_camera_space,
 )
-from mediapipe_adapter import MediaPipeTracker
-from mediapipe_adapter import NormalizedLandmark
-from schema import FramePacket, Landmark3D
+from .mediapipe_adapter import MediaPipeTracker
+from .mediapipe_adapter import NormalizedLandmark
+from .schema import FramePacket, Landmark3D
 
 
 @dataclass(frozen=True)
