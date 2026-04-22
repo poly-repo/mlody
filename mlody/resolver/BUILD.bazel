@@ -13,6 +13,7 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         "//mlody/core:core_lib",
+        "//mlody/core:derived",  # keep — ParquetTraversalStrategy lazy-imports materialise_derived for derived locations
         "//mlody/core:location_composition_lib",
         "//mlody/core:traversal_grammar",  # keep — label_value.py imports PathSegment types for engine dispatch
         "//mlody/core/parquet:parquet",  # keep — ParquetTraversalStrategy lazy-imports ParquetDeserializer

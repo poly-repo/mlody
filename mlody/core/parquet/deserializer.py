@@ -156,10 +156,17 @@ class ParquetDeserializer:
             if field_type == registered_type:
                 return handler(value, field)
 
-        # Structured / opaque types: return sentinel without conversion (D-6).
+        # Struct scalars: convert to Python dicts, mirroring pa.Table.to_pydict().
+        # This lets callers inspect nested fields (e.g. HuggingFace image structs
+        # which store {'bytes': <png-bytes>, 'path': None}).
+        if pa.types.is_struct(field_type):
+            if hasattr(value, "as_py"):
+                return value.as_py()  # type: ignore[union-attr]
+            return OPAQUE_SENTINEL
+
+        # Remaining opaque types (map, binary): return sentinel without conversion.
         if (
-            pa.types.is_struct(field_type)
-            or pa.types.is_map(field_type)
+            pa.types.is_map(field_type)
             or pa.types.is_large_binary(field_type)
             or pa.types.is_binary(field_type)
         ):
@@ -359,10 +366,12 @@ def read_file_as_rows(path: Path | str) -> list[dict[str, Any]]:
         if handled:
             continue
 
-        # Opaque structured types → sentinel column
-        if (
-            pa.types.is_struct(field_type)
-            or pa.types.is_map(field_type)
+        # Struct columns: to_pylist() converts each StructScalar to a dict.
+        if pa.types.is_struct(field_type):
+            col_arrays[field.name] = col.to_pylist()
+        # Remaining opaque types → sentinel column
+        elif (
+            pa.types.is_map(field_type)
             or pa.types.is_large_binary(field_type)
             or pa.types.is_binary(field_type)
         ):

@@ -259,12 +259,12 @@ def test_slice_then_field_returns_list_of_scalars(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_struct_column_returns_sentinel(tmp_path: Path) -> None:
-    """Scenario: pa.struct column returns sentinel."""
+def test_struct_column_returns_dict(tmp_path: Path) -> None:
+    """Scenario: pa.struct column returns Python dict (mirrors pa.Table.to_pydict)."""
     p = _make_struct_parquet(tmp_path)
     ds = ParquetDeserializer(p)
     row = ds[0]
-    assert row["nested"] == OPAQUE_SENTINEL
+    assert row["nested"] == {"x": 1, "y": 2}
 
 
 def test_map_column_returns_sentinel(tmp_path: Path) -> None:

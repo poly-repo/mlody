@@ -114,6 +114,16 @@ def _value_impl(ctx):
         output_path = home_path + "/.cache/mlody/derived/" + hash_hex + ".parquet"
 
         source_ref = _resolve_source_ref(clean_source) if clean_source != None else None
+        # Collect base source paths from the resolved source value's location so
+        # that compose_location can join them with field paths during traversal.
+        _source_loc = python.getattr(source_ref, "location", None) if source_ref != None else None
+        _source_loc_attrs = python.getattr(_source_loc, "attributes", None) if _source_loc != None else None
+        if isinstance(_source_loc_attrs, dict):
+            _raw_path = _source_loc_attrs.get("path")
+        else:
+            _raw_path = python.getattr(_source_loc, "path", None) if _source_loc != None else None
+        _source_paths = list(_raw_path) if isinstance(_raw_path, list) else ([_raw_path] if _raw_path != None else [])
+
         # Construct the derived location struct directly.  The attributes dict
         # must remain a plain Python dict (not coerced to Struct by struct())
         # so that callers can use attributes.get("field") consistently with how
@@ -126,6 +136,7 @@ def _value_impl(ctx):
             _root_kind="derived",
             attributes={
                 "source_ref": clean_source,
+                "source_paths": _source_paths,
                 "sql_fragment": sql_fragment,
                 "dialect": sql_dialect,
                 "output_path": output_path,
@@ -136,6 +147,10 @@ def _value_impl(ctx):
         loc_ref = _resolve_location_ref(loc_raw) if loc_raw != None else None
 
     type_ref = _resolve_type_ref(type_raw) if type_raw != None else None
+    # Inherit type from source when not explicitly specified (e.g. derived values
+    # should have the same type and layout as their source).
+    if type_ref == None and source_ref != None:
+        type_ref = python.getattr(source_ref, "type", None)
     rep_ref = _resolve_representation_ref(rep_raw) if rep_raw != None else None
 
     value_struct = Struct(

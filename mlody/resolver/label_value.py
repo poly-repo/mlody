@@ -1264,19 +1264,42 @@ class ParquetTraversalStrategy:
         import glob as _glob  # noqa: PLC0415
 
         location = getattr(value, "location", None)
-        path_val: object = getattr(location, "path", None)
-        if path_val is None:
-            _loc_attrs = getattr(location, "attributes", None)
-            if isinstance(_loc_attrs, dict):
-                path_val = _loc_attrs.get("path")
-        if path_val is None:
-            return MlodyUnresolvedValue(
-                label=label,
-                reason=(
-                    "Parquet traversal requires a location with a 'path' attribute; "
-                    f"got location {location!r} (label: {label!r})"
-                ),
-            )
+        _loc_root_kind = (
+            getattr(location, "_root_kind", None) or getattr(location, "type", None)
+        )
+
+        # Derived locations must be materialised before we can read rows from them.
+        if _loc_root_kind == "derived":
+            try:
+                from mlody.core.derived import materialise_derived  # noqa: PLC0415
+
+                _attrs = getattr(location, "attributes", {}) or {}
+                _source_paths = _attrs.get("source_paths") or []
+                if not _source_paths:
+                    _source_paths = str(_attrs.get("source_ref") or "")
+                path_val: object = materialise_derived(location, _source_paths)
+            except Exception as exc:
+                return MlodyUnresolvedValue(
+                    label=label,
+                    reason=(
+                        f"Failed to materialise derived location for parquet traversal: "
+                        f"{exc} (label: {label!r})"
+                    ),
+                )
+        else:
+            path_val: object = getattr(location, "path", None)
+            if path_val is None:
+                _loc_attrs = getattr(location, "attributes", None)
+                if isinstance(_loc_attrs, dict):
+                    path_val = _loc_attrs.get("path")
+            if path_val is None:
+                return MlodyUnresolvedValue(
+                    label=label,
+                    reason=(
+                        "Parquet traversal requires a location with a 'path' attribute; "
+                        f"got location {location!r} (label: {label!r})"
+                    ),
+                )
 
         # Resolve glob patterns and lists to concrete file paths (sorted).
         if isinstance(path_val, (list, tuple)):

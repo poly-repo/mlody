@@ -457,6 +457,17 @@ def _source_paths_from_location(location: object) -> str | list[str] | None:
     return None
 
 
+def _print_row_list(rows: list, *, image_encoder=None) -> None:
+    """Display a list of row dicts from parquet traversal with inline image support."""
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            click.echo(repr(row))
+            continue
+        click.echo(f"[{i}]")
+        for k, v in row.items():
+            click.echo(f"  {k}: {_cell_label(v, image_encoder=image_encoder)}")
+
+
 def _print_mlody_value(value: MlodyValue, *, _has_error: list[bool] | None = None) -> None:
     """Print a MlodyValue to the console with syntax highlighting.
 
@@ -481,13 +492,20 @@ def _print_mlody_value(value: MlodyValue, *, _has_error: list[bool] | None = Non
             # Materialise the derived value and render the resulting table.
             attrs: dict[str, object] = getattr(location, "attributes", {})  # type: ignore[assignment]
             source_ref = attrs.get("source_ref", "")
-            # Resolve source paths from the source value's location.
-            source_struct = getattr(value.struct, "source", None)
-            source_location = getattr(source_struct, "location", None) if source_struct else None
-            source_paths = _source_paths_from_location(source_location)
-            # Fall back to source_ref string if no resolved paths available.
-            if source_paths is None:
-                source_paths = str(source_ref)
+            # Prefer pre-resolved source_paths stored in attributes (populated
+            # during construction in values.mlody and updated by _derived_compose
+            # during field traversal).
+            source_paths_attr = attrs.get("source_paths")
+            if source_paths_attr and isinstance(source_paths_attr, list):
+                source_paths: str | list[str] = source_paths_attr
+            else:
+                # Fall back: resolve from the source value's location struct.
+                source_struct = getattr(value.struct, "source", None)
+                source_location = getattr(source_struct, "location", None) if source_struct else None
+                source_paths = _source_paths_from_location(source_location)
+                # Final fallback to source_ref string.
+                if source_paths is None:
+                    source_paths = str(source_ref)
             try:
                 output_path = materialise_derived(location, source_paths)
                 table: pa.Table = pq.read_table(output_path)
@@ -549,15 +567,21 @@ def _print_mlody_value(value: MlodyValue, *, _has_error: list[bool] | None = Non
         _console.print("action:")
         _console.print(Syntax(_pretty_struct_str(value.struct), "python", theme="monokai", word_wrap=True))
         return
-    # _RawAttrValue wrapping a pa.Table (e.g. from a [@sql …] entity query) —
-    # render with the full parquet display path so images are shown inline.
+    # _RawAttrValue wrapping a pa.Table or list-of-dicts (from parquet traversal
+    # or [@sql …] entity query) — render with full image support.
     from mlody.resolver.label_value import _RawAttrValue  # noqa: PLC0415
 
-    if isinstance(value, _RawAttrValue) and isinstance(value.value, pa.Table):
-        table: pa.Table = value.value
+    if isinstance(value, _RawAttrValue):
         enc = _image_encoder_for_terminal()
-        click.echo(_format_value(table, image_encoder=enc))
-        return
+        if isinstance(value.value, pa.Table):
+            click.echo(_format_value(value.value, image_encoder=enc))
+            return
+        if isinstance(value.value, list):
+            _print_row_list(value.value, image_encoder=enc)
+            return
+        if isinstance(value.value, dict):
+            _print_row_list([value.value], image_encoder=enc)
+            return
     click.echo(_render_mlody_value(value))
 
 

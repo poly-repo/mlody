@@ -28,6 +28,7 @@ Design rationale (design.md D-5):
 from __future__ import annotations
 
 import glob
+import hashlib
 import os
 from typing import Callable
 
@@ -54,6 +55,11 @@ LocationComposeFn = Callable[["Struct", "Struct | None", str], "Struct"]
 # Keys are location kind strings (e.g. "posix").
 # Accessible to tests for registering mock handlers.
 _LOCATION_COMPOSERS: dict[str, LocationComposeFn] = {}
+
+# Parent location kinds whose registered handlers accept field locations of a
+# *different* kind (cross-kind composition).  All other cross-kind combinations
+# continue to raise ``_LocationComposeError``.
+_CROSS_KIND_PARENTS: frozenset[str] = frozenset({"derived"})
 
 
 def register_location_composer(kind: str, fn: LocationComposeFn) -> None:
@@ -106,12 +112,15 @@ def compose_location(
     field_kind: str | None = _specific_kind(field_loc) if field_loc is not None else None
 
     if field_loc is not None and field_kind != parent_kind:
-        # Rule 5: cross-kind — unsupported.
-        raise _LocationComposeError(
-            f"Cannot compose location of kind {parent_kind!r} with field location "
-            f"of kind {field_kind!r} for field {field_name!r}; "
-            f"cross-kind composition is not supported."
-        )
+        # Rule 5: cross-kind — unsupported unless parent is in _CROSS_KIND_PARENTS.
+        # Handlers in that set accept field locations of any kind (e.g. the
+        # derived handler composes a derived parent with a posix field location).
+        if parent_kind not in _CROSS_KIND_PARENTS:
+            raise _LocationComposeError(
+                f"Cannot compose location of kind {parent_kind!r} with field location "
+                f"of kind {field_kind!r} for field {field_name!r}; "
+                f"cross-kind composition is not supported."
+            )
 
     handler = _LOCATION_COMPOSERS.get(parent_kind)
     if handler is None:
@@ -207,3 +216,75 @@ def _posix_compose(
 
 
 register_location_composer("posix", _posix_compose)
+
+
+# ---------------------------------------------------------------------------
+# Built-in derived handler — registered at module import time
+# ---------------------------------------------------------------------------
+
+
+def _derived_compose(
+    parent_loc: Struct,
+    field_loc: Struct | None,
+    field_name: str,
+) -> Struct:
+    """Compose a derived parent location with a (typically posix) field location.
+
+    Takes the ``source_paths`` stored in the derived location's attributes,
+    joins each with the field's relative path, expands any globs, deduplicates,
+    and returns a new derived location with the composed absolute paths and a
+    fresh deterministic cache hash.
+
+    This allows field traversal on derived values (e.g.
+    ``celebA-dataset-bald.valid``) to query the correct subdirectory of the
+    materialised parquet dataset.
+    """
+    attrs: dict[str, object] = getattr(parent_loc, "attributes", {}) or {}
+    source_paths: list[str] = list(attrs.get("source_paths") or [])  # type: ignore[arg-type]
+    sql_fragment: str = str(attrs.get("sql_fragment") or "")
+    dialect: str = str(attrs.get("dialect") or "duckdb")
+    source_ref: str = str(attrs.get("source_ref") or "")
+
+    field_paths: list[str] = _get_paths(field_loc) if field_loc is not None else [field_name]
+    if not field_paths:
+        field_paths = [field_name]
+
+    # Cartesian composition: join each source path with each field path.
+    composed_patterns = [
+        os.path.join(os.path.expanduser(sp), fp)
+        for sp in (source_paths or [""])
+        for fp in field_paths
+    ]
+
+    expanded_paths = [p for pat in composed_patterns for p in _expand_glob(pat)]
+    if not expanded_paths:
+        expanded_paths = composed_patterns
+
+    # Preserve order while deduplicating.
+    seen: set[str] = set()
+    new_paths = [p for p in expanded_paths if not (p in seen or seen.add(p))]  # type: ignore[func-returns-value]
+
+    # Compute a new deterministic cache hash over the composed paths + query.
+    raw_key = ":".join(sorted(new_paths)) + ":" + dialect + ":" + sql_fragment
+    hash_hex = hashlib.sha256(raw_key.encode()).hexdigest()[:40]
+    new_output = os.path.join(
+        os.path.expanduser("~"), ".cache", "mlody", "derived", hash_hex + ".parquet"
+    )
+
+    return Struct(
+        kind="location",
+        type="derived",
+        name="derived",
+        abstract=False,
+        _root_kind="derived",
+        attributes={
+            "source_ref": source_ref,
+            "source_paths": new_paths,
+            "sql_fragment": sql_fragment,
+            "dialect": dialect,
+            "output_path": new_output,
+        },
+    )
+
+
+register_location_composer("derived", _derived_compose)
