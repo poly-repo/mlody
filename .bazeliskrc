@@ -5,4 +5,5 @@
 # last_rc                 points to the most recent release candidate. If there is no active release candidate, Bazelisk uses the latest Bazel release instead.
 # rolling                 refers to the latest rolling release (even if there is a newer LTS release).
 
-USE_BAZEL_VERSION=9.0.2
+#USE_BAZEL_VERSION=9.0.2
+USE_BAZEL_VERSION=9.1.0
