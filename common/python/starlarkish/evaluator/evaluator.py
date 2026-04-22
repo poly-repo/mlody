@@ -44,7 +44,9 @@ Core Concepts:
 import ast
 import builtins
 import functools
+import hashlib
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -133,6 +135,8 @@ PYTHON_SPECIFIC_BUILTINS = struct(
     Any=Any,
     Callable=Callable,
     re=re,
+    hashlib=hashlib,
+    os=os,
 )
 
 # A curated list of safe built-ins to expose to user scripts.

@@ -127,6 +127,44 @@ o_py_test(
 exports_files(["rule.mlody"])
 
 o_py_library(
+    name = "optimiser",
+    srcs = ["optimiser.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_test(
+    name = "optimiser_test",
+    srcs = ["optimiser_test.py"],
+    deps = [
+        ":optimiser",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
+    name = "derived",
+    srcs = ["derived.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":optimiser",
+        "//mlody/core/sql:sql_query_lib",  # keep — mlody_query and MlodyQueryError
+        "@pip//pyarrow",
+    ],
+)
+
+o_py_test(
+    name = "derived_test",
+    srcs = ["derived_test.py"],
+    deps = [
+        ":derived",
+        ":optimiser",
+        "//mlody/core/sql:sql_query_lib",  # keep — MlodyQueryError
+        "@pip//pyarrow",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
     name = "targets_lib",
     srcs = ["targets.py"],
     visibility = ["//:__subpackages__"],

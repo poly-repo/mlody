@@ -69,6 +69,16 @@ def validate_attr_value(attr_name: str, value: python.Any, type_ref: python.Any)
                     f"got kind={got_kind!r}"
                 )
             return
+        if type_ref == "value_ref":
+            # Accepts a value struct OR a string name (resolved by the impl at call time)
+            if isinstance(value, str):
+                return
+            if type(value) != "struct" or python.getattr(value, "kind", None) != "value":
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects a value struct or string name, "
+                    f"got {type(value)!r}"
+                )
+            return
         if type_ref == "value_ref_list":
             # Accepts a list; each element is a value struct OR a string name
             if not isinstance(value, list):

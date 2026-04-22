@@ -41,6 +41,33 @@ from mlody.core.label.errors import (
 from mlody.core.label.label import EntitySpec, Label
 
 
+def extract_sql_query(entity_query: str | None) -> tuple[str, str] | None:
+    """Extract a SQL dialect tag and fragment from an entity query suffix.
+
+    Returns ``("duckdb", fragment)`` when ``entity_query`` starts with the
+    literal prefix ``"@sql "`` (case-sensitive, one trailing space required),
+    stripping that prefix to produce the fragment.  Returns ``None`` for any
+    other input, including ``None`` itself.
+
+    This is a post-parse helper — it does not modify the parser or the raw
+    ``entity_query`` field on ``Label``/``EntitySpec``.
+
+    Args:
+        entity_query: The verbatim bracket content from a parsed label, or
+            ``None`` if no bracket suffix was present.
+
+    Returns:
+        ``(dialect, sql_fragment)`` or ``None``.
+    """
+    _SQL_PREFIX = "@sql "
+    if entity_query is None:
+        return None
+    if not entity_query.startswith(_SQL_PREFIX):
+        return None
+    fragment = entity_query[len(_SQL_PREFIX):]
+    return ("duckdb", fragment)
+
+
 def _strip_query(fragment: str) -> tuple[str, str | None]:
     """Return ``(body, query_content)`` after removing a trailing ``[...]``.
 

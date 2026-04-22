@@ -326,3 +326,59 @@ class TestEntityFieldPath:
         assert result.entity is not None
         assert result.entity.name is None
         assert result.entity.field_path is None
+
+
+class TestExtractSqlQuery:
+    """Requirement: Parse @sql dialect tag from entity query suffix.
+
+    Traces to openspec/changes/value-source-query/specs/target-addressing/spec.md
+    """
+
+    def test_where_fragment_extracts_dialect_and_fragment(self) -> None:
+        # Scenario: @sql prefix extracts dialect and fragment
+        from mlody.core.label.parser import extract_sql_query
+
+        result = parse_label("@root//pkg:name[@sql WHERE split='train']")
+        assert result.entity_query == "@sql WHERE split='train'"
+        assert extract_sql_query(result.entity_query) == ("duckdb", "WHERE split='train'")
+
+    def test_select_fragment_extracts_dialect_and_fragment(self) -> None:
+        # Scenario: @sql with SELECT fragment
+        from mlody.core.label.parser import extract_sql_query
+
+        result = parse_label("@root//pkg:name[@sql SELECT col1, col2]")
+        assert extract_sql_query(result.entity_query) == ("duckdb", "SELECT col1, col2")
+
+    def test_non_sql_bracket_content_returns_none(self) -> None:
+        # Scenario: non-sql query suffix is not extracted
+        from mlody.core.label.parser import extract_sql_query
+
+        assert extract_sql_query("1") is None
+
+    def test_none_entity_query_returns_none(self) -> None:
+        # Scenario: None entity_query returns None
+        from mlody.core.label.parser import extract_sql_query
+
+        assert extract_sql_query(None) is None
+
+    def test_at_sql_without_trailing_space_returns_none(self) -> None:
+        # Scenario: @sql prefix without trailing space is not extracted
+        from mlody.core.label.parser import extract_sql_query
+
+        assert extract_sql_query("@sqlSELECT *") is None
+
+    def test_existing_bracket_expression_unaffected(self) -> None:
+        # Scenario: existing bracket expression on entity is preserved
+        from mlody.core.label.parser import extract_sql_query
+
+        result = parse_label("@root//pkg:name[1]")
+        assert result.entity_query == "1"
+        assert extract_sql_query("1") is None
+
+    def test_label_without_bracket_has_none_entity_query(self) -> None:
+        # Scenario: label without bracket suffix has None entity_query
+        from mlody.core.label.parser import extract_sql_query
+
+        result = parse_label("@root//pkg:name")
+        assert result.entity_query is None
+        assert extract_sql_query(None) is None

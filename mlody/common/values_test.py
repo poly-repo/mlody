@@ -447,3 +447,166 @@ def test_value_with_wrong_kind_representation_raises_type_error() -> None:
     """5.3: value(representation=posix()) raises TypeError naming kind 'representation'."""
     with pytest.raises(TypeError, match="representation"):
         _eval('value(name="x", type=integer(), location=s3(), representation=posix())')
+
+
+# ---------------------------------------------------------------------------
+# TC-016: source resolution — string, value struct, wrong kind, absent
+# ---------------------------------------------------------------------------
+
+
+def test_value_source_string_label_resolves_to_value_struct() -> None:
+    """TC-016a: source='upstream' (string) resolves to the registered value struct."""
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", type=string(), location=s3(), source="upstream")\n'
+    )
+    src = ev._values_by_name["v"].source
+    assert src.kind == "value"
+    assert src.name == "upstream"
+
+
+def test_value_source_unknown_string_raises_name_error() -> None:
+    """TC-016a: source='nonexistent' raises NameError."""
+    with pytest.raises(NameError):
+        _eval('value(name="v", type=integer(), location=s3(), source="nonexistent")')
+
+
+def test_value_source_as_value_struct() -> None:
+    """TC-016b: source=<value struct> is stored as the value struct."""
+    ev = _eval(
+        'upstream = value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="downstream", type=string(), location=s3(), source=upstream)\n'
+    )
+    src = ev._values_by_name["downstream"].source
+    assert src.kind == "value"
+    assert src.name == "upstream"
+
+
+def test_value_source_wrong_kind_raises_type_error() -> None:
+    """TC-016c: source=s3() (wrong kind) raises TypeError."""
+    with pytest.raises(TypeError):
+        _eval('value(name="v", type=integer(), location=s3(), source=s3())')
+
+
+def test_value_source_defaults_to_none() -> None:
+    """TC-016d: value() without source has source=None."""
+    ev = _eval('value(name="v", type=integer(), location=s3())')
+    assert ev._values_by_name["v"].source is None
+
+
+# ---------------------------------------------------------------------------
+# TC-017: value() source with @sql suffix auto-produces derived location
+# Traces to openspec/changes/value-source-query/specs/derived-location/spec.md
+# ---------------------------------------------------------------------------
+
+
+def test_value_source_with_sql_suffix_produces_derived_location() -> None:
+    """TC-017a: source with @sql suffix constructs a derived location automatically."""
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
+    )
+    v = ev._values_by_name["v"]
+    assert v.location is not None
+    assert v.location.type == "derived"
+
+
+def test_value_source_with_sql_suffix_derived_location_has_source_ref() -> None:
+    """TC-017b: derived location source_ref matches the source label (without query)."""
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
+    )
+    v = ev._values_by_name["v"]
+    loc = v.location
+    assert loc.attributes.get("source_ref") == ":upstream"
+
+
+def test_value_source_with_sql_suffix_derived_location_has_sql_fragment() -> None:
+    """TC-017c: derived location sql_fragment carries the WHERE clause."""
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
+    )
+    v = ev._values_by_name["v"]
+    loc = v.location
+    assert loc.attributes.get("sql_fragment") == "WHERE split='train'"
+
+
+def test_value_source_with_sql_suffix_derived_location_has_duckdb_dialect() -> None:
+    """TC-017d: derived location dialect is 'duckdb'."""
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
+    )
+    v = ev._values_by_name["v"]
+    loc = v.location
+    assert loc.attributes.get("dialect") == "duckdb"
+
+
+def test_value_source_with_sql_suffix_derived_location_has_output_path() -> None:
+    """TC-017e: derived location output_path is a non-empty string ending in .parquet."""
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
+    )
+    v = ev._values_by_name["v"]
+    loc = v.location
+    output_path = loc.attributes.get("output_path")
+    assert isinstance(output_path, str)
+    assert output_path.endswith(".parquet")
+
+
+def test_value_source_with_sql_suffix_deterministic_output_path() -> None:
+    """TC-017f: identical inputs produce identical output path."""
+    import hashlib as _hashlib
+    from pathlib import Path as _Path
+
+    source_label = ":upstream"
+    dialect = "duckdb"
+    sql_fragment = "WHERE split='train'"
+    raw = f"{source_label}:{dialect}:{sql_fragment}"
+    expected_hash = _hashlib.sha256(raw.encode()).hexdigest()[:40]
+    expected_path = str(_Path.home() / ".cache" / "mlody" / "derived" / f"{expected_hash}.parquet")
+
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
+    )
+    v = ev._values_by_name["v"]
+    assert v.location.attributes.get("output_path") == expected_path
+
+
+def test_value_source_with_sql_suffix_different_fragment_different_path() -> None:
+    """TC-017g: different sql_fragment produces different output path."""
+    ev1 = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
+    )
+    ev2 = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", source=":upstream[@sql WHERE split=\'test\']")\n'
+    )
+    path1 = ev1._values_by_name["v"].location.attributes.get("output_path")
+    path2 = ev2._values_by_name["v"].location.attributes.get("output_path")
+    assert path1 != path2
+
+
+def test_value_explicit_location_with_sql_source_raises_value_error() -> None:
+    """TC-017h: explicit location= alongside query-bearing source raises ValueError."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        _eval(
+            'value(name="upstream", type=integer(), location=s3())\n'
+            'value(name="v", location=s3(), source=":upstream[@sql SELECT *]")\n'
+        )
+
+
+def test_value_source_without_sql_suffix_location_unaffected() -> None:
+    """TC-017i: source without @sql suffix leaves location unaffected."""
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", source="upstream")\n'
+    )
+    v = ev._values_by_name["v"]
+    # No derived location — location should be None since none was set
+    assert v.location is None

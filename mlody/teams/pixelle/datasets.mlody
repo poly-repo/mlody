@@ -102,3 +102,8 @@ value(
     type = ":celebA-csv",
     location = posix(path="~/.cache/mlody/artifacts/huggingface/datasets/flwrlabs/celeba/2d738f56e0e7f925ea36ae7c808ea925264aacec"),
 )
+
+value(
+    name = "celebA-dataset-bald",
+    source = ":celebA-dataset[@sql where Bald=True]",
+)

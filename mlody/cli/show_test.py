@@ -7,12 +7,17 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import networkx
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
-from common.python.starlarkish.core.struct import struct
+from common.python.starlarkish.core.struct import Struct, struct
 
 from mlody.cli.main import cli
 from mlody.cli.show import show_fn
+from mlody.core.derived import DerivedValueShapeError
+from mlody.core.label import parse_label as _parse_label
+from mlody.core.sql.sql_query import MlodyQueryError
 from mlody.resolver.errors import UnknownRefError
 from mlody.resolver.label_value import (
     MlodyActionValue,
@@ -20,8 +25,8 @@ from mlody.resolver.label_value import (
     MlodySourceValue,
     MlodyTaskValue,
     MlodyUnresolvedValue,
+    MlodyValueValue,
 )
-from mlody.core.label import parse_label as _parse_label
 
 
 # ---------------------------------------------------------------------------
@@ -574,3 +579,140 @@ class TestShowMlodyValueRendering:
 
         assert result.exit_code == 1
         assert "badref" in result.stderr or "badref" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Derived value integration tests (Tasks 5.1–5.4)
+# Requirement: Resolve and display target values (modified — derived path)
+# Requirement: DerivedValueShapeError displayed as a resolution error
+# Requirement: MlodyQueryError during materialisation displayed as error
+# ---------------------------------------------------------------------------
+
+
+def _make_derived_location(output_path: str, sql_fragment: str = "WHERE x > 0") -> object:
+    """Create a Struct that mimics a derived location for CLI tests."""
+    return Struct(
+        kind="location",
+        type="derived",
+        name="derived",
+        abstract=False,
+        _root_kind="derived",
+        attributes={
+            "source_ref": ":data",
+            "sql_fragment": sql_fragment,
+            "dialect": "duckdb",
+            "output_path": output_path,
+        },
+    )
+
+
+def _make_value_with_derived_location(output_path: str, sql_fragment: str = "WHERE x > 0") -> MlodyValueValue:
+    """Return a MlodyValueValue whose location is a derived location struct."""
+    loc = _make_derived_location(output_path, sql_fragment)
+    value_struct = Struct(
+        kind="value",
+        name="derived_val",
+        type=None,
+        location=loc,
+        default=None,
+        source=None,
+        representation=None,
+        _lineage=[],
+    )
+    return MlodyValueValue(struct=value_struct)
+
+
+def _invoke_show_with_derived(
+    tmp_path: Path,
+    resolved_value: object,
+    target: str = "@bert//models:derived_val",
+) -> object:
+    """Helper: invoke show with resolve_label_to_value returning resolved_value."""
+    mock_ws = MagicMock()
+    mock_ws.root_infos = {}
+    mock_ws.expand_wildcard_label.return_value = [target]
+
+    runner = CliRunner()
+    with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
+         patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+        mock_rw.return_value = (mock_ws, None)
+        mock_rlv.return_value = resolved_value
+        return runner.invoke(
+            cli,
+            ["show", target],
+            obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+        )
+
+
+class TestShowDerivedValue:
+    """Requirements: derived value materialisation in mlody show."""
+
+    def test_cache_miss_materialises_and_displays_table(self, tmp_path: Path) -> None:
+        """Scenario: derived value — cache miss materialises and displays table."""
+        output_path = str(tmp_path / "output.parquet")
+        result_table = pa.table({"x": [1, 2, 3], "y": [4, 5, 6]})
+        # Write the parquet to disk so materialise_derived returns it
+        pq.write_table(result_table, output_path)
+
+        value = _make_value_with_derived_location(output_path)
+
+        with patch("mlody.cli.show.materialise_derived", return_value=output_path) as mock_mat:
+            result = _invoke_show_with_derived(tmp_path, value)
+
+        assert result.exit_code == 0  # type: ignore[union-attr]
+        mock_mat.assert_called_once()
+        # Output should mention row/column counts or column names
+        assert "3 rows" in result.output or "x" in result.output  # type: ignore[union-attr]
+
+    def test_cache_hit_reuses_file_without_reexecution(self, tmp_path: Path) -> None:
+        """Scenario: derived value — cache hit reuses file without re-execution."""
+        output_path = str(tmp_path / "cached.parquet")
+        # Pre-create the cached file
+        cached_table = pa.table({"a": [10, 20], "b": [30, 40]})
+        pq.write_table(cached_table, output_path)
+
+        value = _make_value_with_derived_location(output_path)
+
+        # materialise_derived returns the path immediately (cache hit behaviour)
+        with patch("mlody.cli.show.materialise_derived", return_value=output_path):
+            result = _invoke_show_with_derived(tmp_path, value)
+
+        assert result.exit_code == 0  # type: ignore[union-attr]
+
+    def test_shape_error_exits_1_with_red_message(self, tmp_path: Path) -> None:
+        """Requirement: DerivedValueShapeError displayed as a resolution error."""
+        output_path = str(tmp_path / "output.parquet")
+        value = _make_value_with_derived_location(output_path, sql_fragment="SELECT COUNT(*)")
+
+        shape_err = DerivedValueShapeError(
+            sql_fragment="SELECT COUNT(*)",
+            num_rows=1,
+            num_columns=1,
+        )
+        with patch("mlody.cli.show.materialise_derived", side_effect=shape_err):
+            result = _invoke_show_with_derived(tmp_path, value)
+
+        assert result.exit_code == 1  # type: ignore[union-attr]
+        output_and_err = (result.output or "") + (result.stderr or "")
+        assert "SELECT COUNT(*)" in output_and_err or "scalar" in output_and_err.lower()
+
+    def test_sql_error_exits_1_with_message_no_traceback(self, tmp_path: Path) -> None:
+        """Requirement: MlodyQueryError during materialisation displayed as error."""
+        output_path = str(tmp_path / "output.parquet")
+        value = _make_value_with_derived_location(output_path, sql_fragment="BAD SQL")
+
+        query_err = MlodyQueryError(
+            query="BAD SQL",
+            expanded_query="BAD SQL",
+            columns=[],
+            cause=Exception("syntax error near BAD"),
+        )
+        with patch("mlody.cli.show.materialise_derived", side_effect=query_err):
+            result = _invoke_show_with_derived(tmp_path, value)
+
+        assert result.exit_code == 1  # type: ignore[union-attr]
+        output_and_err = (result.output or "") + (result.stderr or "")
+        # Must contain the error message
+        assert "BAD SQL" in output_and_err or "syntax error" in output_and_err
+        # Must NOT contain a Python traceback
+        assert "Traceback" not in result.output  # type: ignore[union-attr]

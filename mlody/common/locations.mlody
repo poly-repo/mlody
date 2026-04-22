@@ -107,7 +107,9 @@ def _location_impl(ctx):
         **other_fields
     )
     builtins.register(ctx.kind, new_loc_struct)
-    builtins.inject(ctx.attr.name, _make_location_factory(new_loc_struct))
+    injectable = python.getattr(ctx.attr, 'injectable', True)
+    if injectable != False:
+        builtins.inject(ctx.attr.name, _make_location_factory(new_loc_struct))
     return {}
 
 
@@ -119,6 +121,7 @@ location = rule(
         "attrs":       attr(type="dict",     mandatory=False, default=None),
         "predicate":   attr(type="callable", mandatory=False, default=None),
         "abstract":    attr(type="bool",     mandatory=False, default=None),
+        "injectable":  attr(type="bool",     mandatory=False, default=None),
     }
 )
 
@@ -167,5 +170,16 @@ location(
     name = "named_arg",
     attrs = {
 	"flag_name": attr(type="string", mandatory=False),
+    },
+)
+
+location(
+    name = "derived",
+    injectable = False,
+    attrs = {
+        "source_ref":   attr(type="string", mandatory=True),
+        "sql_fragment": attr(type="string", mandatory=True),
+        "dialect":      attr(type="string", mandatory=True),
+        "output_path":  attr(type="string", mandatory=True),
     },
 )

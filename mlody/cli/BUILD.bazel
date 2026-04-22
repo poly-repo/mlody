@@ -14,12 +14,14 @@ o_py_library(
     deps = [
         "//mlody/common:context_lib",  # keep
         "//mlody/core:core_lib",
+        "//mlody/core:derived",  # keep — show.py imports materialise_derived, DerivedValueShapeError
         "//mlody/db:db_lib",
         "//mlody/resolver:resolver_lib",
         "@pip//click",
         "@pip//matplotlib",  # keep — lazy import in dag_gui.show_dag_gui
         "@pip//networkx",
         "@pip//ptpython",
+        "@pip//pyarrow",  # keep — show.py reads derived parquet output
         "@pip//rich",
     ],
 )
@@ -39,9 +41,11 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":cli_lib",
+        "//mlody/core:derived",  # keep — materialise_derived, DerivedValueShapeError
         "//mlody/core:workspace_lib",
         "//mlody/db:db_lib",  # keep — show.py imports open_db, write_evaluation, compute_local_diff_sha
         "@pip//click",
+        "@pip//pyarrow",  # keep — derived value parquet reading
         "@pip//rich",
     ],
 )
@@ -65,6 +69,7 @@ o_py_test(
     deps = [
         ":cli_lib",
         "//common/python/starlarkish",
+        "//mlody/core:derived",
         "@pip//click",
         "@pip//pytest",
     ],
@@ -84,10 +89,15 @@ o_py_test(
     srcs = ["show_test.py"],
     deps = [
         ":cli_lib",
+        ":show_lib",
         "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish",
+        "//mlody/core:derived",  # keep — DerivedValueShapeError
+        "//mlody/core/sql:sql_query_lib",  # keep — MlodyQueryError
         "//mlody/resolver:resolver_lib",
         "@pip//click",
+        "@pip//networkx",  # keep — TestShowCommandDagPlan
+        "@pip//pyarrow",  # keep — derived value test tables
         "@pip//pytest",
     ],
 )

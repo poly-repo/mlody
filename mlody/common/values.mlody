@@ -2,40 +2,35 @@ load("//mlody/core/rule.mlody", "rule")
 load("//mlody/common/attrs.mlody", "attr")
 
 
-def _resolve_type_ref(value):
+def _resolve_ref(value, kind):
+    """Resolve a string name or validate an already-resolved struct of the given kind."""
     if isinstance(value, str):
-        return builtins.lookup("type", value)
+        return builtins.lookup(kind, value)
     if type(value) == "struct":
         got_kind = python.getattr(value, "kind", None)
-        if got_kind != "type":
+        if got_kind != kind:
             got_t = python.getattr(value, "type", None)
             raise TypeError(
-                "Expected a type struct (kind='type'), got a "
+                "Expected a " + kind + " struct (kind='" + kind + "'), got a "
                 + repr(got_kind) + " struct"
                 + (" of type " + repr(got_t) if got_t != None else "")
             )
         return value
     raise TypeError(
-        "Expected a type struct or string name, got " + repr(type(value))
+        "Expected a " + kind + " struct or string name, got " + repr(type(value))
     )
+
+
+def _resolve_type_ref(value):
+    return _resolve_ref(value, "type")
 
 
 def _resolve_location_ref(value):
-    if isinstance(value, str):
-        return builtins.lookup("location", value)
-    if type(value) == "struct":
-        got_kind = python.getattr(value, "kind", None)
-        if got_kind != "location":
-            got_t = python.getattr(value, "type", None)
-            raise TypeError(
-                "Expected a location struct (kind='location'), got a "
-                + repr(got_kind) + " struct"
-                + (" of type " + repr(got_t) if got_t != None else "")
-            )
-        return value
-    raise TypeError(
-        "Expected a location struct or string name, got " + repr(type(value))
-    )
+    return _resolve_ref(value, "location")
+
+
+def _resolve_source_ref(value):
+    return _resolve_ref(value, "value")
 
 
 def _lineage_event(author, timestamp, reason):
@@ -68,14 +63,79 @@ def _resolve_representation_ref(value):
     )
 
 
+def _extract_source_query(source_raw):
+    """Return (clean_label, dialect, sql_fragment) when source_raw carries a
+    query suffix, else (source_raw, None, None).
+
+    A query suffix is a bracket expression whose content starts with '@sql '.
+    Only string labels are inspected; struct sources pass through unchanged.
+    """
+    if not isinstance(source_raw, str):
+        return source_raw, None, None
+    bracket_pos = source_raw.find("[")
+    if bracket_pos == -1:
+        return source_raw, None, None
+    if not source_raw.endswith("]"):
+        return source_raw, None, None
+    clean_label = source_raw[:bracket_pos]
+    inner = source_raw[bracket_pos + 1:-1]
+    _SQL_PREFIX = "@sql "
+    if not inner.startswith(_SQL_PREFIX):
+        return source_raw, None, None
+    sql_fragment = inner[len(_SQL_PREFIX):]
+    return clean_label, "duckdb", sql_fragment
+
+
 def _value_impl(ctx):
     type_raw = python.getattr(ctx.attr, "type", None)
     loc_raw = python.getattr(ctx.attr, "location", None)
     default_raw = python.getattr(ctx.attr, "default", None)
+    source_raw = python.getattr(ctx.attr, "source", None)
     rep_raw = python.getattr(ctx.attr, "representation", None)
 
+    # Detect @sql query suffix on source label and extract components.
+    clean_source, sql_dialect, sql_fragment = _extract_source_query(source_raw)
+
+    if sql_fragment != None:
+        # A query-bearing source is mutually exclusive with an explicit location.
+        if loc_raw != None:
+            raise ValueError(
+                "location= and a query-bearing source= are mutually exclusive. "
+                "Remove the explicit location= or drop the [@sql ...] suffix from source=."
+            )
+
+        # Compute deterministic cache path: SHA-256 over
+        # '<source_label>:<dialect>:<sql_fragment>', first 40 hex chars.
+        raw_key = clean_source + ":" + sql_dialect + ":" + sql_fragment
+        hash_hex = python.hashlib.sha256(raw_key.encode()).hexdigest()[:40]
+        # Build the full cache path.  Use python.os to expand ~ to the actual
+        # home directory (os is not available as a bare name in the sandbox).
+        home_path = python.os.path.expanduser("~")
+        output_path = home_path + "/.cache/mlody/derived/" + hash_hex + ".parquet"
+
+        source_ref = _resolve_source_ref(clean_source) if clean_source != None else None
+        # Construct the derived location struct directly.  The attributes dict
+        # must remain a plain Python dict (not coerced to Struct by struct())
+        # so that callers can use attributes.get("field") consistently with how
+        # other location kinds store their attributes via extend_attrs/Struct.
+        loc_ref = Struct(
+            kind="location",
+            type="derived",
+            name="derived",
+            abstract=False,
+            _root_kind="derived",
+            attributes={
+                "source_ref": clean_source,
+                "sql_fragment": sql_fragment,
+                "dialect": sql_dialect,
+                "output_path": output_path,
+            },
+        )
+    else:
+        source_ref = _resolve_source_ref(source_raw) if source_raw != None else None
+        loc_ref = _resolve_location_ref(loc_raw) if loc_raw != None else None
+
     type_ref = _resolve_type_ref(type_raw) if type_raw != None else None
-    loc_ref = _resolve_location_ref(loc_raw) if loc_raw != None else None
     rep_ref = _resolve_representation_ref(rep_raw) if rep_raw != None else None
 
     value_struct = Struct(
@@ -84,7 +144,7 @@ def _value_impl(ctx):
         type=type_ref,
         location=loc_ref,
         default=default_raw,
-        source=python.getattr(ctx.attr, "source", None),
+        source=source_ref,
         representation=rep_ref,
         _lineage=[],          # managed by MLody, not the user
     )
@@ -99,7 +159,7 @@ value = rule(
         "type":           attr(type="type_ref", mandatory=False),
         "location":       attr(type="location_ref", mandatory=False),
         "default":        attr(mandatory=False),
-        "source":         attr(type="string", mandatory=False),
+        "source":         attr(type="value_ref", mandatory=False),
         "representation": attr(type="representation_ref", mandatory=False),
     },
 )

@@ -15,6 +15,8 @@ from typing import Callable
 
 import click
 import networkx
+import pyarrow as pa
+import pyarrow.parquet as pq
 from rich.console import Console
 from rich.pretty import pretty_repr
 from rich.syntax import Syntax
@@ -22,6 +24,8 @@ from rich.table import Table
 
 from mlody.cli.main import cli
 from mlody.core.dag import Edge, TaskNode, ancestors_subgraph, build_dag
+from mlody.core.derived import DerivedValueShapeError, materialise_derived
+from mlody.core.sql.sql_query import MlodyQueryError, mlody_query
 from mlody.core.targets import parse_target
 from mlody.core.workspace import Workspace, WorkspaceLoadError, force
 from mlody.db.evaluations import open_db, write_evaluation
@@ -154,25 +158,227 @@ def _is_primitive(value: object) -> bool:
     return isinstance(value, str | int | float | bool)
 
 
-def _format_value(value: object) -> str:
+def _to_pil_image(value: object):  # -> PIL.Image.Image | None
+    """Decode a HuggingFace-style image cell to a PIL Image.
+
+    Accepts ``{'bytes': <bytes>, ...}`` dicts (the format HuggingFace datasets
+    use for image columns) or raw ``bytes`` that begin with a known image magic.
+    Returns ``None`` if the value is not recognisable as image data.
+    """
+    try:
+        from PIL import Image as _PIL  # noqa: PLC0415
+        import io as _io  # noqa: PLC0415
+
+        raw: bytes | None = None
+        if isinstance(value, dict):
+            raw = value.get("bytes")
+        elif isinstance(value, bytes):
+            raw = value
+        if not raw:
+            return None
+        # Quick magic check: PNG, JPEG, GIF, WEBP, BMP
+        if not (raw[:4] in (b"\x89PNG", b"GIF8", b"RIFF", b"BM\x00\x00") or raw[:2] == b"\xff\xd8"):
+            return None
+        return _PIL.open(_io.BytesIO(raw))
+    except Exception:
+        return None
+
+
+def _can_kitty() -> bool:
+    """Return True when running inside the Kitty terminal emulator."""
+    return (
+        os.environ.get("TERM") == "xterm-kitty"
+        or bool(os.environ.get("KITTY_WINDOW_ID"))
+    ) and sys.stdout.isatty()
+
+
+def _can_sixel() -> bool:
+    """Return True when the terminal is known to support Sixel graphics."""
+    try:
+        vte = int(os.environ.get("VTE_VERSION", "0"))
+        return vte >= 6500 and sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+def _kitty_encode(img, *, max_width: int = 640) -> str | None:  # img: PIL.Image.Image
+    """Encode a PIL Image using the Kitty terminal graphics protocol.
+
+    Transmits the image as a sequence of base64-encoded PNG chunks (≤ 4096
+    bytes each) wrapped in APC escape sequences (``ESC _G … ESC \\``).
+
+    Returns ``None`` on any failure so callers can fall back to Sixel.
+    """
+    try:
+        from PIL import Image as _PIL  # noqa: PLC0415
+        import base64 as _b64  # noqa: PLC0415
+        import io as _io  # noqa: PLC0415
+
+        w, h = img.size
+        if w > max_width:
+            h = max(1, int(h * max_width / w))
+            img = img.resize((max_width, h), _PIL.LANCZOS)
+
+        buf = _io.BytesIO()
+        img.convert("RGB").save(buf, format="PNG", optimize=False)
+        png_bytes = buf.getvalue()
+
+        b64 = _b64.standard_b64encode(png_bytes).decode("ascii")
+
+        CHUNK = 4096
+        chunks = [b64[i : i + CHUNK] for i in range(0, len(b64), CHUNK)]
+        if not chunks:
+            return None
+
+        parts: list[str] = []
+        for i, chunk in enumerate(chunks):
+            more = 0 if i == len(chunks) - 1 else 1
+            if i == 0:
+                # First chunk: action=T (transmit+display), f=100 (PNG), q=1 (quiet)
+                parts.append(f"\x1b_Ga=T,f=100,q=1,m={more};{chunk}\x1b\\")
+            else:
+                parts.append(f"\x1b_Gm={more};{chunk}\x1b\\")
+
+        return "".join(parts)
+    except Exception:
+        return None
+
+
+def _sixel_encode(img, *, max_width: int = 320) -> str | None:  # img: PIL.Image.Image
+    """Encode a PIL Image as a Sixel escape sequence (DCS...ST).
+
+    Resizes to *max_width* columns, quantises to 256 palette colours, and
+    emits RLE-compressed Sixel data.  Returns ``None`` on any failure so
+    callers can fall back gracefully.
+    """
+    try:
+        from PIL import Image as _PIL  # noqa: PLC0415
+
+        w, h = img.size
+        if w > max_width:
+            h = max(1, int(h * max_width / w))
+            img = img.resize((max_width, h), _PIL.LANCZOS)
+            w, h = img.size
+
+        # Pad height to the next multiple of 6 (Sixel band height).
+        pad_h = (h + 5) // 6 * 6
+        if pad_h != h:
+            canvas = _PIL.new("RGB", (w, pad_h), 0)
+            canvas.paste(img)
+            img = canvas
+            h = pad_h
+
+        q = img.convert("RGB").quantize(colors=256, method=_PIL.Quantize.MEDIANCUT)
+        pal = q.getpalette()          # flat [R, G, B, …]; length = num_used_colors × 3
+        num_colors = len(pal) // 3
+        pixels = q.load()             # PixelAccess: pixels[x, y] → palette index
+
+        parts: list[str] = ["\x1bPq"]
+
+        # Emit colour register definitions for every palette entry present.
+        for ci in range(num_colors):
+            r, g, b = pal[ci * 3], pal[ci * 3 + 1], pal[ci * 3 + 2]
+            parts.append(f"#{ci};2;{r * 100 // 255};{g * 100 // 255};{b * 100 // 255}")
+
+        # Encode image as consecutive 6-row bands.
+        for band in range(h // 6):
+            y0 = band * 6
+            # Build a per-colour array of sixel characters for this band.
+            color_rows: dict[int, bytearray] = {}
+            for x in range(w):
+                bits_by_color: dict[int, int] = {}
+                for dy in range(6):
+                    ci = pixels[x, y0 + dy]
+                    bits_by_color[ci] = bits_by_color.get(ci, 0) | (1 << dy)
+                for ci, bits in bits_by_color.items():
+                    if ci not in color_rows:
+                        color_rows[ci] = bytearray(b"?" * w)  # 0x3F = no bits set
+                    color_rows[ci][x] = 0x3F + bits
+
+            first_color = True
+            for ci in sorted(color_rows):
+                if not first_color:
+                    parts.append("$")   # carriage-return: restart at column 0
+                first_color = False
+                parts.append(f"#{ci}")
+                row = color_rows[ci]
+                i = 0
+                while i < w:
+                    c = row[i]
+                    j = i + 1
+                    while j < w and row[j] == c:
+                        j += 1
+                    run = j - i
+                    ch = chr(c)
+                    parts.append(f"!{run}{ch}" if run > 3 else ch * run)
+                    i = j
+            parts.append("-")           # advance to next sixel band
+
+        parts.append("\x1b\\")          # DCS string terminator
+        return "".join(parts)
+    except Exception:
+        return None
+
+
+def _cell_label(value: object, *, image_encoder=None) -> str:
+    """Return a displayable string for one table cell.
+
+    If *image_encoder* is provided and the value is image data, the encoder is
+    called with the decoded PIL Image and its return value is used directly
+    (embedding the terminal escape sequence inline).  Falls back to a compact
+    text label when no encoder is given or encoding fails.
+    """
+    if isinstance(value, dict) and isinstance(value.get("bytes"), bytes):
+        img = _to_pil_image(value)
+        if img is not None:
+            if image_encoder is not None:
+                try:
+                    encoded = image_encoder(img)
+                    if encoded:
+                        return encoded
+                except Exception:
+                    pass
+            return f"<{img.format or 'image'} {img.width}×{img.height}>"
+        nb = len(value["bytes"])
+        return f"<image {nb} bytes>"
+    if isinstance(value, bytes):
+        return f"<bytes {len(value)}>"
+    return str(value)
+
+
+def _image_encoder_for_terminal():
+    """Return an image encoder callable for the current terminal, or None."""
+    if _can_kitty():
+        return lambda img: _kitty_encode(img, max_width=160)
+    if _can_sixel():
+        return lambda img: _sixel_encode(img, max_width=80)
+    return None
+
+
+def _format_value(value: object, *, total_rows: int | None = None, image_encoder=None) -> str:
     try:
         import pyarrow as pa  # noqa: PLC0415
 
         if isinstance(value, pa.Table):
             rows = value.num_rows
+            display_total = total_rows if total_rows is not None else rows
             cols = value.num_columns
-            header = f"pyarrow.Table  {rows} rows × {cols} columns"
+            header = f"pyarrow.Table  {display_total} rows × {cols} columns"
             # Truncate to first 50 rows so the terminal doesn't flood.
             preview = value.slice(0, 50)
             col_names = preview.column_names
-            # Build rows as dicts and render as aligned columns.
             data_rows = preview.to_pydict()
             lines: list[str] = [", ".join(col_names)]
             for i in range(preview.num_rows):
-                lines.append(", ".join(str(data_rows[c][i]) for c in col_names))
+                lines.append(
+                    ", ".join(
+                        _cell_label(data_rows[c][i], image_encoder=image_encoder)
+                        for c in col_names
+                    )
+                )
             body = "\n".join(lines)
-            if rows > 50:
-                body += f"\n… ({rows - 50} more rows not shown)"
+            if display_total > rows:
+                body += f"\n… ({display_total - rows} more rows not shown)"
             return f"{header}\n{body}"
     except ImportError:
         pass
@@ -219,15 +425,119 @@ def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
     return repr(obj)
 
 
-def _print_mlody_value(value: MlodyValue) -> None:
-    """Print a MlodyValue to the console with syntax highlighting."""
+def _source_paths_from_location(location: object) -> str | list[str] | None:
+    """Extract the file path(s) from a posix location struct.
+
+    Checks both the top-level ``path`` field (used by composed locations
+    produced by ``_posix_compose``) and the nested ``attributes["path"]`` field
+    (used by factory-created locations from ``extend_attrs``).
+
+    Returns a string path, list of paths, or None if no path is found.
+    """
+    if location is None:
+        return None
+
+    def _coerce(path: object) -> str | list[str]:
+        if isinstance(path, list):
+            return [str(p) for p in path]
+        return str(path)
+
+    # Composed locations (from _posix_compose) store path as a direct field.
+    direct = getattr(location, "path", None)
+    if direct is not None:
+        return _coerce(direct)
+
+    # Factory-created locations (from extend_attrs) store path inside attributes.
+    attrs: dict[str, object] | None = getattr(location, "attributes", None)
+    if isinstance(attrs, dict):
+        path = attrs.get("path")
+        if path is not None:
+            return _coerce(path)
+
+    return None
+
+
+def _print_mlody_value(value: MlodyValue, *, _has_error: list[bool] | None = None) -> None:
+    """Print a MlodyValue to the console with syntax highlighting.
+
+    For ``MlodyValueValue`` instances with a ``derived`` location, materialises
+    the derived value first.  Any ``DerivedValueShapeError`` or
+    ``MlodyQueryError`` is caught, displayed in red, and the ``_has_error`` flag
+    is set so the caller can exit with code 1.
+    """
     if isinstance(value, MlodyVectorValue):
         # Render each element in the vector using the existing per-kind dispatchers.
         # Elements are printed sequentially; an empty vector produces no output.
         for elem in value.elements:
-            _print_mlody_value(elem)
+            _print_mlody_value(elem, _has_error=_has_error)
         return
     if isinstance(value, MlodyValueValue):
+        location = getattr(value.struct, "location", None)
+        loc_type = None
+        if location is not None:
+            loc_type = getattr(location, "type", None)
+
+        if loc_type == "derived":
+            # Materialise the derived value and render the resulting table.
+            attrs: dict[str, object] = getattr(location, "attributes", {})  # type: ignore[assignment]
+            source_ref = attrs.get("source_ref", "")
+            # Resolve source paths from the source value's location.
+            source_struct = getattr(value.struct, "source", None)
+            source_location = getattr(source_struct, "location", None) if source_struct else None
+            source_paths = _source_paths_from_location(source_location)
+            # Fall back to source_ref string if no resolved paths available.
+            if source_paths is None:
+                source_paths = str(source_ref)
+            try:
+                output_path = materialise_derived(location, source_paths)
+                table: pa.Table = pq.read_table(output_path)
+                click.echo(_format_value(table, image_encoder=_image_encoder_for_terminal()))
+            except DerivedValueShapeError as exc:
+                click.echo(
+                    click.style(f"Error: derived query produced a scalar result — {exc}", fg="red"),
+                    err=True,
+                )
+                if _has_error is not None:
+                    _has_error.append(True)
+            except MlodyQueryError as exc:
+                click.echo(
+                    click.style(f"Error: {exc}", fg="red"),
+                    err=True,
+                )
+                if _has_error is not None:
+                    _has_error.append(True)
+            return
+
+        # For any location with resolvable paths, attempt to read as parquet
+        # using mlody_query (DuckDB) which handles globs natively.
+        # Directories are converted to recursive globs so DuckDB can find
+        # nested parquet files. Falls through silently to struct display if
+        # the location is not parquet-backed or the files are absent.
+        if location is not None:
+            raw_paths = _source_paths_from_location(location)
+            if raw_paths is not None:
+
+                def _parquet_path(p: str) -> str:
+                    ep = os.path.expanduser(p)
+                    return ep + "/**/*.parquet" if os.path.isdir(ep) else ep
+
+                if isinstance(raw_paths, list):
+                    coerced = [_parquet_path(p) for p in raw_paths]
+                    # Unwrap single-element list so DuckDB treats it as a glob
+                    query_paths: str | list[str] = coerced[0] if len(coerced) == 1 else coerced
+                else:
+                    query_paths = _parquet_path(raw_paths)
+
+                try:
+                    count_table = mlody_query(query_paths, "SELECT COUNT(*) as n")
+                    total_rows = int(count_table.column("n")[0].as_py())
+                    table = mlody_query(query_paths, "SELECT * LIMIT 50")
+                    enc = _image_encoder_for_terminal()
+                    click.echo(_format_value(table, total_rows=total_rows, image_encoder=enc))
+                    return
+                except Exception:
+                    pass  # not parquet or unreadable — fall through
+
         _console.print("value:")
         _console.print(Syntax(_pretty_struct_str(value.struct), "python", theme="monokai", word_wrap=True))
         return
@@ -238,6 +548,15 @@ def _print_mlody_value(value: MlodyValue) -> None:
     if isinstance(value, MlodyActionValue):
         _console.print("action:")
         _console.print(Syntax(_pretty_struct_str(value.struct), "python", theme="monokai", word_wrap=True))
+        return
+    # _RawAttrValue wrapping a pa.Table (e.g. from a [@sql …] entity query) —
+    # render with the full parquet display path so images are shown inline.
+    from mlody.resolver.label_value import _RawAttrValue  # noqa: PLC0415
+
+    if isinstance(value, _RawAttrValue) and isinstance(value.value, pa.Table):
+        table: pa.Table = value.value
+        enc = _image_encoder_for_terminal()
+        click.echo(_format_value(table, image_encoder=enc))
         return
     click.echo(_render_mlody_value(value))
 
@@ -468,7 +787,10 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
                     )
 
                 print("-------------------------------")
-                _print_mlody_value(mlody_value)
+                _error_sink: list[bool] = []
+                _print_mlody_value(mlody_value, _has_error=_error_sink)
+                if _error_sink:
+                    has_error = True
                 print("-------------------------------")
         except WorkspaceLoadError as exc:
             has_error = True
