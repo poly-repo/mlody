@@ -167,45 +167,57 @@ def _collect_edges(
 
     Returns a list of ``(src_node_id, dst_node_id, edge)`` triples.
 
-    The two-loop algorithm (spec §3.3):
-    1. For each output value whose ``label`` starts with ``":"`` and resolves
-       via ``parse_port_location``: the *current* task is the consumer, the
-       referenced task is the producer.  Edge: producer → consumer.
-    2. For each input value whose ``label`` starts with ``":"`` and resolves:
-       same direction — producer → current task.
+    Three source forms are handled (spec §3.3):
+    1. Resolved value struct (``kind="value"``) — src_port is the value's name;
+       producer found via reverse output-port index.
+    2. String label ``:value_name`` (no dot after colon) — value reference;
+       same reverse-index lookup.
+    3. String label ``:task.port_path`` (dot after colon) — port reference;
+       ``parse_port_location`` extracts task name and port path.
     """
+    # Reverse index: output value name → producer node_id, for O(1) lookup.
+    _output_to_producer: dict[str, str] = {}
+    for _task_name, (prod_node_id, prod_struct) in tasks_index.items():
+        for v in getattr(prod_struct, "outputs", []):  # type: ignore[attr-defined]
+            v_name = getattr(v, "name", "")
+            if v_name:
+                _output_to_producer[v_name] = prod_node_id
+
     triples: list[tuple[str, str, Edge]] = []
 
     for tasks_key, task_struct in evaluator.tasks.items():
         consumer_node_id = f"task/{tasks_key}"
 
-        for out_val in getattr(task_struct, "outputs", []):  # type: ignore[attr-defined]
-            label = getattr(out_val, "source", None)  # type: ignore[attr-defined]
-            if not isinstance(label, str) or not label.startswith(":"):
-                continue
-            try:
-                ref = parse_port_location(label)
-            except PortLocationParseError:
-                continue
-            if ref.task not in tasks_index:
-                continue
-            producer_node_id, _ = tasks_index[ref.task]
-            edge = Edge(src_port=ref.port, dst_path=getattr(out_val, "name", ""))  # type: ignore[attr-defined]
-            triples.append((producer_node_id, consumer_node_id, edge))
+        for port_val in (  # type: ignore[attr-defined]
+            *getattr(task_struct, "outputs", []),
+            *getattr(task_struct, "inputs", []),
+        ):
+            source_val = getattr(port_val, "source", None)  # type: ignore[attr-defined]
+            dst_path: str = getattr(port_val, "name", "")
 
-        for in_val in getattr(task_struct, "inputs", []):  # type: ignore[attr-defined]
-            label = getattr(in_val, "source", None)  # type: ignore[attr-defined]
-            if not isinstance(label, str) or not label.startswith(":"):
-                continue
-            try:
-                ref = parse_port_location(label)
-            except PortLocationParseError:
-                continue
-            if ref.task not in tasks_index:
-                continue
-            producer_node_id, _ = tasks_index[ref.task]
-            edge = Edge(src_port=ref.port, dst_path=getattr(in_val, "name", ""))  # type: ignore[attr-defined]
-            triples.append((producer_node_id, consumer_node_id, edge))
+            if source_val is not None and getattr(source_val, "kind", None) == "value":
+                # Form 1: resolved value struct.
+                src_name: str = getattr(source_val, "name", "")
+                prod = _output_to_producer.get(src_name)
+                if prod is not None:
+                    triples.append((prod, consumer_node_id, Edge(src_port=src_name, dst_path=dst_path)))
+
+            elif isinstance(source_val, str) and source_val.startswith(":"):
+                after_colon = source_val[1:]
+                if "." in after_colon:
+                    # Form 2: port reference ":task.port_path".
+                    try:
+                        ref = parse_port_location(source_val)
+                    except PortLocationParseError:
+                        continue
+                    if ref.task in tasks_index:
+                        prod_id, _ = tasks_index[ref.task]
+                        triples.append((prod_id, consumer_node_id, Edge(src_port=ref.port, dst_path=dst_path)))
+                else:
+                    # Form 3: value reference ":value_name".
+                    prod = _output_to_producer.get(after_colon)
+                    if prod is not None:
+                        triples.append((prod, consumer_node_id, Edge(src_port=after_colon, dst_path=dst_path)))
 
     return triples
 

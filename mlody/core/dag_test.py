@@ -279,8 +279,8 @@ class TestBuildDagTwoIsolatedTasks:
 _LINEAR_CHAIN_MLODY = _PREAMBLE + dedent("""\
 value(name="out_a", type=integer(), location=s3())
 value(name="out_b", type=integer(), location=s3())
-value(name="in_b",  type=integer(), location=s3(), source=":a.out_a")
-value(name="in_c",  type=integer(), location=s3(), source=":b.out_b")
+value(name="in_b",  type=integer(), location=s3(), source=":out_a")
+value(name="in_c",  type=integer(), location=s3(), source=":out_b")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 action(name="act_c", inputs=[], outputs=[], implementation="dummy")
@@ -317,8 +317,8 @@ class TestBuildDagFork:
     def test_fork_three_nodes_two_edges(self) -> None:
         mlody = _PREAMBLE + dedent("""\
 value(name="val",  type=integer(), location=s3())
-value(name="in_b", type=integer(), location=s3(), source=":a.val")
-value(name="in_c", type=integer(), location=s3(), source=":a.val")
+value(name="in_b", type=integer(), location=s3(), source=":val")
+value(name="in_c", type=integer(), location=s3(), source=":val")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 action(name="act_c", inputs=[], outputs=[], implementation="dummy")
@@ -343,8 +343,8 @@ class TestBuildDagJoin:
         mlody = _PREAMBLE + dedent("""\
 value(name="out_a", type=integer(), location=s3())
 value(name="out_b", type=integer(), location=s3())
-value(name="in_c1", type=integer(), location=s3(), source=":a.out_a")
-value(name="in_c2", type=integer(), location=s3(), source=":b.out_b")
+value(name="in_c1", type=integer(), location=s3(), source=":out_a")
+value(name="in_c2", type=integer(), location=s3(), source=":out_b")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 action(name="act_c", inputs=[], outputs=[], implementation="dummy")
@@ -368,12 +368,12 @@ class TestBuildDagDiamond:
     def test_diamond_four_nodes_four_edges(self) -> None:
         mlody = _PREAMBLE + dedent("""\
 value(name="out_a",  type=integer(), location=s3())
-value(name="in_b",   type=integer(), location=s3(), source=":a.out_a")
-value(name="in_c",   type=integer(), location=s3(), source=":a.out_a")
+value(name="in_b",   type=integer(), location=s3(), source=":out_a")
+value(name="in_c",   type=integer(), location=s3(), source=":out_a")
 value(name="out_b",  type=integer(), location=s3())
 value(name="out_c",  type=integer(), location=s3())
-value(name="in_d1",  type=integer(), location=s3(), source=":b.out_b")
-value(name="in_d2",  type=integer(), location=s3(), source=":c.out_c")
+value(name="in_d1",  type=integer(), location=s3(), source=":out_b")
+value(name="in_d2",  type=integer(), location=s3(), source=":out_c")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 action(name="act_c", inputs=[], outputs=[], implementation="dummy")
@@ -395,8 +395,8 @@ class TestBuildDagMultiEdgeSamePair:
         mlody = _PREAMBLE + dedent("""\
 value(name="out1", type=integer(), location=s3())
 value(name="out2", type=integer(), location=s3())
-value(name="in1",  type=integer(), location=s3(), source=":a.out1")
-value(name="in2",  type=integer(), location=s3(), source=":a.out2")
+value(name="in1",  type=integer(), location=s3(), source=":out1")
+value(name="in2",  type=integer(), location=s3(), source=":out2")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 task(name="a", inputs=[],            outputs=["out1","out2"], action="act_a")
@@ -419,7 +419,7 @@ class TestBuildDagEdgeAnnotations:
     def test_edge_annotation(self) -> None:
         mlody = _PREAMBLE + dedent("""\
 value(name="out_a", type=integer(), location=s3())
-value(name="in_b",  type=integer(), location=s3(), source=":a.out_a")
+value(name="in_b",  type=integer(), location=s3(), source=":out_a")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 task(name="a", inputs=[],       outputs=["out_a"], action="act_a")
@@ -443,7 +443,7 @@ class TestBuildDagSingleSegmentDstPath:
     def test_single_segment_dst_path(self) -> None:
         mlody = _PREAMBLE + dedent("""\
 value(name="model_weight", type=integer(), location=s3())
-value(name="model_in",     type=integer(), location=s3(), source=":a.model_weight")
+value(name="model_in",     type=integer(), location=s3(), source=":model_weight")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 task(name="a", inputs=[],            outputs=["model_weight"], action="act_a")
@@ -462,8 +462,8 @@ task(name="b", inputs=["model_in"],  outputs=[],              action="act_b")
 class TestBuildDagMultiSegmentDstPath:
     """FR-005, FR-008: multi-segment dst_path on port with dots in the port name.
 
-    The port name :a.action.config.lr is parsed as task='a', port='action.config.lr'.
-    That becomes dst_path='action.config.lr' on the consuming task.
+    The port reference :a.action.config.lr is parsed as task='a', port='action.config.lr'.
+    That becomes src_port='action.config.lr' and dst_path='lr' on the consuming task.
     """
 
     def test_multi_segment_dst_path(self) -> None:
@@ -538,7 +538,7 @@ task(name="tb", inputs=[], outputs=["ckpt_b"], action="act_b")
 
 _CONSUMING_SINGLE_MLODY = _PREAMBLE + dedent("""\
 value(name="tokens", type=integer(), location=s3())
-value(name="in_b",   type=integer(), location=s3(), source=":a.tokens")
+value(name="in_b",   type=integer(), location=s3(), source=":tokens")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 task(name="a", inputs=[],       outputs=["tokens"], action="act_a")
@@ -596,7 +596,7 @@ class TestAncestorsSubgraphChain:
 
 _UNRELATED_MLODY = _PREAMBLE + dedent("""\
 value(name="out_a", type=integer(), location=s3())
-value(name="in_b",  type=integer(), location=s3(), source=":a.out_a")
+value(name="in_b",  type=integer(), location=s3(), source=":out_a")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 action(name="act_d", inputs=[], outputs=[], implementation="dummy")
@@ -664,7 +664,7 @@ class TestTopologicalSortCompatible:
 
 _VALID_PATHS_MLODY = _PREAMBLE + dedent("""\
 value(name="out_a", type=integer(), location=s3())
-value(name="inputs", type=integer(), location=s3(), source=":a.out_a")
+value(name="inputs", type=integer(), location=s3(), source=":out_a")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 task(name="a", inputs=[],         outputs=["out_a"],  action="act_a")
@@ -673,7 +673,7 @@ task(name="b", inputs=["inputs"], outputs=[],         action="act_b")
 
 _INVALID_PATH_MLODY = _PREAMBLE + dedent("""\
 value(name="out_a",          type=integer(), location=s3())
-value(name="nonexistent_field", type=integer(), location=s3(), source=":a.out_a")
+value(name="nonexistent_field", type=integer(), location=s3(), source=":out_a")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 task(name="a", inputs=[],                    outputs=["out_a"], action="act_a")
@@ -682,8 +682,8 @@ task(name="b", inputs=["nonexistent_field"], outputs=[],        action="act_b")
 
 _TWO_INVALID_PATHS_MLODY = _PREAMBLE + dedent("""\
 value(name="out_a", type=integer(), location=s3())
-value(name="bad1", type=integer(), location=s3(), source=":a.out_a")
-value(name="bad2", type=integer(), location=s3(), source=":a.out_a")
+value(name="bad1", type=integer(), location=s3(), source=":out_a")
+value(name="bad2", type=integer(), location=s3(), source=":out_a")
 action(name="act_a", inputs=[], outputs=[], implementation="dummy")
 action(name="act_b", inputs=[], outputs=[], implementation="dummy")
 task(name="a", inputs=[],              outputs=["out_a"], action="act_a")

@@ -30,7 +30,22 @@ def _resolve_location_ref(value):
 
 
 def _resolve_source_ref(value):
-    return _resolve_ref(value, "value")
+    if isinstance(value, str):
+        # Mlody label — kept as-is; resolved lazily during DAG building.
+        return value
+    if type(value) == "struct":
+        got_kind = python.getattr(value, "kind", None)
+        if got_kind != "value":
+            got_t = python.getattr(value, "type", None)
+            raise TypeError(
+                "Expected a value struct (kind='value') or mlody label string, got a "
+                + repr(got_kind) + " struct"
+                + (" of type " + repr(got_t) if got_t != None else "")
+            )
+        return value
+    raise TypeError(
+        "Expected a value struct or mlody label string, got " + repr(type(value))
+    )
 
 
 def _lineage_event(author, timestamp, reason):

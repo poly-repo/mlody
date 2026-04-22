@@ -454,21 +454,20 @@ def test_value_with_wrong_kind_representation_raises_type_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_value_source_string_label_resolves_to_value_struct() -> None:
-    """TC-016a: source='upstream' (string) resolves to the registered value struct."""
+def test_value_source_string_label_stored_verbatim() -> None:
+    """TC-016a: source= string is a mlody label; stored verbatim, not looked up."""
     ev = _eval(
         'value(name="upstream", type=integer(), location=s3())\n'
-        'value(name="v", type=string(), location=s3(), source="upstream")\n'
+        'value(name="v", type=string(), location=s3(), source=":upstream")\n'
     )
     src = ev._values_by_name["v"].source
-    assert src.kind == "value"
-    assert src.name == "upstream"
+    assert src == ":upstream"
 
 
-def test_value_source_unknown_string_raises_name_error() -> None:
-    """TC-016a: source='nonexistent' raises NameError."""
-    with pytest.raises(NameError):
-        _eval('value(name="v", type=integer(), location=s3(), source="nonexistent")')
+def test_value_source_unknown_string_stored_verbatim() -> None:
+    """TC-016a: unknown label string is kept as-is (resolved lazily by DAG builder)."""
+    ev = _eval('value(name="v", type=integer(), location=s3(), source=":nonexistent")')
+    assert ev._values_by_name["v"].source == ":nonexistent"
 
 
 def test_value_source_as_value_struct() -> None:
