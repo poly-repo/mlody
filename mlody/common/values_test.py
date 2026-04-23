@@ -609,3 +609,37 @@ def test_value_source_without_sql_suffix_location_unaffected() -> None:
     v = ev._values_by_name["v"]
     # No derived location — location should be None since none was set
     assert v.location is None
+
+
+def test_value_sql_derived_inherits_type_from_record_source() -> None:
+    """Regression: SQL-derived value must inherit record type from source.
+
+    Previously, source_ref was a lazy string so python.getattr(source_ref, "type")
+    returned None, leaving the derived value with type=None and breaking field traversal.
+    """
+    ev = _eval(
+        'typedef(name="splits", base=record(fields=[\n'
+        '  field(name="train", type=integer()),\n'
+        '  field(name="valid", type=integer()),\n'
+        ']))\n'
+        'value(name="base", type=splits(), location=s3())\n'
+        'value(name="derived", source=":base[@sql WHERE Bald=True]")\n'
+    )
+    v = ev._values_by_name["derived"]
+    assert v.type is not None
+    assert v.type.name == "splits"
+
+
+def test_value_sql_derived_source_paths_extracted_from_source_location() -> None:
+    """Regression: SQL-derived location source_paths must reflect the source's location path.
+
+    Previously, source_ref was a lazy string so _source_loc was None and source_paths=[].
+    """
+    ev = _eval(
+        'value(name="base", type=integer(), location=posix(path="data/*.parquet"))\n'
+        "value(name=\"derived\", source=\":base[@sql WHERE split='train']\")\n"
+    )
+    loc = ev._values_by_name["derived"].location
+    assert loc is not None
+    assert loc.type == "derived"
+    assert loc.attributes.get("source_paths") == ["data/*.parquet"]

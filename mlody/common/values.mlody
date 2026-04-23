@@ -131,7 +131,9 @@ def _value_impl(ctx):
         source_ref = _resolve_source_ref(clean_source) if clean_source != None else None
         # Collect base source paths from the resolved source value's location so
         # that compose_location can join them with field paths during traversal.
-        _source_loc = python.getattr(source_ref, "location", None) if source_ref != None else None
+        # source_ref is a lazy string label; resolve eagerly here for metadata only.
+        _source_eager = builtins.lookup("value", clean_source) if clean_source != None else None
+        _source_loc = python.getattr(_source_eager, "location", None) if _source_eager != None else None
         _source_loc_attrs = python.getattr(_source_loc, "attributes", None) if _source_loc != None else None
         if isinstance(_source_loc_attrs, dict):
             _raw_path = _source_loc_attrs.get("path")
@@ -165,7 +167,8 @@ def _value_impl(ctx):
     # Inherit type from source when not explicitly specified (e.g. derived values
     # should have the same type and layout as their source).
     if type_ref == None and source_ref != None:
-        type_ref = python.getattr(source_ref, "type", None)
+        _sr_eager = builtins.lookup("value", source_ref) if isinstance(source_ref, str) else source_ref
+        type_ref = python.getattr(_sr_eager, "type", None)
     rep_ref = _resolve_representation_ref(rep_raw) if rep_raw != None else None
 
     value_struct = Struct(
