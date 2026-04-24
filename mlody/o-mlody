@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Change this as needed (or override via env)
+WORKSPACE="${WORKSPACE:-mlody/docs/the-score/sandboxes/values}"
+
+# Require at least one arg (typically starting with "show")
+if [[ $# -lt 1 ]]; then
+  echo "usage: $0 show <args...>" >&2
+  exit 1
+fi
+
+# Run via bazel (silent config)
+bazel run --config=silent //mlody/cli:mlody -- \
+  --workspace "$WORKSPACE" \
+  "$@"

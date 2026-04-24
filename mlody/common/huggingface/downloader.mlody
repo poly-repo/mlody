@@ -1,5 +1,5 @@
 load("//mlody/common/task.mlody")
-load("@common//:types.mlody", "top", "typedef", "string", "integer", "record")
+load("@common//:types.mlody", "opaque", "typedef", "string", "integer", "record")
 load("//mlody/common/values.mlody")
 load("//mlody/common/locations.mlody")
 load("//mlody/common/implementation.mlody")
@@ -46,7 +46,7 @@ def yolo26_models():
 typedef(
     name = "yolo26",		# other versions might be ok, but not all. For instance yolo8 lacks a model_info.json and multiple tasks
     base = record(fields=[
-	value(name = "model_info", type=top(), representation=json(), location=posix(path="model_info.json")),
+	value(name = "model_info", type=opaque(), representation=json(), location=posix(path="model_info.json")),
     ] + yolo26_models()),
 )
 
@@ -83,7 +83,7 @@ task(
             value(name="model", type=string(), location=named_arg()),
             value(name="sha", type=string(), location=named_arg()), # should be a different type, maybe a commit-sha or a committoid
             # effects should be more precise and say which outputs are not affected and other things
-            value(name="workers", type=integer(min=1, max=8), default=1, location=named_arg()),
+            value(name="workers", type=integer(min=1, max=8), location=named_arg(), default=1),
             #        value(name="workers", type=integer(min=1, max=8), default=1, location=named_arg(), effects=["no-hash-contribution"]),
         ],
         implementation = container(build=bazel(target=":model-download")), #[":model-download"],

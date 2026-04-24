@@ -1,5 +1,5 @@
 load("//mlody/common/values.mlody")
-load("@common//:types.mlody", "top", "typedef", "string", "integer", "bool", "record", "vector")
+load("@common//:types.mlody", "opaque", "typedef", "string", "integer", "bool", "record", "vector")
 load("//mlody/common/locations.mlody")
 load("//mlody/common/representation.mlody", "json", "text", "parquet", "csv")
 
@@ -7,7 +7,7 @@ typedef(
     name = "celebA-row",
     base = record(
 	fields = [
-	    value(name="image", type=top()),
+	    value(name="image", type=opaque()),
 	    value(name="celeb_id", type=integer()),
 	    # value(name="5_o_Clock_Shadow", type=bool()),
 	    # value(name="Arched_Eyebrows", type=bool()),
@@ -57,9 +57,9 @@ typedef(
     name = "celebA",
     base = record(
 	fields = [
-	    value(name="info",    type=top(), representation=json(), location=posix(path="dataset_info.json")),
-	    value(name="license", type=top(), representation=text(), location=posix(path="LICENSE")),
-	    value(name="readme",  type=top(), representation=text(markup="markdown"), location=posix(path="README.md")),
+	    value(name="info",    type=opaque(), representation=json(), location=posix(path="dataset_info.json")),
+	    value(name="license", type=opaque(), representation=text(), location=posix(path="LICENSE")),
+	    value(name="readme",  type=opaque(), representation=text(markup="markdown"), location=posix(path="README.md")),
 	    # instead of globbing, we should be able to have regex with group capture and be able to state that a specific group is an integer and the path should be sorted by that integer.
 	    # or maybe better once we have more complex searches we can map those filenames to tuples/record and do searching/sorting there
 	    #
@@ -75,9 +75,9 @@ typedef(
     name = "celebA-csv",
     base = record(
 	fields = [
-	    value(name="info",    type=top(), representation=json(), location=posix(path="dataset_info.json")),
-	    value(name="license", type=top(), representation=text(), location=posix(path="LICENSE")),
-	    value(name="readme",  type=top(), representation=text(markup="markdown"), location=posix(path="README.md")),
+	    value(name="info",    type=opaque(), representation=json(), location=posix(path="dataset_info.json")),
+	    value(name="license", type=opaque(), representation=text(), location=posix(path="LICENSE")),
+	    value(name="readme",  type=opaque(), representation=text(markup="markdown"), location=posix(path="README.md")),
 	    # instead of globbing, we should be able to have regex with group capture and be able to state that a specific group is an integer and the path should be sorted by that integer.
 	    # or maybe better once we have more complex searches we can map those filenames to tuples/record and do searching/sorting there
 	    #

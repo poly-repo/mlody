@@ -36,142 +36,6 @@ def _as_dict_or_none(v):
         return None
 
 
-def _field_values_compatible(field_name, left, right):
-    if left == right:
-        return True
-
-    if field_name not in ["type", "location", "representation"]:
-        return False
-
-    if type(left) != "struct" or type(right) != "struct":
-        return False
-
-    left_kind = python.getattr(left, "kind", None)
-    right_kind = python.getattr(right, "kind", None)
-    if left_kind != right_kind:
-        return False
-
-    if field_name == "type" and left_kind != "type":
-        return False
-    if field_name == "location" and left_kind != "location":
-        return False
-    if field_name == "representation" and left_kind != "representation":
-        return False
-
-    if field_name == "representation":
-        if python.getattr(left, "name", None) != python.getattr(right, "name", None):
-            return False
-
-        left_attrs = _as_dict_or_none(python.getattr(left, "attributes", None)) or {}
-        right_attrs = _as_dict_or_none(python.getattr(right, "attributes", None)) or {}
-
-        # Backward compatibility for legacy text() structs that only carried
-        # a top-level markup field.
-        if python.getattr(left, "name", None) == "text":
-            if "markup" not in left_attrs and python.hasattr(left, "markup"):
-                left_attrs = dict(left_attrs)
-                left_attrs["markup"] = python.getattr(left, "markup", "none")
-            if "markup" not in right_attrs and python.hasattr(right, "markup"):
-                right_attrs = dict(right_attrs)
-                right_attrs["markup"] = python.getattr(right, "markup", "none")
-
-        return left_attrs == right_attrs
-
-    left_attrs = _as_dict_or_none(python.getattr(left, "attributes", None)) or {}
-    right_attrs = _as_dict_or_none(python.getattr(right, "attributes", None)) or {}
-
-    return (
-        python.getattr(left, "type", None) == python.getattr(right, "type", None)
-        and left_attrs == right_attrs
-    )
-
-
-def _merge_value_structs(task_v, action_v, attr_name):
-    task_map = task_v.as_mapping()
-    action_map = action_v.as_mapping()
-    merged = {}
-
-    keys = set(task_map.keys()) | set(action_map.keys())
-    for key in keys:
-        t_val = task_map.get(key, None)
-        a_val = action_map.get(key, None)
-        if (
-            t_val != None
-            and a_val != None
-            and not _field_values_compatible(key, t_val, a_val)
-        ):
-            raise ValueError(
-                attr_name
-                + ": conflicting field "
-                + repr(key)
-                + " between task value "
-                + repr(python.getattr(task_v, "name", ""))
-                + " and action value "
-                + repr(python.getattr(action_v, "name", ""))
-            )
-        merged[key] = t_val if t_val != None else a_val
-
-    merged["kind"] = "value"
-    if merged.get("_lineage", None) == None:
-        merged["_lineage"] = []
-    return Struct(**merged)
-
-
-def _unify_ports(task_values, action_values, attr_name):
-    unified_task_values = list(task_values)
-    unified_action_values = list(action_values)
-
-    action_idx_by_name = {}
-    for i, action_v in enumerate(unified_action_values):
-        if _is_value_struct(action_v):
-            action_name = python.getattr(action_v, "name", None)
-            if action_name != None and action_name not in action_idx_by_name:
-                action_idx_by_name[action_name] = i
-
-    for i, task_v in enumerate(unified_task_values):
-        if not _is_value_struct(task_v):
-            continue
-
-        task_name = python.getattr(task_v, "name", None)
-        action_idx = None
-
-        if task_name != None:
-            action_idx = action_idx_by_name.get(task_name, None)
-        elif i < len(unified_action_values):
-            candidate = unified_action_values[i]
-            if _is_value_struct(candidate) and python.getattr(candidate, "name", None) == None:
-                action_idx = i
-
-        if action_idx == None:
-            continue
-
-        action_v = unified_action_values[action_idx]
-        merged = _merge_value_structs(task_v, action_v, attr_name)
-        unified_task_values[i] = merged
-        unified_action_values[action_idx] = merged
-
-    return unified_task_values, unified_action_values
-
-
-def _validate_required_value_fields(attr_name, values):
-    for value in values:
-        if not _is_value_struct(value):
-            continue
-        if python.getattr(value, "type", None) == None:
-            raise ValueError(
-                attr_name
-                + ": value "
-                + repr(python.getattr(value, "name", ""))
-                + " is missing required field 'type'"
-            )
-        if python.getattr(value, "location", None) == None:
-            raise ValueError(
-                attr_name
-                + ": value "
-                + repr(python.getattr(value, "name", ""))
-                + " is missing required field 'location'"
-            )
-
 
 def _task_impl(ctx):
     inputs_raw = python.getattr(ctx.attr, "inputs", [])
@@ -201,30 +65,12 @@ def _task_impl(ctx):
         except:
             resolved_action = action
 
-    action_for_task = resolved_action
-    if type(resolved_action) == "struct" and python.getattr(resolved_action, "kind", None) == "action":
-        action_inputs = list(python.getattr(resolved_action, "inputs", []))
-        action_outputs = list(python.getattr(resolved_action, "outputs", []))
-
-        inputs, action_inputs = _unify_ports(inputs, action_inputs, "inputs")
-        outputs, action_outputs = _unify_ports(outputs, action_outputs, "outputs")
-        _validate_required_value_fields("inputs", inputs)
-        _validate_required_value_fields("outputs", outputs)
-
-        action_map = dict(resolved_action.as_mapping())
-        action_map["inputs"] = action_inputs
-        action_map["outputs"] = action_outputs
-        action_for_task = Struct(**action_map)
-    else:
-        _validate_required_value_fields("inputs", inputs)
-        _validate_required_value_fields("outputs", outputs)
-
     task_struct = Struct(
         kind     = "task",
         name     = ctx.attr.name,
         inputs   = inputs,
         outputs  = outputs,
-        action   = action_for_task,
+        action   = resolved_action,
         config   = config,
         executor = executor,
     )
@@ -248,10 +94,10 @@ def _task_impl(ctx):
     for v in inputs + outputs:
         _register_scoped_value(task_prefix, v)
 
-    # Register action-scoped values: {task}.{action}.{port}
-    if type(action_for_task) == "struct" and python.getattr(action_for_task, "kind", None) == "action":
-        action_prefix = task_prefix + "." + python.getattr(action_for_task, "name", "")
-        for v in python.getattr(action_for_task, "inputs", []) + python.getattr(action_for_task, "outputs", []):
+    # Register action-scoped values: {action}.{port}
+    if type(resolved_action) == "struct" and python.getattr(resolved_action, "kind", None) == "action":
+        action_prefix = python.getattr(resolved_action, "name", "")
+        for v in python.getattr(resolved_action, "inputs", []) + python.getattr(resolved_action, "outputs", []):
             _register_scoped_value(action_prefix, v)
 
     return task_struct

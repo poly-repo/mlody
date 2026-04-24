@@ -3,6 +3,7 @@
 File contents are read from the real filesystem at module import time (before
 any pyfakefs fixture activates), then fed into InMemoryFS for evaluator tests.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -81,7 +82,9 @@ def test_allowed_attrs_is_dict() -> None:
 
     data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
     allowed = data._allowed_attrs  # type: ignore[attr-defined]
-    assert isinstance(allowed, dict), f"_allowed_attrs should be dict, got {type(allowed)}"
+    assert isinstance(allowed, dict), (
+        f"_allowed_attrs should be dict, got {type(allowed)}"
+    )
     assert allowed == {"min": "integer", "max": "integer"}
 
 
@@ -1298,11 +1301,11 @@ def test_canonical_on_fields_typedef() -> None:
 
 
 def test_abstract_flag_on_hierarchy_roots() -> None:
-    """top(), scalar(), aggregate() have abstract=True; integer(), string() have abstract=False."""
+    """any(), scalar(), aggregate() have abstract=True; integer(), string() have abstract=False."""
     ev = _eval("""\
         builtins.register("root", struct(
             name="r",
-            top=top(),
+            any=any(),
             scalar=scalar(),
             aggregate=aggregate(),
             integer=integer(),
@@ -1310,7 +1313,7 @@ def test_abstract_flag_on_hierarchy_roots() -> None:
         ))
     """)
     r = ev._roots_by_name["r"]  # type: ignore[attr-defined]
-    assert r.top.abstract is True  # type: ignore[attr-defined]
+    assert r.any.abstract is True  # type: ignore[attr-defined]
     assert r.scalar.abstract is True  # type: ignore[attr-defined]
     assert r.aggregate.abstract is True  # type: ignore[attr-defined]
     assert r.integer.abstract is False  # type: ignore[attr-defined]

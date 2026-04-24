@@ -402,7 +402,7 @@ def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
         fields = {
             k: v
             for k, v in obj.as_mapping().items()
-            if not k.startswith("_") or k == "_source_range"
+            if not k.startswith("_")
         }
         if not fields:
             return "struct()"

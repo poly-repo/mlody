@@ -206,9 +206,13 @@ typedef = rule(
 )
 
 # ---- Abstract hierarchy ----
-typedef(name="top",       abstract=True)
-typedef(name="scalar",    base=top(),       abstract=True)
-typedef(name="aggregate", base=top(),       abstract=True)
+typedef(name="any",       abstract=True) # top
+typedef(name="nothing",   abstract=True) # bottom
+typedef(name="scalar",    base=any(),       abstract=True)
+typedef(name="aggregate", base=any(),       abstract=True)
+
+# ---- Opaque type, the type of values that may have a structure that we do not want to specify
+typedef(name="opaque",    base=any())
 
 # ---- Scalar primitives (inherit from scalar) ----
 typedef(

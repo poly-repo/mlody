@@ -267,7 +267,10 @@ class Evaluator:
                 thing = Struct(
                     **thing.as_mapping(),
                     _source_range=Struct(  # type: ignore[assignment]
-                        filepath=str(rel_file), start_line=sr[0], end_line=sr[1]
+                        kind="mlody-source-range",
+                        filepath=str(rel_file),
+                        start_line=sr[0],
+                        end_line=sr[1],
                     ),
                 )
 

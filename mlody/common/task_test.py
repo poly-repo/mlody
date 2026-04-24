@@ -209,106 +209,93 @@ def test_forward_reference() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-011: task/action input values are unified bidirectionally
+# TC-011: task and action ports are stored independently (no merging)
 # ---------------------------------------------------------------------------
 
 
-def test_task_action_input_value_fields_are_unified_both_ways() -> None:
+def test_task_and_action_ports_stored_independently() -> None:
+    """TC-011: task inputs and action inputs are separate — no merging occurs."""
     ev = _eval(
         'task(\n'
         '  name="t",\n'
-        '  inputs=[struct(kind="value", name="inp", location=s3())],\n'
+        '  inputs=[value(name="inp", location=s3())],\n'
         '  outputs=[],\n'
         '  action=action(\n'
         '    name="act",\n'
-        '    inputs=[struct(kind="value", name="inp", type=integer())],\n'
+        '    inputs=[value(name="inp", type=integer(), location=posix(path="/data"))],\n'
         '    outputs=[],\n'
         '    implementation=shell_script(content="dummy")\n'
         '  )\n'
         ')\n'
     )
     t = ev._tasks_by_name["t"]
-    assert t.inputs[0].type.kind == "type"
-    assert t.inputs[0].location.kind == "location"
-    # Two-way unification: task-side field also fills action-side field.
-    assert t.action.inputs[0].type.kind == "type"
-    assert t.action.inputs[0].location.kind == "location"
+    # Task's port has s3 location (type defaults to nothing since not specified)
+    assert t.inputs[0].location.type == "s3"
+    assert t.inputs[0].type.name == "nothing"
+    # Action's port retains its own explicit type and location unchanged
+    assert t.action.inputs[0].type.type == "integer"
+    assert t.action.inputs[0].location.type == "posix"
 
 
 # ---------------------------------------------------------------------------
-# TC-012: task/action output values are unified bidirectionally
+# TC-012: action-scoped values registered under {action}.{port}
 # ---------------------------------------------------------------------------
 
 
-def test_task_action_output_value_fields_are_unified_both_ways() -> None:
+def test_action_scoped_registration_uses_action_name() -> None:
+    """TC-012: action ports register as {action_name}.{port_name}, not {task}.{action}.{port}."""
     ev = _eval(
         'task(\n'
         '  name="t",\n'
         '  inputs=[],\n'
-        '  outputs=[struct(kind="value", name="out", type=string())],\n'
+        '  outputs=[value(name="out", type=string(), location=s3())],\n'
         '  action=action(\n'
         '    name="act",\n'
         '    inputs=[],\n'
-        '    outputs=[struct(kind="value", name="out", location=s3())],\n'
+        '    outputs=[value(name="out", type=integer(), location=posix(path="/x"))],\n'
         '    implementation=shell_script(content="dummy")\n'
         '  )\n'
         ')\n'
     )
-    t = ev._tasks_by_name["t"]
-    assert t.outputs[0].type.kind == "type"
-    assert t.outputs[0].location.kind == "location"
-    assert t.action.outputs[0].type.kind == "type"
-    assert t.action.outputs[0].location.kind == "location"
+    # Task-scoped: {task}.{port}
+    assert ev._values_by_name.get("t.out") is not None
+    assert ev._values_by_name["t.out"].type.type == "string"
+    # Action-scoped: {action}.{port} (not t.act.out)
+    assert ev._values_by_name.get("act.out") is not None
+    assert ev._values_by_name["act.out"].type.type == "integer"
+    assert ev._values_by_name.get("t.act.out") is None
 
 
 # ---------------------------------------------------------------------------
-# TC-013: if both sides omit required value fields, task() raises ValueError
+# TC-013: action referenced by string label resolves correctly
 # ---------------------------------------------------------------------------
 
 
-def test_task_value_missing_required_fields_on_both_sides_raises_value_error() -> None:
-    with pytest.raises(ValueError, match="missing required field"):
-        _eval(
-            'task(\n'
-            '  name="t",\n'
-            '  inputs=[struct(kind="value", name="inp")],\n'
-            '  outputs=[],\n'
-            '  action=action(\n'
-            '    name="act",\n'
-            '    inputs=[struct(kind="value", name="inp")],\n'
-            '    outputs=[],\n'
-            '    implementation=shell_script(content="dummy")\n'
-            '  )\n'
-            ')\n'
-        )
-
-
-# ---------------------------------------------------------------------------
-# TC-014: unification also works when action is referenced by string label
-# ---------------------------------------------------------------------------
-
-
-def test_task_action_string_ref_value_fields_are_unified() -> None:
+def test_task_action_string_ref_resolves_and_ports_stay_separate() -> None:
+    """TC-013: action referenced by string label resolves; ports are not merged."""
     ev = _eval(
         'action(\n'
         '  name="act",\n'
-        '  inputs=[struct(kind="value", name="inp", type=integer())],\n'
+        '  inputs=[value(name="inp", type=integer(), location=s3())],\n'
         '  outputs=[],\n'
         '  implementation=shell_script(content="dummy")\n'
         ')\n'
-        'task(name="t", inputs=[struct(kind="value", name="inp", location=s3())], outputs=[], action="act")\n'
+        'task(name="t", inputs=[value(name="inp")], outputs=[], action="act")\n'
     )
     t = ev._tasks_by_name["t"]
-    assert t.inputs[0].type.kind == "type"
-    assert t.inputs[0].location.kind == "location"
+    # Task's port retains its own defaults (nothing/inline)
+    assert t.inputs[0].type.name == "nothing"
+    # Action's port (resolved from string ref) retains its explicit type
+    assert t.action.inputs[0].type.type == "integer"
 
 
 # ---------------------------------------------------------------------------
-# TC-015: semantically equal locations across task/action do not conflict
+# TC-014: task and action with same port spec coexist without error
 # ---------------------------------------------------------------------------
 
 
-def test_task_action_equal_location_specs_do_not_conflict() -> None:
+def test_task_and_action_with_identical_port_specs_coexist() -> None:
+    """TC-014: task and action can both declare the same port — stored independently."""
     ev = _eval(
         'task(\n'
         '  name="t",\n'
@@ -323,19 +310,17 @@ def test_task_action_equal_location_specs_do_not_conflict() -> None:
         ')\n'
     )
     t = ev._tasks_by_name["t"]
-    assert t.outputs[0].location.kind == "location"
     assert t.outputs[0].location.type == "posix"
+    assert t.action.outputs[0].location.type == "posix"
 
 
 # ---------------------------------------------------------------------------
-# TC-016 (5.4): task port with representation=json() survives _merge_value_structs
+# TC-015: task port representation is independent from action port
 # ---------------------------------------------------------------------------
 
 
-def test_task_port_with_representation_survives_merge_task_has_json_action_has_none() -> None:
-    """5.4: task port has representation=json(), action port has representation=None
-    → merged value has representation.name == 'json'.
-    """
+def test_task_port_representation_independent_from_action_port() -> None:
+    """TC-015: task port carries its own representation; action port is unaffected."""
     ev = _eval(
         'task(\n'
         '  name="t",\n'
@@ -352,100 +337,16 @@ def test_task_port_with_representation_survives_merge_task_has_json_action_has_n
     t = ev._tasks_by_name["t"]
     assert t.outputs[0].representation is not None
     assert t.outputs[0].representation.name == "json"
+    assert t.action.outputs[0].representation is None
 
 
 # ---------------------------------------------------------------------------
-# TC-017 (5.5): conflicting representations on task vs action raise ValueError
-# ---------------------------------------------------------------------------
-
-
-def test_task_conflicting_representations_raise_value_error() -> None:
-    """5.5: task port has representation=json(), action port has a different
-    non-None representation → ValueError naming field 'representation'.
-    """
-    # We create a second representation to have a distinct one for the conflict.
-    # Since the spec only defines json(), we test conflict by using two json() structs
-    # that are identical (no conflict) vs. a raw struct with a different name.
-    # We inject a fake "csv" representation directly as a struct literal for the conflict.
-    with pytest.raises(ValueError, match="representation"):
-        _eval(
-            'task(\n'
-            '  name="t",\n'
-            '  inputs=[],\n'
-            '  outputs=[value(name="out", type=string(), location=s3(), representation=json())],\n'
-            '  action=action(\n'
-            '    name="act",\n'
-            '    inputs=[],\n'
-            '    outputs=[struct(kind="value", name="out", type=string(), location=s3(),'
-            '            representation=struct(kind="representation", name="csv"))],\n'
-            '    implementation=shell_script(content="dummy")\n'
-            '  )\n'
-            ')\n'
-        )
-
-
-def test_task_conflicting_text_representation_markup_raises_value_error() -> None:
-    with pytest.raises(ValueError, match="representation"):
-        _eval(
-            'task(\n'
-            '  name="t",\n'
-            '  inputs=[],\n'
-            '  outputs=[value(name="out", type=string(), location=s3(), representation=text(markup="markdown"))],\n'
-            '  action=action(\n'
-            '    name="act",\n'
-            '    inputs=[],\n'
-            '    outputs=[value(name="out", type=string(), location=s3(), representation=text(markup="orgmode"))],\n'
-            '    implementation=shell_script(content="dummy")\n'
-            '  )\n'
-            ')\n'
-        )
-
-
-def test_task_conflicting_parquet_representation_schema_raises_value_error() -> None:
-    with pytest.raises(ValueError, match="representation"):
-        _eval(
-            'typedef(name="schema_a", base=record(fields=[field(name="id", type=integer())]))\n'
-            'typedef(name="schema_b", base=record(fields=[field(name="name", type=string())]))\n'
-            'task(\n'
-            '  name="t",\n'
-            '  inputs=[],\n'
-            '  outputs=[value(name="out", type=string(), location=s3(), representation=parquet(schema=schema_a()))],\n'
-            '  action=action(\n'
-            '    name="act",\n'
-            '    inputs=[],\n'
-            '    outputs=[value(name="out", type=string(), location=s3(), representation=parquet(schema=schema_b()))],\n'
-            '    implementation=shell_script(content="dummy")\n'
-            '  )\n'
-            ')\n'
-        )
-
-
-def test_task_conflicting_csv_representation_separator_raises_value_error() -> None:
-    with pytest.raises(ValueError, match="representation"):
-        _eval(
-            'task(\n'
-            '  name="t",\n'
-            '  inputs=[],\n'
-            '  outputs=[value(name="out", type=string(), location=s3(), representation=csv(separator=","))],\n'
-            '  action=action(\n'
-            '    name="act",\n'
-            '    inputs=[],\n'
-            '    outputs=[value(name="out", type=string(), location=s3(), representation=csv(separator="|"))],\n'
-            '    implementation=shell_script(content="dummy")\n'
-            '  )\n'
-            ')\n'
-        )
-
-
-# ---------------------------------------------------------------------------
-# TC-018 (5.6): scoped value registered by _register_scoped_value carries representation
+# TC-016: task-scoped value carries representation from task port
 # ---------------------------------------------------------------------------
 
 
 def test_scoped_value_carries_representation_from_source() -> None:
-    """5.6: task port value with representation=json() → scoped registration
-    has representation.name == 'json'.
-    """
+    """TC-016: task-scoped {task}.{port} carries representation from task port declaration."""
     ev = _eval(
         'task(\n'
         '  name="mytask",\n'
@@ -459,7 +360,12 @@ def test_scoped_value_carries_representation_from_source() -> None:
         '  )\n'
         ')\n'
     )
+    # Task-scoped carries representation
     scoped = ev._values_by_name.get("mytask.out")
     assert scoped is not None
     assert scoped.representation is not None
     assert scoped.representation.name == "json"
+    # Action-scoped has no representation
+    act_scoped = ev._values_by_name.get("act.out")
+    assert act_scoped is not None
+    assert act_scoped.representation is None

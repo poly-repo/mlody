@@ -193,14 +193,28 @@ def test_value_allows_missing_location() -> None:
     ev = _eval('value(name="v", type=integer())')
     v = ev._values_by_name["v"]
     assert v.type.kind == "type"
-    assert v.location is None
+    assert v.location.type == "inline"
 
 
 def test_value_allows_missing_type() -> None:
     ev = _eval('value(name="v", location=s3())')
     v = ev._values_by_name["v"]
-    assert v.type is None
+    assert v.type.name == "nothing"
     assert v.location.kind == "location"
+
+
+def test_both_defaults_applied() -> None:
+    ev = _eval('value(name="v")')
+    v = ev._values_by_name["v"]
+    assert v.type.name == "nothing"
+    assert v.location.type == "inline"
+
+
+def test_inline_location_with_data() -> None:
+    ev = _eval('value(name="v", location=inline(data="hello"))')
+    v = ev._values_by_name["v"]
+    assert v.location.type == "inline"
+    assert v.location.attributes["data"] == "hello"
 
 
 # ---------------------------------------------------------------------------
@@ -219,20 +233,20 @@ def test_value_allows_missing_type() -> None:
     ],
 )
 def test_value_stores_default_builtin_types(expr: str, expected: object) -> None:
-    ev = _eval(f'value(name="v", type=integer(), location=s3(), default={expr})')
+    ev = _eval(f'value(name="v", type=integer(), location=inline(), default={expr})')
     v = ev._values_by_name["v"]
     assert v.default == expected
 
 
 def test_value_stores_dict_literal_default() -> None:
-    ev = _eval('value(name="v", type=integer(), location=s3(), default={"k": "v"})')
+    ev = _eval('value(name="v", type=integer(), location=inline(), default={"k": "v"})')
     v = ev._values_by_name["v"]
     # In starlarkish, dict literals are represented as Struct values.
     assert getattr(v.default, "k", None) == "v"
 
 
 def test_value_stores_tuple_literal_default() -> None:
-    ev = _eval('value(name="v", type=integer(), location=s3(), default=(1, 2))')
+    ev = _eval('value(name="v", type=integer(), location=inline(), default=(1, 2))')
     v = ev._values_by_name["v"]
     # Tuples are normalized to list in runtime values.
     assert v.default == [1, 2]
@@ -601,14 +615,13 @@ def test_value_explicit_location_with_sql_source_raises_value_error() -> None:
 
 
 def test_value_source_without_sql_suffix_location_unaffected() -> None:
-    """TC-017i: source without @sql suffix leaves location unaffected."""
+    """TC-017i: source without @sql suffix gets inline default location."""
     ev = _eval(
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", source="upstream")\n'
     )
     v = ev._values_by_name["v"]
-    # No derived location — location should be None since none was set
-    assert v.location is None
+    assert v.location.type == "inline"
 
 
 def test_value_sql_derived_inherits_type_from_record_source() -> None:

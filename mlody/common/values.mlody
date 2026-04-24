@@ -162,6 +162,15 @@ def _value_impl(ctx):
     else:
         source_ref = _resolve_source_ref(source_raw) if source_raw != None else None
         loc_ref = _resolve_location_ref(loc_raw) if loc_raw != None else None
+        if loc_ref == None:
+            loc_ref = builtins.lookup("location", "inline")
+
+    allowed_locations_for_default = ["inline", "named_arg"]
+    if default_raw != None and python.getattr(loc_ref, "type", None) not in allowed_locations_for_default:
+        raise ValueError(
+            f"default= is only allowed on values with location={allowed_locations_for_default}. "
+            "Remove default= or set location appropriately."
+        )
 
     type_ref = _resolve_type_ref(type_raw) if type_raw != None else None
     # Inherit type from source when not explicitly specified (e.g. derived values
@@ -169,6 +178,8 @@ def _value_impl(ctx):
     if type_ref == None and source_ref != None:
         _sr_eager = builtins.lookup("value", source_ref) if isinstance(source_ref, str) else source_ref
         type_ref = python.getattr(_sr_eager, "type", None)
+    if type_ref == None:
+        type_ref = builtins.lookup("type", "nothing")
     rep_ref = _resolve_representation_ref(rep_raw) if rep_raw != None else None
 
     value_struct = Struct(
