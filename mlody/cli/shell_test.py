@@ -45,6 +45,7 @@ class TestBuildReplNamespace:
         mock_show_fn.assert_called_once_with(
             "@bert//:lr",
             monorepo_root=tmp_path,
+            workspace_root=None,
             full_workspace=False,
         )
 

@@ -112,6 +112,7 @@ def _record_evaluation(
 def show_fn(
     label: str,
     monorepo_root: Path,
+    workspace_root: Path | None = None,
     roots_file: Path | None = None,
     full_workspace: bool = False,
     print_fn: Callable[..., None] = print,
@@ -125,6 +126,7 @@ def show_fn(
     workspace, _sha = resolve_workspace(
         label,
         monorepo_root=monorepo_root,
+        workspace_root=workspace_root,
         roots_file=roots_file,
         full_workspace=full_workspace,
         print_fn=print_fn,
@@ -730,6 +732,7 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
         return
 
     monorepo_root: Path = ctx.obj["monorepo_root"]
+    workspace_root: Path = ctx.obj.get("workspace_root", monorepo_root)
     roots: Path | None = ctx.obj.get("roots")
     has_error = False
 
@@ -741,6 +744,7 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
             workspace, resolved_sha = resolve_workspace(
                 target,
                 monorepo_root=monorepo_root,
+                workspace_root=workspace_root,
                 roots_file=roots,
                 full_workspace=full_workspace,
                 verbose=verbose,

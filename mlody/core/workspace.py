@@ -75,8 +75,12 @@ class Workspace:
         skipped_mlody_paths: tuple[str, ...] | list[str] | None = None,
         print_fn: Callable[..., None] = print,
         console: Console | None = None,
+        extra_roots: dict[str, str] | None = None,
+        lazy_roots: dict[str, str] | None = None,
+        workspace_root: Path | None = None,
     ) -> None:
         self._monorepo_root = monorepo_root
+        self._workspace_root = workspace_root if workspace_root is not None else monorepo_root
         self._roots_file = roots_file or (monorepo_root / "mlody" / "roots.mlody")
         self._full_workspace = full_workspace
         self._skipped_mlody_paths = tuple(
@@ -92,6 +96,12 @@ class Workspace:
             line_range_extractor=extract_entity_ranges,
         )
         self._root_infos: dict[str, RootInfo] = {}
+        # extra_roots: registered in both _root_infos and _roots_by_name; Phase 2
+        # eagerly globs their directories (e.g. @workspace pointing to the sandbox).
+        self._extra_roots: dict[str, str] = extra_roots or {}
+        # lazy_roots: registered only in _roots_by_name for on-demand load() resolution
+        # (e.g. @mlody pointing to the monorepo mlody/ dir — too large to pre-glob).
+        self._lazy_roots: dict[str, str] = lazy_roots or {}
 
     @property
     def evaluator(self) -> Evaluator:
@@ -447,12 +457,11 @@ class Workspace:
 
     def load(self, verbose: bool = False) -> None:
         """Execute two-phase loading of pipeline definitions."""
-        # Phase 1: Root discovery
-        if not self._roots_file.exists():
-            msg = f"Roots file not found: {self._roots_file}"
-            raise FileNotFoundError(msg)
-
-        self._evaluator.eval_file(self._roots_file)
+        # Phase 1: Root discovery.  When no roots file exists (e.g. a sandbox
+        # workspace addressed via --workspace that has no roots.mlody), Phase 1
+        # is skipped and the workspace operates purely from injected roots.
+        if self._roots_file.exists():
+            self._evaluator.eval_file(self._roots_file)
 
         # Load type definitions (best-effort; may not be available in all environments)
         types_path = self._monorepo_root / "mlody" / "common" / "types.mlody"
@@ -471,10 +480,37 @@ class Workspace:
                 description=getattr(root_obj, "description", ""),
             )
 
+        # Extra roots: added to _root_infos so Phase 2 eagerly globs their files
+        # (e.g. @workspace → the sandbox directory itself).
+        for root_name, root_path in self._extra_roots.items():
+            if root_name not in self._root_infos:
+                self._root_infos[root_name] = RootInfo(
+                    name=root_name,
+                    path=root_path,
+                    description="injected",
+                )
+                self._evaluator._roots_by_name[root_name] = Struct(
+                    name=root_name,
+                    path=root_path,
+                    description="injected",
+                )
+
+        # Lazy roots: only in _roots_by_name for on-demand load() resolution;
+        # not pre-globbed (e.g. @mlody — the full mlody tree is too large to
+        # load eagerly into a sandbox workspace).
+        for root_name, root_path in self._lazy_roots.items():
+            if root_name not in self._evaluator._roots_by_name:
+                self._evaluator._roots_by_name[root_name] = Struct(
+                    name=root_name,
+                    path=root_path,
+                    description="injected",
+                )
+
         # Phase 2: Full evaluation
+        # .resolve() normalises any ".." or "." components in injected root paths.
         load_errors: list[tuple[Path, Exception]] = []
         for info in self._root_infos.values():
-            root_abs = self._monorepo_root / info.path.lstrip("/")
+            root_abs = (self._monorepo_root / info.path.lstrip("/")).resolve()
             _logger.debug("Loading root: %s", root_abs)
             if not root_abs.is_dir():
                 continue

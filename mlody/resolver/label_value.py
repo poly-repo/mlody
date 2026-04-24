@@ -1638,10 +1638,14 @@ def resolve_label_to_value(
         children = sorted(os.listdir(root_abs))
         return MlodyFolderValue(path=root_path, children=children)
 
-    # Build the absolute path: monorepo_root / root_path / entity_path
-    abs_path = workspace._monorepo_root  # noqa: SLF001 — accepted per design R-002
+    # Build the absolute path:
+    # - named root (@foo//...): monorepo_root / root_path / entity_path
+    # - rootless (//...): workspace_root / entity_path (workspace_root == monorepo_root
+    #   when --workspace is not set, so behaviour is unchanged in that case)
     if root_path:
-        abs_path = abs_path / root_path
+        abs_path = workspace._monorepo_root / root_path  # noqa: SLF001
+    else:
+        abs_path = workspace._workspace_root  # noqa: SLF001
     if entity_path:
         abs_path = abs_path / entity_path
 
@@ -1699,9 +1703,16 @@ def resolve_label_to_value(
         # Step 3: entity lookup
         # -----------------------------------------------------------------------
         # Derive stem: root_path / entity_path (mirrors evaluator._register logic)
+        # For rootless // labels, prepend the workspace-relative path so the stem
+        # matches what the evaluator registers (which is always monorepo-relative).
         stem_parts: list[str] = []
         if root_path:
             stem_parts.append(root_path)
+        elif workspace._workspace_root != workspace._monorepo_root:  # noqa: SLF001
+            workspace_rel = str(
+                workspace._workspace_root.relative_to(workspace._monorepo_root)  # noqa: SLF001
+            )
+            stem_parts.append(workspace_rel)
         if entity_path:
             stem_parts.append(entity_path)
         stem = "/".join(stem_parts)
@@ -1829,6 +1840,6 @@ def resolve_label_to_value(
         label=label,
         reason=(
             f"path '{entity_path}' is not a directory or .mlody source file "
-            f"under '{workspace._monorepo_root}' (label: {label!r})"  # noqa: SLF001
+            f"under '{workspace._workspace_root}' (label: {label!r})"  # noqa: SLF001
         ),
     )

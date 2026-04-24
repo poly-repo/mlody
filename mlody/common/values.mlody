@@ -1,4 +1,4 @@
-load("//mlody/core/rule.mlody", "rule")
+load("//mlody//core/rule.mlody", "rule")
 load("//mlody/common/attrs.mlody", "attr")
 
 

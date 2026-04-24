@@ -261,6 +261,9 @@ class TestResolveWorkspaceCwdPath:
             roots_file=None,
             full_workspace=False,
             print_fn=print,
+            extra_roots=None,
+            lazy_roots=None,
+            workspace_root=None,
         )
         mock_ws.load.assert_called_once()
 

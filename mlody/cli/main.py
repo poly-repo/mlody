@@ -66,9 +66,23 @@ def verify_monorepo_root() -> Path:
     default=False,
     help="Load all .mlody files, including files normally skipped by default.",
 )
+@click.option(
+    "--workspace",
+    "workspace_dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help=(
+        "Workspace subdirectory relative to the monorepo root "
+        "(e.g. mlody/sandboxes/exp1). Sets // for CWD-relative labels."
+    ),
+)
 @click.pass_context
 def cli(
-    ctx: click.Context, roots: Path | None, verbose: bool, full_workspace: bool
+    ctx: click.Context,
+    roots: Path | None,
+    verbose: bool,
+    full_workspace: bool,
+    workspace_dir: Path | None,
 ) -> None:
     """mlody — ML pipeline framework CLI."""
     ctx.ensure_object(dict)
@@ -85,6 +99,17 @@ def cli(
     monorepo_root = verify_monorepo_root()
     ctx.obj["monorepo_root"] = monorepo_root
     ctx.obj["roots"] = roots
+    if workspace_dir is not None:
+        workspace_root = monorepo_root / workspace_dir
+        if not workspace_root.is_dir():
+            click.echo(
+                f"Error: workspace directory not found: {workspace_root}",
+                err=True,
+            )
+            sys.exit(1)
+        ctx.obj["workspace_root"] = workspace_root
+    else:
+        ctx.obj["workspace_root"] = monorepo_root
 
 
 def main() -> None:

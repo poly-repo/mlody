@@ -250,9 +250,43 @@ def materialise(
     return dest
 
 
+def _workspace_injections(
+    monorepo_root: Path, workspace_root: Path
+) -> tuple[dict[str, str] | None, dict[str, str] | None]:
+    """Compute extra_roots and lazy_roots for --workspace mode.
+
+    The evaluator always uses monorepo_root as its root_path so that
+    //mlody/... load() paths continue to resolve from the top of the monorepo.
+    Workspace-specific roots are expressed as monorepo-relative paths.
+
+    When workspace_root ≠ monorepo_root (i.e. --workspace DIR was given):
+
+    - extra_roots: {"workspace": <dir>} — points @workspace at workspace_root
+      using a monorepo-relative path so Phase 2 eagerly loads sandbox .mlody
+      files and @workspace//... labels work.
+
+    - lazy_roots: {"mlody": "mlody"} — points @mlody at monorepo_root/mlody so
+      sandboxes can load("@mlody//common/...") on demand without pre-globbing.
+
+    Returns (None, None) when workspace_root == monorepo_root.
+    """
+    if workspace_root == monorepo_root:
+        return None, None
+
+    workspace_rel = str(workspace_root.relative_to(monorepo_root))
+    extra_roots: dict[str, str] = {"workspace": workspace_rel}
+
+    lazy_roots: dict[str, str] | None = None
+    if (monorepo_root / "mlody").is_dir():
+        lazy_roots = {"mlody": "mlody"}
+
+    return extra_roots, lazy_roots
+
+
 def resolve_workspace(
     label: str,
     monorepo_root: Path,
+    workspace_root: Path | None = None,
     roots_file: Path | None = None,
     full_workspace: bool = False,
     print_fn: Callable[..., None] = print,
@@ -264,9 +298,12 @@ def resolve_workspace(
     """Resolve a raw label to a ready Workspace and optional resolved SHA.
 
     For cwd-relative labels (@//-prefixed) the monorepo_root workspace is used
-    directly and resolved_sha is None. For committoid-qualified labels the
-    resolver fetches the remote SHA, materialises a cached clone, and returns
-    a Workspace rooted there along with the full 40-char SHA.
+    directly and resolved_sha is None. When workspace_root is provided it is
+    used instead of monorepo_root as the // anchor for CWD-relative labels —
+    this corresponds to the --workspace CLI flag. For committoid-qualified
+    labels the resolver fetches the remote SHA, materialises a cached clone,
+    and returns a Workspace rooted there along with the full 40-char SHA.
+    workspace_root has no effect on committoid-qualified labels.
 
     When value_description is provided (non-None, non-empty), a row is written
     to the local SQLite evaluations DB after successful materialisation. The
@@ -278,11 +315,16 @@ def resolve_workspace(
     committoid, inner_label = parse_label(label)
 
     if committoid is None:
+        ws_root = workspace_root if workspace_root is not None else monorepo_root
+        extra_roots, lazy_roots = _workspace_injections(monorepo_root, ws_root)
         ws = Workspace(
             monorepo_root=monorepo_root,
             roots_file=roots_file,
             full_workspace=full_workspace,
             print_fn=print_fn,
+            extra_roots=extra_roots,
+            lazy_roots=lazy_roots,
+            workspace_root=ws_root if ws_root != monorepo_root else None,
         )
         ws.load(verbose=verbose)
         return (ws, None)

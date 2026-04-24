@@ -198,14 +198,25 @@ def dag_cmd(ctx: click.Context, label: str | None, gui: bool) -> None:
     always printed first, before the window opens.
     """
     monorepo_root: Path = ctx.obj["monorepo_root"]
+    workspace_root: Path = ctx.obj.get("workspace_root", monorepo_root)
     roots: Path | None = ctx.obj.get("roots")
     verbose: bool = ctx.obj.get("verbose", False)
     full_workspace: bool = ctx.obj.get("full_workspace", False)
+
+    extra_roots: dict[str, str] | None = None
+    lazy_roots: dict[str, str] | None = None
+    if workspace_root != monorepo_root:
+        workspace_rel = str(workspace_root.relative_to(monorepo_root))
+        extra_roots = {"workspace": workspace_rel}
+        if (monorepo_root / "mlody").is_dir():
+            lazy_roots = {"mlody": "mlody"}
 
     workspace = Workspace(
         monorepo_root=monorepo_root,
         roots_file=roots,
         full_workspace=full_workspace,
+        extra_roots=extra_roots,
+        lazy_roots=lazy_roots,
     )
     try:
         workspace.load(verbose=verbose)

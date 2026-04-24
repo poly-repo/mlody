@@ -62,6 +62,7 @@ class TestShowFn:
         mock_rw.assert_called_once_with(
             "@bert//models:lr",
             monorepo_root=tmp_path,
+            workspace_root=None,
             roots_file=None,
             full_workspace=False,
             print_fn=print,
@@ -176,6 +177,7 @@ class TestShowCommandCommittoidTarget:
         mock_rw.assert_called_once_with(
             "main|@bert//models:lr",
             monorepo_root=tmp_path,
+            workspace_root=tmp_path,
             roots_file=None,
             full_workspace=False,
             verbose=False,

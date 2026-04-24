@@ -151,13 +151,14 @@ class TestTwoPhaseLoading:
         ws.load()
         assert dict(ws.evaluator._module_globals) == globals_snapshot  # type: ignore[attr-defined]
 
-    def test_missing_roots_file(self, fs: FakeFilesystem) -> None:
+    def test_missing_roots_file_loads_cleanly(self, fs: FakeFilesystem) -> None:
+        # A missing roots.mlody is silently skipped — workspace operates from
+        # injected roots only (e.g. --workspace sandboxes without a roots file).
         root = Path("/empty")
         root.mkdir()
         ws = Workspace(monorepo_root=root)
-
-        with pytest.raises(FileNotFoundError, match="Roots file not found"):
-            ws.load()
+        ws.load()  # must not raise
+        assert ws.root_infos == {}
 
     def test_no_roots_registered(self, fs: FakeFilesystem) -> None:
         root = Path("/no_roots")

@@ -32,7 +32,10 @@ def _get_history_path() -> Path:
 
 
 def _build_repl_namespace(
-    workspace: Workspace, monorepo_root: Path, full_workspace: bool = False
+    workspace: Workspace,
+    monorepo_root: Path,
+    workspace_root: Path | None = None,
+    full_workspace: bool = False,
 ) -> dict[str, object]:
     """Construct the REPL namespace exposed to the user.
 
@@ -45,6 +48,7 @@ def _build_repl_namespace(
             show_fn(
                 label,
                 monorepo_root=monorepo_root,
+                workspace_root=workspace_root,
                 full_workspace=full_workspace,
             )
             for label in labels
@@ -87,13 +91,15 @@ def shell(ctx: click.Context) -> None:
     if "workspace" in ctx.obj:
         workspace: Workspace = ctx.obj["workspace"]
         monorepo_root: Path = ctx.obj.get("monorepo_root", Path.cwd())
+        workspace_root: Path | None = ctx.obj.get("workspace_root")
         full_workspace: bool = ctx.obj.get("full_workspace", False)
         history_file = _get_history_path()
-        namespace = _build_repl_namespace(workspace, monorepo_root, full_workspace)
+        namespace = _build_repl_namespace(workspace, monorepo_root, workspace_root, full_workspace)
         _launch_repl(namespace, history_file)
         return
 
     monorepo_root = ctx.obj["monorepo_root"]
+    workspace_root = ctx.obj.get("workspace_root", monorepo_root)
     roots: Path | None = ctx.obj.get("roots")
     full_workspace: bool = ctx.obj.get("full_workspace", False)
 
@@ -105,9 +111,10 @@ def shell(ctx: click.Context) -> None:
     workspace_obj, _sha = resolve_workspace(
         "@//:_shell_init",
         monorepo_root=monorepo_root,
+        workspace_root=workspace_root,
         roots_file=roots,
         full_workspace=full_workspace,
     )
     history_file = _get_history_path()
-    namespace = _build_repl_namespace(workspace_obj, monorepo_root, full_workspace)
+    namespace = _build_repl_namespace(workspace_obj, monorepo_root, workspace_root, full_workspace)
     _launch_repl(namespace, history_file)

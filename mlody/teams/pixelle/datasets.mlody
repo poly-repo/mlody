@@ -107,3 +107,13 @@ value(
     name = "celebA-dataset-bald",
     source = ":celebA-dataset[@sql where Bald=True]",
 )
+
+value(
+    name = "celebA-dataset-identity",
+    source = ":celebA-dataset[@sql select image, false as Mav]",
+)
+
+value(
+    name = "mav",
+    location = posix(path="~/.cache/mlody/artifacts/datasets/mav"),
+)
