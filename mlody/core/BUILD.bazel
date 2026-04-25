@@ -13,8 +13,7 @@ o_py_test(
     name = "place_test",
     srcs = ["place_test.py"],
     deps = [
-        ":place",
-        ":traversal_grammar",
+        ":core_lib",
         "@pip//pytest",
     ],
 )
@@ -33,19 +32,15 @@ o_py_test(
     name = "lineage_test",
     srcs = ["lineage_test.py"],
     deps = [
-        ":lineage",
+        ":core_lib",
         "//common/python/starlarkish/core:core_lib",
-        "@pip//pytest",
     ],
 )
 
 o_py_test(
     name = "import_paths_test",
     srcs = ["import_paths_test.py"],
-    deps = [
-        "//mlody/common:common_lib",
-        "@pip//pytest",
-    ],
+    deps = ["@pip//pytest"],
 )
 
 o_py_library(
@@ -72,7 +67,6 @@ o_py_library(
         ":virtual_value",
         ":workspace_lib",
         "//common/python/starlarkish/core:core_lib",
-        "//mlody/resolver:resolver_lib",
     ],
 )
 
@@ -80,11 +74,8 @@ o_py_test(
     name = "setf_test",
     srcs = ["setf_test.py"],
     deps = [
-        ":setf",
-        ":traversal_grammar",
-        ":workspace_lib",
+        ":core_lib",
         "//common/python/starlarkish/core:core_lib",
-        "//mlody/resolver:resolver_lib",
         "@pip//pyfakefs",
         "@pip//pytest",
     ],
@@ -100,7 +91,7 @@ o_py_test(
     name = "traversal_grammar_test",
     srcs = ["traversal_grammar_test.py"],
     deps = [
-        ":traversal_grammar",
+        ":core_lib",
         "@pip//pytest",
     ],
 )
@@ -118,8 +109,7 @@ o_py_test(
     name = "traversal_parser_test",
     srcs = ["traversal_parser_test.py"],
     deps = [
-        ":traversal_grammar",
-        ":traversal_parser",
+        ":core_lib",
         "@pip//pytest",
     ],
 )
@@ -136,7 +126,7 @@ o_py_test(
     name = "optimiser_test",
     srcs = ["optimiser_test.py"],
     deps = [
-        ":optimiser",
+        ":core_lib",
         "@pip//pytest",
     ],
 )
@@ -156,9 +146,7 @@ o_py_test(
     name = "derived_test",
     srcs = ["derived_test.py"],
     deps = [
-        ":derived",
-        ":optimiser",
-        "//mlody/core/sql:sql_query_lib",  # keep — MlodyQueryError
+        ":core_lib",
         "@pip//pyarrow",
         "@pip//pytest",
     ],
@@ -174,7 +162,6 @@ o_py_test(
     name = "targets_test",
     srcs = ["targets_test.py"],
     deps = [
-        "//common/python/starlarkish",
         ":core_lib",
         "//common/python/starlarkish/core:core_lib",
         "@pip//pytest",
@@ -257,7 +244,7 @@ o_py_test(
     name = "location_composition_test",
     srcs = ["location_composition_test.py"],
     deps = [
-        ":location_composition_lib",
+        ":core_lib",
         "//common/python/starlarkish/core:core_lib",
         "@pip//pytest",
     ],
@@ -268,7 +255,6 @@ o_py_test(
     srcs = ["workspace_test.py"],
     deps = [
         ":core_lib",
-        "//common/python/starlarkish",
         "//common/python/starlarkish/core:core_lib",
         "//mlody/common:context_lib",  # keep
         "//mlody/resolver:resolver_lib",  # keep — tests import MlodyUnresolvedValue
@@ -283,23 +269,31 @@ o_py_library(
     srcs = [
         "__init__.py",
         "dag.py",
+        "derived.py",
+        "lineage.py",
         "location_composition.py",
+        "optimiser.py",
+        "place.py",
         "plan.py",
+        "setf.py",
+        "setf_strategies.py",
         "source_parser.py",
         "targets.py",
+        "traversal_grammar.py",
+        "traversal_parser.py",
         "virtual_value.py",
         "workspace.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [
-        ":location_composition_lib",
-        ":traversal_parser",
         "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody/common:common_lib",
         "//mlody/common:context_lib",  # keep
         "//mlody/core/label:label_pkg",  # keep
+        "//mlody/core/sql:sql_query_lib",  # keep — derived.py imports mlody_query and MlodyQueryError
         "@pip//networkx",  # keep — workspace DAG builder
+        "@pip//pyarrow",
         "@pip//rich",
         "@pip//tree_sitter",
         "@pip//tree_sitter_starlark",
@@ -320,7 +314,6 @@ o_py_test(
     ],
     deps = [
         ":core_lib",
-        "//common/python/starlarkish",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//networkx",  # keep
         "@pip//pytest",
@@ -335,7 +328,6 @@ o_py_test(
         "//mlody/common:attrs.mlody",  # keep — read at import time by test
     ],
     deps = [
-        "//common/python/starlarkish",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pytest",
     ],

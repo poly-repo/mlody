@@ -1,5 +1,13 @@
 load("//build/bzl:python.bzl", "o_py_binary", "o_py_library")
 
+# gazelle:resolve py chatterbox @chatterbox_pip//chatterbox_tts
+# gazelle:resolve py chatterbox.tts_turbo @chatterbox_pip//chatterbox_tts
+# gazelle:resolve py chatterbox.tts_turbo.ChatterboxTurboTTS @chatterbox_pip//chatterbox_tts
+# gazelle:resolve py perth @chatterbox_pip//resemble_perth
+# gazelle:resolve py torchaudio @chatterbox_pip//torchaudio
+# gazelle:resolve py librosa @chatterbox_pip//librosa
+# gazelle:resolve py ml_dtypes @chatterbox_pip//ml_dtypes
+
 o_py_library(
     name = "chatterbox_lib",
     srcs = [
@@ -11,19 +19,26 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         "@chatterbox_pip//chatterbox_tts",
+        "@chatterbox_pip//librosa",
+        "@chatterbox_pip//ml_dtypes",
         "@chatterbox_pip//resemble_perth",
         "@chatterbox_pip//torchaudio",
-        "@chatterbox_pip//click",
+        "@pip//click",
+        "@pip//numpy",
+        "@pip//torch",
     ],
 )
 
 o_py_binary(
     name = "chatterbox",
     srcs = ["speak.py"],
+    data = ["//mlody/teams/sonora/assets:speech"],
     main = "speak.py",
     package_collisions = "warning",
     python_version = "3.11",
     visibility = ["//visibility:public"],
-    deps = [":chatterbox_lib"],
-    data = ["//mlody/teams/sonora/assets:speech"],
+    deps = [
+        ":chatterbox_lib",
+        "@pip//click",
+    ],
 )

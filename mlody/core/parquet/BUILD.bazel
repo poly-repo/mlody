@@ -22,8 +22,18 @@ o_py_test(
     name = "parquet_test",
     srcs = ["parquet_test.py"],
     deps = [
-        ":deserializer_lib",
-        ":parquet",
+        "//mlody/core:core_lib",
         "@pip//pyarrow",
+        "@pip//pytest",
     ],
+)
+
+o_py_library(
+    name = "parquet_lib",
+    srcs = [
+        "__init__.py",
+        "deserializer.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = ["@pip//pyarrow"],
 )

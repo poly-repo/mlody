@@ -27,14 +27,34 @@ o_py_binary(
     main = "kind_cluster.py",
     package_collisions = "warning",
     visibility = ["//visibility:public"],
-    deps = [":kind_cluster_lib"],
+    deps = [
+        "//mlody/infra:infra_lib",
+        "@pip//click",
+        "@pip//pyyaml",
+        "@pip//rich",
+    ],
 )
 
 o_py_test(
     name = "kind_cluster_test",
     srcs = ["kind_cluster_test.py"],
     deps = [
-        ":kind_cluster_lib",
+        "//mlody/infra:infra_lib",
         "@pip//pytest",
+    ],
+)
+
+o_py_library(
+    name = "kind_lib",
+    srcs = [
+        "__init__.py",
+        "kind_cluster.py",
+        "runner.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@pip//click",
+        "@pip//pyyaml",
+        "@pip//rich",
     ],
 )

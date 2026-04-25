@@ -9,6 +9,7 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":sonora_speak_lib",
         "@pip//click",
         "@pip//kokoro",
         "@pip//numpy",
@@ -21,19 +22,40 @@ o_py_binary(
     main = "speak.py",
     package_collisions = "warning",
     visibility = ["//visibility:public"],
-    deps = [":sonora_speak_lib"],
+    deps = [
+        ":sonora_speak_lib",
+        "@pip//click",
+    ],
 )
 
 o_py_test(
     name = "sonora_speak_test",
-    package_collisions = "warning",
     srcs = [
         "runtime_test.py",
         "speak_test.py",
     ],
+    package_collisions = "warning",
     deps = [
         ":sonora_speak_lib",
         "@pip//click",
         "@pip//numpy",
+    ],
+)
+
+o_py_test(
+    name = "runtime_test",
+    srcs = ["runtime_test.py"],
+    deps = [
+        ":sonora_speak_lib",
+        "@pip//numpy",
+    ],
+)
+
+o_py_test(
+    name = "speak_test",
+    srcs = ["speak_test.py"],
+    deps = [
+        ":sonora_speak_lib",
+        "@pip//click",
     ],
 )

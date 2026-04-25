@@ -7,7 +7,6 @@ o_py_library(
         "struct.py",
     ],
     visibility = ["//:__subpackages__"],
-    deps = ["//common/python/starlarkish:pkg_init"],
 )
 
 o_py_test(

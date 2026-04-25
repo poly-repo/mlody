@@ -39,7 +39,6 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
-        "//common/python/starlarkish",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pytest",
     ],
@@ -55,7 +54,6 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
-        "//common/python/starlarkish",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pytest",
     ],
@@ -70,12 +68,10 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
-        "//mlody:mlody_lib",
         "//common/python/starlarkish/core:core_lib",
         "@pip//gitpython",
     ],
 )
-
 
 o_py_test(
     name = "values_test",
@@ -89,7 +85,6 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
-        "//common/python/starlarkish",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pytest",
     ],
@@ -109,8 +104,6 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
-        "//common/python/starlarkish",
-        "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pytest",
     ],
@@ -130,8 +123,6 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
-        "//common/python/starlarkish",
-        "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pytest",
     ],
@@ -154,8 +145,6 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
-        "//common/python/starlarkish",
-        "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pytest",
     ],
@@ -178,8 +167,6 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
-        "//common/python/starlarkish",
-        "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pytest",
     ],

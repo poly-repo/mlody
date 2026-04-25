@@ -6,12 +6,13 @@ o_py_library(
         "__init__.py",
         "runtime.py",
         "schema.py",
+        "yolo26-detect.py",
         "yolo26_detector.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [
-        "//mlody:mlody_lib",
         "@pip//click",
+        "@pip//numpy",
         "@pip//opencv_python",
         "@pip//torch",
         "@pip//ultralytics",
@@ -29,15 +30,50 @@ o_py_binary(
 
 o_py_test(
     name = "framera_yolo26_test",
-    package_collisions = "warning",
     srcs = [
         "runtime_test.py",
         "schema_test.py",
         "yolo26_detector_test.py",
     ],
+    package_collisions = "warning",
+    visibility = ["//visibility:public"],
     deps = [
         ":yolo26_lib",
         "@pip//click",
     ],
-    visibility = ["//visibility:public"],
+)
+
+o_py_binary(
+    name = "yolo26_detector",
+    srcs = ["yolo26_detector.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":yolo26_lib",
+        "@pip//click",
+    ],
+)
+
+o_py_test(
+    name = "runtime_test",
+    srcs = ["runtime_test.py"],
+    deps = [
+        ":yolo26_lib",
+        "@pip//numpy",
+        "@pip//opencv_python",
+    ],
+)
+
+o_py_test(
+    name = "schema_test",
+    srcs = ["schema_test.py"],
+    deps = [":yolo26_lib"],
+)
+
+o_py_test(
+    name = "yolo26_detector_test",
+    srcs = ["yolo26_detector_test.py"],
+    deps = [
+        ":yolo26_lib",
+        "@pip//click",
+    ],
 )

@@ -4,5 +4,4 @@ o_py_library(
     name = "python_pkg",
     srcs = ["__init__.py"],
     visibility = ["//:__subpackages__"],
-    deps = ["//common:common_pkg"],
 )

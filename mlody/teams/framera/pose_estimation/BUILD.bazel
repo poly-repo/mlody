@@ -28,7 +28,7 @@ o_py_binary(
     main = "pose-estimator.py",
     package_collisions = "warning",
     visibility = ["//visibility:public"],
-    deps = [":framera_lib"],
+    deps = ["//mlody:mlody_lib"],
 )
 
 o_py_binary(
@@ -38,12 +38,11 @@ o_py_binary(
     main = "calibrate-camera.py",
     package_collisions = "warning",
     visibility = ["//visibility:public"],
-    deps = [":framera_lib"],
+    deps = ["//mlody:mlody_lib"],
 )
 
 o_py_test(
     name = "framera_test",
-    package_collisions = "warning",
     srcs = [
         "calibration_test.py",
         "camera_calibrate_test.py",
@@ -53,10 +52,111 @@ o_py_test(
         "runtime_test.py",
         "schema_test.py",
     ],
+    package_collisions = "warning",
+    visibility = ["//visibility:public"],
     deps = [
         ":framera_lib",
         "@pip//click",
         "@pip//numpy",
     ],
-    visibility = ["//visibility:public"],
+)
+
+o_py_binary(
+    name = "camera_calibrate",
+    srcs = ["camera_calibrate.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@pip//click",
+        "@pip//numpy",
+        "@pip//opencv_python",
+    ],
+)
+
+o_py_binary(
+    name = "pose_estimator",
+    srcs = ["pose_estimator.py"],
+    visibility = ["//:__subpackages__"],
+    deps = ["@pip//click"],
+)
+
+o_py_library(
+    name = "pose_estimation_lib",
+    srcs = [
+        "__init__.py",
+        "calibrate-camera.py",
+        "calibration.py",
+        "camera_calibrate.py",
+        "geometry.py",
+        "mediapipe_adapter.py",
+        "pose-estimator.py",
+        "pose_estimator.py",
+        "runtime.py",
+        "schema.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@pip//click",
+        "@pip//mediapipe",
+        "@pip//numpy",
+        "@pip//opencv_python",
+    ],
+)
+
+o_py_test(
+    name = "calibration_test",
+    srcs = ["calibration_test.py"],
+    deps = [
+        "//mlody:mlody_lib",
+        "@pip//numpy",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "camera_calibrate_test",
+    srcs = ["camera_calibrate_test.py"],
+    deps = [
+        "//mlody:mlody_lib",
+        "@pip//click",
+        "@pip//numpy",
+    ],
+)
+
+o_py_test(
+    name = "geometry_test",
+    srcs = ["geometry_test.py"],
+    deps = [
+        "//mlody:mlody_lib",
+        "@pip//numpy",
+    ],
+)
+
+o_py_test(
+    name = "mediapipe_adapter_test",
+    srcs = ["mediapipe_adapter_test.py"],
+    deps = [
+        "//mlody:mlody_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "pose_estimator_test",
+    srcs = ["pose_estimator_test.py"],
+    deps = [
+        "//mlody:mlody_lib",
+        "@pip//click",
+    ],
+)
+
+o_py_test(
+    name = "runtime_test",
+    srcs = ["runtime_test.py"],
+    deps = ["//mlody:mlody_lib"],
+)
+
+o_py_test(
+    name = "schema_test",
+    srcs = ["schema_test.py"],
+    deps = ["//mlody:mlody_lib"],
 )

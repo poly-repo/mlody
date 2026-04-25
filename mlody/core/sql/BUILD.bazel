@@ -24,8 +24,22 @@ o_py_test(
     name = "sql_test",
     srcs = ["sql_test.py"],
     deps = [
-        ":sql",
-        ":sql_query_lib",
+        "//mlody/core:core_lib",
         "@pip//pyarrow",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
+    name = "sql_lib",
+    srcs = [
+        "__init__.py",
+        "sql_query.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@pip//duckdb",
+        "@pip//pyarrow",
+        "@pip//sqlglot",
     ],
 )

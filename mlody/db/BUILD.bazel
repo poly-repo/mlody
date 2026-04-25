@@ -16,7 +16,6 @@ o_py_test(
     srcs = ["local_diff_test.py"],
     deps = [
         ":db_lib",
-        "@pip//pyfakefs",
         "@pip//pytest",
     ],
 )

@@ -3,16 +3,16 @@ load("@rules_uv//uv:pip.bzl", "pip_compile")
 pip_compile(
     name = "runtime",
     requirements_in = "//:pyproject.toml",
-    requirements_txt = "runtime.txt",
     requirements_overrides = "//third_party/pkuseg:overrides.txt",
+    requirements_txt = "runtime.txt",
 )
 
 pip_compile(
     name = "chatterbox",
-    requirements_in = "chatterbox.in",
-    requirements_txt = "chatterbox.txt",
-    requirements_overrides = "//third_party/pkuseg:overrides.txt",
     py3_runtime = "@python_3_11_9_x86_64-unknown-linux-gnu//:py3_runtime",
+    requirements_in = "chatterbox.in",
+    requirements_overrides = "//third_party/pkuseg:overrides.txt",
+    requirements_txt = "chatterbox.txt",
 )
 
 pip_compile(
@@ -22,6 +22,6 @@ pip_compile(
         "*.txt",
     ]),
     requirements_in = "all.in",
-    requirements_txt = "all.txt",
     requirements_overrides = "//third_party/pkuseg:overrides.txt",
+    requirements_txt = "all.txt",
 )

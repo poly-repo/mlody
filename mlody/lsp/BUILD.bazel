@@ -78,7 +78,6 @@ o_py_test(
     srcs = ["completion_test.py"],
     deps = [
         ":lsp_lib",
-        "//common/python/starlarkish",
         "//common/python/starlarkish/evaluator:evaluator_lib",
     ],
 )
@@ -88,7 +87,6 @@ o_py_test(
     srcs = ["definition_test.py"],
     deps = [
         ":lsp_lib",
-        "//common/python/starlarkish",
         "@pip//pytest",
         "@pip//tree_sitter",
     ],
@@ -108,7 +106,6 @@ o_py_test(
     srcs = ["server_test.py"],
     deps = [
         ":lsp_lib",
-        "//common/python/starlarkish",
         "@pip//lsprotocol",
         "@pip//pygls",
         "@pip//pytest",
