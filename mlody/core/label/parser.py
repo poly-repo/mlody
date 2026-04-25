@@ -71,17 +71,37 @@ def extract_sql_query(entity_query: str | None) -> tuple[str, str] | None:
 def _strip_query(fragment: str) -> tuple[str, str | None]:
     """Return ``(body, query_content)`` after removing a trailing ``[...]``.
 
-    Returns ``(fragment, None)`` if no ``[`` is present.  Raises ``ValueError``
-    if a ``[`` exists but has no matching ``]``.
+    A trailing bracket is one whose closing ``]`` is the last character.
+    When the fragment ends with ``]``, scan right-to-left to find its matching
+    ``[`` and strip that pair as the query suffix.
+
+    When the fragment does *not* end with ``]`` but contains ``[``, the brackets
+    are inline (e.g. ``valid[1:4].Bald``).  In that case the fragment is
+    returned unchanged with ``query=None``.  A ``ValueError`` is raised only
+    when a ``[`` has no matching ``]`` anywhere in the fragment (truly unclosed).
     """
-    bracket_pos = fragment.find("[")
-    if bracket_pos == -1:
+    if "[" not in fragment:
         return fragment, None
-    if not fragment.endswith("]"):
+    if fragment.endswith("]"):
+        depth = 0
+        for i in range(len(fragment) - 1, -1, -1):
+            if fragment[i] == "]":
+                depth += 1
+            elif fragment[i] == "[":
+                depth -= 1
+                if depth == 0:
+                    return fragment[:i], fragment[i + 1 : -1]
+        raise ValueError(f"unmatched ']' in {fragment!r}")
+    # Inline brackets — verify they are balanced.
+    depth = 0
+    for ch in fragment:
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+    if depth != 0:
         raise ValueError(f"unclosed '[' in {fragment!r}")
-    body = fragment[:bracket_pos]
-    query = fragment[bracket_pos + 1 : -1]
-    return body, query
+    return fragment, None
 
 
 def _find_tick_outside_brackets(s: str) -> int:

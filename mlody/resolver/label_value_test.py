@@ -401,8 +401,10 @@ class TestValueKind:
         label = parse_label("@myroot//pkg/foo:meta.sha")
         result = resolve_label_to_value(label, ws)
 
-        assert isinstance(result, _RawAttrValue)
-        assert result.value == "abc123"
+        # Scalar string leaf is now promoted to MlodyValueValue (FR-007, spec §6.3)
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.data == ("abc123",)  # type: ignore[union-attr]
+        assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
 
     def test_record_field_top_json_supports_dotted_lookup_from_posix_file(
         self,
@@ -419,8 +421,10 @@ class TestValueKind:
         label = parse_label("@myroot//pkg/foo:dataset.info.sha")
         result = resolve_label_to_value(label, ws)
 
-        assert isinstance(result, _RawAttrValue)
-        assert result.value == "2d738f56"
+        # Scalar string leaf is now promoted to MlodyValueValue (FR-007, spec §6.3)
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.data == ("2d738f56",)  # type: ignore[union-attr]
+        assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
 
     def test_top_json_value_missing_key_returns_unresolved(
         self,
@@ -1737,3 +1741,503 @@ class TestResolverAPIExtension:
         result = ValueTraversalStrategy().traverse(root_value, segs, label, traversal_error_policy=TraversalErrorPolicy.SKIP)  # type: ignore[arg-type]
         assert isinstance(result, MlodyVectorValue)
         assert len(result.elements) == 2
+
+
+# ---------------------------------------------------------------------------
+# TestArrowTypeMapping — FR-002, spec §4
+# ---------------------------------------------------------------------------
+
+
+class TestArrowTypeMapping:
+    """Requirement: Arrow type mapping dict covers FR-002 Must-Have set."""
+
+    def _get_map(self) -> object:
+        from mlody.resolver.label_value import _get_arrow_type_map
+
+        return _get_arrow_type_map()
+
+    def test_bool_maps_to_bool(self) -> None:
+        """FR-002: pa.bool_() maps to 'bool'."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert mapping[pa.bool_()] == "bool"  # type: ignore[index]
+
+    def test_int64_maps_to_integer(self) -> None:
+        """FR-002: pa.int64() maps to 'integer'."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert mapping[pa.int64()] == "integer"  # type: ignore[index]
+
+    def test_int8_maps_to_integer(self) -> None:
+        """FR-002: signed int variants map to 'integer'."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert mapping[pa.int8()] == "integer"  # type: ignore[index]
+
+    def test_uint32_maps_to_integer(self) -> None:
+        """FR-002: unsigned int variants map to 'integer'."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert mapping[pa.uint32()] == "integer"  # type: ignore[index]
+
+    def test_float32_maps_to_float(self) -> None:
+        """FR-002: pa.float32() maps to 'float'."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert mapping[pa.float32()] == "float"  # type: ignore[index]
+
+    def test_float64_maps_to_float(self) -> None:
+        """FR-002: pa.float64() maps to 'float'."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert mapping[pa.float64()] == "float"  # type: ignore[index]
+
+    def test_string_maps_to_string(self) -> None:
+        """FR-002: pa.string() maps to 'string'."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert mapping[pa.string()] == "string"  # type: ignore[index]
+
+    def test_large_string_maps_to_string(self) -> None:
+        """FR-002: pa.large_string() maps to 'string'."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert mapping[pa.large_string()] == "string"  # type: ignore[index]
+
+    def test_timestamp_not_in_mapping(self) -> None:
+        """FR-002: Temporal types are NOT in the mapping (out of scope)."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert pa.timestamp("s") not in mapping  # type: ignore[operator]
+
+    def test_binary_not_in_mapping(self) -> None:
+        """FR-002: Binary types are NOT in the mapping (out of scope)."""
+        import pyarrow as pa
+
+        mapping = self._get_map()
+        assert pa.binary() not in mapping  # type: ignore[operator]
+
+
+# ---------------------------------------------------------------------------
+# TestPromoteScalarLeaf — FR-001, FR-004, FR-005, FR-009, spec §5
+# ---------------------------------------------------------------------------
+
+
+def _make_bool_type() -> object:
+    """Return the canonical mlody bool() type struct for test use."""
+    from mlody.resolver.label_value import _get_mlody_primitive_type
+
+    return _get_mlody_primitive_type("bool")
+
+
+def _make_integer_type() -> object:
+    """Return the canonical mlody integer() type struct for test use."""
+    from mlody.resolver.label_value import _get_mlody_primitive_type
+
+    return _get_mlody_primitive_type("integer")
+
+
+def _make_float_type() -> object:
+    """Return the canonical mlody float() type struct for test use."""
+    from mlody.resolver.label_value import _get_mlody_primitive_type
+
+    return _get_mlody_primitive_type("float")
+
+
+def _make_string_type() -> object:
+    """Return the canonical mlody string() type struct for test use."""
+    from mlody.resolver.label_value import _get_mlody_primitive_type
+
+    return _get_mlody_primitive_type("string")
+
+
+class TestPromoteScalarLeaf:
+    """Requirement: promote_scalar_leaf helper (FR-001, FR-004, FR-005, FR-009)."""
+
+    def _promote(self, scalars: object, field_name: str = "field", element_type: object = None) -> object:
+        from mlody.resolver.label_value import promote_scalar_leaf
+
+        if element_type is None:
+            element_type = _make_bool_type()
+        return promote_scalar_leaf(scalars, field_name, element_type, _make_label())
+
+    def test_single_bool_produces_one_element_vector(self) -> None:
+        """FR-004/FR-001: Single bool promotes to MlodyValueValue with data=(True,)."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote(True, "flag", _make_bool_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.data == (True,)  # type: ignore[union-attr]
+
+    def test_single_string_produces_one_element_vector(self) -> None:
+        """FR-004/FR-007: Single str promotes to MlodyValueValue with one-element tuple."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote("hello", "sha", _make_string_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.data == ("hello",)  # type: ignore[union-attr]
+
+    def test_list_of_ints_produces_multi_element_vector(self) -> None:
+        """FR-004: List of ints promotes to MlodyValueValue with multi-element tuple."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote([1, 2, 3], "ids", _make_integer_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.data == (1, 2, 3)  # type: ignore[union-attr]
+
+    def test_dict_value_returns_none(self) -> None:
+        """FR-010: Dict values are not promoted — returns None."""
+        result = self._promote({"k": 1}, "x")
+        assert result is None
+
+    def test_list_of_dicts_returns_none(self) -> None:
+        """FR-010: List of dicts is not promoted — returns None."""
+        result = self._promote([{"k": 1}], "x")
+        assert result is None
+
+    def test_empty_list_returns_none(self) -> None:
+        """FR-010: Empty list returns None (nothing to infer type from)."""
+        result = self._promote([], "x")
+        assert result is None
+
+    def test_promoted_struct_kind_is_value(self) -> None:
+        """FR-004: Promoted struct has kind='value'."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote(42, "n", _make_integer_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.kind == "value"  # type: ignore[union-attr]
+
+    def test_promoted_type_is_vector(self) -> None:
+        """FR-004: Promoted type struct has type='vector'."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote(True, "flag", _make_bool_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.type.type == "vector"  # type: ignore[union-attr]
+
+    def test_promoted_type_element_type_matches_input(self) -> None:
+        """FR-004: element_type on the vector matches the passed-in element_type struct."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        int_type = _make_integer_type()
+        result = self._promote(7, "count", int_type)
+
+        assert isinstance(result, MlodyValueValue)
+        elem_type = result.struct.type.attributes["element_type"]  # type: ignore[union-attr]
+        assert elem_type is int_type
+
+    def test_promoted_location_type_is_inline(self) -> None:
+        """FR-009: Location type is 'inline'."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote(3.14, "score", _make_float_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.type == "inline"  # type: ignore[union-attr]
+
+    def test_promoted_location_data_is_tuple(self) -> None:
+        """FR-009: Location data is always a Python tuple."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote([1, 2, 3], "ids", _make_integer_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert isinstance(result.struct.location.data, tuple)  # type: ignore[union-attr]
+
+    def test_promoted_name_is_field_name(self) -> None:
+        """FR-004: Promoted struct name is the bare field name."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote(True, "Bald", _make_bool_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.name == "Bald"  # type: ignore[union-attr]
+
+    def test_promoted_lineage_is_empty_list(self) -> None:
+        """FR-004: Promoted struct has _lineage=[]."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote("abc", "tag", _make_string_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct._lineage == []  # type: ignore[union-attr]
+
+    def test_register_true_raises_not_implemented(self) -> None:
+        """FR-005: register=True raises NotImplementedError (OQ-003 deferred)."""
+        from mlody.resolver.label_value import promote_scalar_leaf
+
+        with pytest.raises(NotImplementedError, match="OQ-003"):
+            promote_scalar_leaf(
+                True, "flag", _make_bool_type(), _make_label(), register=True
+            )
+
+    def test_non_scalar_type_returns_none(self) -> None:
+        """FR-010: Non-scalar type (e.g. object) returns None."""
+        result = self._promote(object(), "x")
+        assert result is None
+
+    def test_tuple_of_scalars_is_accepted(self) -> None:
+        """FR-004: A tuple of scalars is equivalent to a list of scalars."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote((1, 2), "ids", _make_integer_type())
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.data == (1, 2)  # type: ignore[union-attr]
+
+    def test_location_kind_is_location(self) -> None:
+        """FR-009: Location struct has kind='location'."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote(True, "ok", _make_bool_type())
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.kind == "location"  # type: ignore[union-attr]
+
+    def test_location_name_is_inline(self) -> None:
+        """FR-009: Location struct has name='inline'."""
+        from mlody.resolver.label_value import MlodyValueValue
+
+        result = self._promote(True, "ok", _make_bool_type())
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.name == "inline"  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# TestJsonBackedScalarPromotion — FR-007, spec §6.3
+# ---------------------------------------------------------------------------
+
+# .mlody template for a JSON-backed value entity.  All scalar leaf tests use
+# this template with different JSON content injected into meta.json via pyfakefs.
+_JSON_BACKED_VALUE_MLODY = """\
+builtins.register("value", struct(
+    kind="value",
+    name="meta",
+    type=struct(kind="type", type="top", name="top", _root_kind="top"),
+    location=struct(kind="posix", type="posix", name="meta_loc", path=["/project/teams/myroot/pkg/meta.json"]),
+    representation=struct(kind="representation", name="json", attributes={}),
+    default=None,
+    source=None,
+    _lineage=[],
+))
+"""
+
+
+class TestJsonBackedScalarPromotion:
+    """Requirement: scalar leaf promotion from JSON-backed traversal (FR-007, spec §6.3).
+
+    All tests use pyfakefs to provide an in-memory .json file, loaded via the
+    normal resolve_label_to_value path through _traverse_json_backed_value.
+    """
+
+    def _resolve(self, fs: FakeFilesystem, json_content: str, field: str) -> object:
+        ws = _make_workspace(
+            fs,
+            extra_files={
+                "teams/myroot/pkg/foo.mlody": _JSON_BACKED_VALUE_MLODY,
+                "teams/myroot/pkg/meta.json": json_content,
+            },
+        )
+        return resolve_label_to_value(parse_label(f"@myroot//pkg/foo:meta.{field}"), ws)
+
+    def test_json_bool_leaf_promotes_to_value_value(
+        self, fs: FakeFilesystem
+    ) -> None:
+        """FR-007: JSON boolean leaf → MlodyValueValue with element_type 'bool'."""
+        result = self._resolve(fs, '{"active": true}', "active")
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.type.attributes["element_type"].name == "bool"  # type: ignore[union-attr]
+
+    def test_json_int_leaf_promotes_to_value_value(
+        self, fs: FakeFilesystem
+    ) -> None:
+        """FR-007: JSON integer leaf → MlodyValueValue with element_type 'integer'."""
+        result = self._resolve(fs, '{"count": 42}', "count")
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.type.attributes["element_type"].name == "integer"  # type: ignore[union-attr]
+
+    def test_json_float_leaf_promotes_to_value_value(
+        self, fs: FakeFilesystem
+    ) -> None:
+        """FR-007: JSON float leaf → MlodyValueValue with element_type 'float'."""
+        result = self._resolve(fs, '{"score": 0.9}', "score")
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.type.attributes["element_type"].name == "float"  # type: ignore[union-attr]
+
+    def test_json_string_leaf_promotes_to_value_value(
+        self, fs: FakeFilesystem
+    ) -> None:
+        """FR-007: JSON string leaf → MlodyValueValue with element_type 'string'."""
+        result = self._resolve(fs, '{"sha": "abc123"}', "sha")
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
+
+    def test_json_dict_leaf_not_promoted(self, fs: FakeFilesystem) -> None:
+        """FR-010: JSON object leaf is not promoted — returns _RawAttrValue."""
+        result = self._resolve(fs, '{"meta": {"a": 1}}', "meta")
+
+        assert isinstance(result, _RawAttrValue)
+
+    def test_json_list_leaf_not_promoted(self, fs: FakeFilesystem) -> None:
+        """FR-010: JSON array leaf is not promoted — returns _RawAttrValue."""
+        result = self._resolve(fs, '{"tags": [1, 2]}', "tags")
+
+        assert isinstance(result, _RawAttrValue)
+
+    def test_json_promoted_data_wraps_scalar_in_tuple(
+        self, fs: FakeFilesystem
+    ) -> None:
+        """FR-004/FR-009: Promoted JSON scalar is wrapped in a one-element tuple."""
+        result = self._resolve(fs, '{"n": 42}', "n")
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.location.data == (42,)  # type: ignore[union-attr]
+
+    def test_json_bool_distinguished_from_int(self, fs: FakeFilesystem) -> None:
+        """FR-007: JSON boolean (true/false) maps to 'bool', not 'integer'.
+
+        Python bool is a subclass of int; we must check bool before int.
+        """
+        result = self._resolve(fs, '{"flag": true}', "flag")
+
+        assert isinstance(result, MlodyValueValue)
+        # Must be 'bool', not 'integer' — bool must be tested before int
+        assert result.struct.type.attributes["element_type"].name == "bool"  # type: ignore[union-attr]
+        assert result.struct.location.data == (True,)  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# TestStructScalarPromotion — FR-008, spec §6.4
+# ---------------------------------------------------------------------------
+#
+# These tests exercise scalar promotion from Starlark struct field access via
+# StructTraversalStrategy and the ValueTraversalStrategy getattr fallback.
+# They use synthetic Structs (no filesystem/workspace required).
+
+
+def _make_struct_with_typed_field(field_name: str, type_name: str, value: object) -> object:
+    """Build a minimal Starlark Struct with one typed field for promotion tests.
+
+    The returned struct has:
+        kind="task"  (uses StructTraversalStrategy)
+        type  = struct with a fields=[...] list declaring the field type
+        <field_name> = <value>  (the scalar to be promoted)
+    """
+    from common.python.starlarkish.core.struct import Struct
+
+    field_type = Struct(
+        kind="type",
+        type=type_name,
+        name=type_name,
+        _root_kind=type_name,
+        attributes={},
+        _allowed_attrs={},
+    )
+    field_decl = Struct(kind="field", name=field_name, type=field_type)
+    parent_type = Struct(
+        kind="type",
+        type="record",
+        name="record",
+        _root_kind="record",
+        fields=[field_decl],
+        attributes={},
+        _allowed_attrs={},
+    )
+    kwargs: dict[str, object] = {
+        "kind": "task",
+        "name": "my_task",
+        "type": parent_type,
+        field_name: value,
+    }
+    return Struct(**kwargs)
+
+
+class TestStructScalarPromotion:
+    """Requirement: scalar promotion from Starlark struct fields (FR-008, spec §6.4)."""
+
+    def _traverse_struct(self, struct: object, field: str) -> object:
+        from mlody.resolver.label_value import StructTraversalStrategy
+
+        strategy = StructTraversalStrategy("task")
+        return strategy.traverse(struct, (field,), _make_label())
+
+    def test_declared_int_field_promotes_to_value_value(self) -> None:
+        """FR-008: Int field with mlody type declaration → MlodyValueValue."""
+        struct = _make_struct_with_typed_field("count", "integer", 42)
+        result = self._traverse_struct(struct, "count")
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.type.attributes["element_type"].name == "integer"  # type: ignore[union-attr]
+        assert result.struct.location.data == (42,)  # type: ignore[union-attr]
+
+    def test_declared_bool_field_promotes_to_value_value(self) -> None:
+        """FR-008: Bool field with mlody type declaration → MlodyValueValue."""
+        struct = _make_struct_with_typed_field("active", "bool", True)
+        result = self._traverse_struct(struct, "active")
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.type.attributes["element_type"].name == "bool"  # type: ignore[union-attr]
+
+    def test_declared_string_field_promotes_to_value_value(self) -> None:
+        """FR-008: String field with mlody type declaration → MlodyValueValue."""
+        struct = _make_struct_with_typed_field("sha", "string", "abc123")
+        result = self._traverse_struct(struct, "sha")
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
+        assert result.struct.location.data == ("abc123",)  # type: ignore[union-attr]
+
+    def test_undeclared_field_not_promoted(self) -> None:
+        """FR-008: Scalar field with NO mlody type declaration returns _RawAttrValue."""
+        from common.python.starlarkish.core.struct import Struct
+
+        # Task struct with NO type declarations — scalar field should not be promoted
+        struct = Struct(kind="task", name="bare", undeclared_field=99)
+        result = self._traverse_struct(struct, "undeclared_field")
+
+        assert isinstance(result, _RawAttrValue)
+        assert result.value == 99
+
+    def test_promoted_struct_name_is_field_name(self) -> None:
+        """FR-004: Promoted struct name equals the bare field name."""
+        struct = _make_struct_with_typed_field("learning_rate", "float", 0.01)
+        result = self._traverse_struct(struct, "learning_rate")
+
+        assert isinstance(result, MlodyValueValue)
+        assert result.struct.name == "learning_rate"  # type: ignore[union-attr]
+
+    def test_non_scalar_field_not_promoted_even_with_declaration(self) -> None:
+        """FR-010: Dict-valued field with type declaration is not promoted (not a scalar)."""
+        from common.python.starlarkish.core.struct import Struct
+
+        field_type = Struct(kind="type", type="string", name="string", _root_kind="string",
+                            attributes={}, _allowed_attrs={})
+        field_decl = Struct(kind="field", name="nested", type=field_type)
+        parent_type = Struct(kind="type", type="record", name="record", _root_kind="record",
+                             fields=[field_decl], attributes={}, _allowed_attrs={})
+        # The field value is a dict — not a scalar, should not be promoted
+        struct = Struct(kind="task", name="t", type=parent_type, nested={"k": 1})
+
+        from mlody.resolver.label_value import StructTraversalStrategy
+        strategy = StructTraversalStrategy("task")
+        result = strategy.traverse(struct, ("nested",), _make_label())
+
+        assert isinstance(result, _RawAttrValue)

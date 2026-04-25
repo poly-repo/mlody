@@ -194,7 +194,8 @@ class TestParquetChainedAccess:
         """Scenario: End-to-end field access through resolve_label_to_value.
 
         WHEN the path is [IndexSegment(0), FieldSegment("label")]
-        THEN the result is _RawAttrValue wrapping the string "cat".
+        THEN the result is MlodyValueValue promoted from the string "cat"
+        (scalar promotion: single-row extraction §6.2).
 
         We drive this via ParquetTraversalStrategy directly (bypassing the label
         parser's string-only attr_path) to confirm the strategy handles chaining.
@@ -217,20 +218,26 @@ class TestParquetChainedAccess:
         label = parse_label("@data//pkg/dataset:my_dataset")
         strategy = ParquetTraversalStrategy()
 
-        # [0].label
+        # [0].label → scalar promotion: MlodyValueValue with data=("cat",)
         result = strategy.traverse(
             struct,
             (IndexSegment(0), FieldSegment("label")),
             label,
         )
 
-        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue, got {result!r}"
-        assert result.value == "cat"
+        assert isinstance(result, MlodyValueValue), f"Expected MlodyValueValue, got {result!r}"
+        assert result.struct.location.data == ("cat",)  # type: ignore[union-attr]
+        assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
 
     def test_slice_plus_field_via_strategy(
         self, tmp_path: Path
     ) -> None:
-        """Slice then field extracts one column from multiple rows."""
+        """Slice then field extracts one column from multiple rows, promoting to MlodyValueValue.
+
+        WHEN the path is [SliceSegment(0, 3, None), FieldSegment("label")]
+        THEN the result is MlodyValueValue promoted from ["cat", "dog", "bird"]
+        (mapped traversal scalar promotion §6.1).
+        """
         parquet_file = tmp_path / "train.parquet"
         _make_parquet_file(parquet_file)
         ws = _make_workspace(tmp_path, parquet_file)
@@ -248,15 +255,16 @@ class TestParquetChainedAccess:
         label = parse_label("@data//pkg/dataset:my_dataset")
         strategy = ParquetTraversalStrategy()
 
-        # [0:3].label → ["cat", "dog", "bird"]
+        # [0:3].label → MlodyValueValue with data=("cat", "dog", "bird")
         result = strategy.traverse(
             struct,
             (SliceSegment(0, 3, None), FieldSegment("label")),
             label,
         )
 
-        assert isinstance(result, _RawAttrValue)
-        assert result.value == ["cat", "dog", "bird"]
+        assert isinstance(result, MlodyValueValue), f"Expected MlodyValueValue, got {result!r}"
+        assert result.struct.location.data == ("cat", "dog", "bird")  # type: ignore[union-attr]
+        assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
 
     def test_missing_location_returns_unresolved(
         self, tmp_path: Path
@@ -351,3 +359,450 @@ class TestNonParquetRegression:
 
         assert isinstance(result, _RawAttrValue)
         assert result.value == "plain_value"
+
+
+# ---------------------------------------------------------------------------
+# TestScalarPromotionParquet — FR-001, FR-002, FR-003, spec §6.1–§6.2
+# ---------------------------------------------------------------------------
+
+# Parquet file with a richer schema for promotion tests.
+def _make_rich_parquet_file(path: Path) -> None:
+    """Write a Parquet file with bool, int64, string, and timestamp columns."""
+    import pyarrow.lib as _pa_lib  # noqa: PLC0415
+
+    table = pa.table({
+        "Bald": pa.array([True, False, True, False, True], type=pa.bool_()),
+        "id": pa.array([0, 1, 2, 3, 4], type=pa.int64()),
+        "label": pa.array(["cat", "dog", "bird", "fish", "hamster"], type=pa.string()),
+        "ts": pa.array([0, 1, 2, 3, 4], type=pa.timestamp("s")),
+        # struct-typed column (nested) — should NOT be promoted
+        "meta": pa.StructArray.from_arrays(
+            [pa.array([10, 20, 30, 40, 50], type=pa.int64())],
+            names=["size"],
+        ),
+    })
+    pq.write_table(table, str(path))
+
+
+_RICH_PARQUET_VALUE_MLODY_TEMPLATE = """\
+builtins.register("value", struct(
+    kind="value",
+    name="rich_dataset",
+    type=None,
+    location=struct(kind="posix", type="parquet", name="loc", path="{parquet_path}"),
+    representation=None,
+    default=None,
+    source=None,
+    _lineage=[],
+))
+"""
+
+# Value entity with a declared mlody type that specifies field types.
+# The 'id' field is declared as bool() but the Arrow schema has int64 → mismatch.
+_MISMATCH_MLODY_TEMPLATE = """\
+builtins.register("value", struct(
+    kind="value",
+    name="mismatch_dataset",
+    type=struct(
+        kind="type",
+        type="record",
+        name="record",
+        _root_kind="record",
+        fields=[
+            struct(
+                kind="field",
+                name="id",
+                type=struct(kind="type", type="bool", name="bool", _root_kind="bool", attributes={{}}, _allowed_attrs={{}}),
+            ),
+        ],
+        attributes={{}},
+        _allowed_attrs={{}},
+    ),
+    location=struct(kind="posix", type="parquet", name="loc", path="{parquet_path}"),
+    representation=None,
+    default=None,
+    source=None,
+    _lineage=[],
+))
+"""
+
+
+def _make_rich_workspace(root: Path, parquet_path: Path) -> Workspace:
+    """Workspace with a rich-schema Parquet entity at teams/data/pkg/rich."""
+    (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
+    (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
+    (root / "teams" / "data" / "pkg").mkdir(parents=True, exist_ok=True)
+
+    (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
+    (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
+    (root / "mlody" / "common" / "types.mlody").write_text("")
+
+    content = _RICH_PARQUET_VALUE_MLODY_TEMPLATE.format(parquet_path=str(parquet_path))
+    (root / "teams" / "data" / "pkg" / "rich.mlody").write_text(content)
+
+    ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
+    ws.load()
+    return ws
+
+
+def _make_mismatch_workspace(root: Path, parquet_path: Path) -> Workspace:
+    """Workspace with a Parquet entity whose mlody type disagrees with the schema."""
+    (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
+    (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
+    (root / "teams" / "data" / "pkg").mkdir(parents=True, exist_ok=True)
+
+    (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
+    (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
+    (root / "mlody" / "common" / "types.mlody").write_text("")
+
+    content = _MISMATCH_MLODY_TEMPLATE.format(parquet_path=str(parquet_path))
+    (root / "teams" / "data" / "pkg" / "mismatch.mlody").write_text(content)
+
+    ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
+    ws.load()
+    return ws
+
+
+class TestScalarPromotionParquet:
+    """Requirement: scalar promotion from Parquet traversal (FR-001, FR-002, FR-003, §6.1–§6.2)."""
+
+    def test_slice_field_bool_promotes_to_value_value(self, tmp_path: Path) -> None:
+        """FR-001/FR-002: Slicing then FieldSegment on bool column → MlodyValueValue.
+
+        WHEN the path is [0:3].Bald on a parquet with Bald: bool
+        THEN result is MlodyValueValue with element_type.name == 'bool'
+        and data contains the three extracted booleans.
+        """
+        parquet_file = tmp_path / "rich.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_rich_workspace(tmp_path, parquet_file)
+
+        from mlody.resolver.label_value import ParquetTraversalStrategy, _lookup_entity
+        from mlody.core.traversal_grammar import FieldSegment, SliceSegment
+
+        lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
+        assert lookup is not None
+        _, struct = lookup
+
+        label = parse_label("@data//pkg/rich:rich_dataset")
+        result = ParquetTraversalStrategy().traverse(
+            struct, (SliceSegment(0, 3, None), FieldSegment("Bald")), label
+        )
+
+        assert isinstance(result, MlodyValueValue), f"Expected MlodyValueValue, got {result!r}"
+        assert result.struct.type.attributes["element_type"].name == "bool"  # type: ignore[union-attr]
+        assert result.struct.location.data == (True, False, True)  # type: ignore[union-attr]
+
+    def test_slice_field_int_promotes_to_value_value(self, tmp_path: Path) -> None:
+        """FR-001/FR-002: Slicing then FieldSegment on int64 column → MlodyValueValue.
+
+        WHEN the path is [0:3].id on a parquet with id: int64
+        THEN result is MlodyValueValue with element_type.name == 'integer'.
+        """
+        parquet_file = tmp_path / "rich.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_rich_workspace(tmp_path, parquet_file)
+
+        from mlody.resolver.label_value import ParquetTraversalStrategy, _lookup_entity
+        from mlody.core.traversal_grammar import FieldSegment, SliceSegment
+
+        lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
+        assert lookup is not None
+        _, struct = lookup
+
+        label = parse_label("@data//pkg/rich:rich_dataset")
+        result = ParquetTraversalStrategy().traverse(
+            struct, (SliceSegment(0, 3, None), FieldSegment("id")), label
+        )
+
+        assert isinstance(result, MlodyValueValue), f"Expected MlodyValueValue, got {result!r}"
+        assert result.struct.type.attributes["element_type"].name == "integer"  # type: ignore[union-attr]
+
+    def test_slice_field_string_promotes_to_value_value(self, tmp_path: Path) -> None:
+        """FR-001/FR-002: Slicing then FieldSegment on string column → MlodyValueValue.
+
+        WHEN the path is [0:3].label on a parquet with label: string
+        THEN result is MlodyValueValue with element_type.name == 'string'.
+        """
+        parquet_file = tmp_path / "rich.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_rich_workspace(tmp_path, parquet_file)
+
+        from mlody.resolver.label_value import ParquetTraversalStrategy, _lookup_entity
+        from mlody.core.traversal_grammar import FieldSegment, SliceSegment
+
+        lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
+        assert lookup is not None
+        _, struct = lookup
+
+        label = parse_label("@data//pkg/rich:rich_dataset")
+        result = ParquetTraversalStrategy().traverse(
+            struct, (SliceSegment(0, 3, None), FieldSegment("label")), label
+        )
+
+        assert isinstance(result, MlodyValueValue), f"Expected MlodyValueValue, got {result!r}"
+        assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
+        assert result.struct.location.data == ("cat", "dog", "bird")  # type: ignore[union-attr]
+
+    def test_index_field_produces_one_element_vector(self, tmp_path: Path) -> None:
+        """FR-001/FR-002: IndexSegment then FieldSegment → one-element MlodyValueValue.
+
+        WHEN the path is [0].label
+        THEN result is MlodyValueValue with len(data) == 1.
+        """
+        parquet_file = tmp_path / "rich.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_rich_workspace(tmp_path, parquet_file)
+
+        from mlody.resolver.label_value import ParquetTraversalStrategy, _lookup_entity
+        from mlody.core.traversal_grammar import FieldSegment, IndexSegment
+
+        lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
+        assert lookup is not None
+        _, struct = lookup
+
+        label = parse_label("@data//pkg/rich:rich_dataset")
+        result = ParquetTraversalStrategy().traverse(
+            struct, (IndexSegment(0), FieldSegment("label")), label
+        )
+
+        assert isinstance(result, MlodyValueValue), f"Expected MlodyValueValue, got {result!r}"
+        assert len(result.struct.location.data) == 1  # type: ignore[union-attr]
+        assert result.struct.location.data == ("cat",)  # type: ignore[union-attr]
+
+    def test_unsupported_arrow_type_returns_unresolved(self, tmp_path: Path) -> None:
+        """FR-002: Arrow timestamp column → MlodyUnresolvedValue with field name and type.
+
+        WHEN the path is [0:3].ts on a parquet where ts is timestamp
+        THEN result is MlodyUnresolvedValue containing the field name and Arrow type.
+        """
+        parquet_file = tmp_path / "rich.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_rich_workspace(tmp_path, parquet_file)
+
+        from mlody.resolver.label_value import (
+            MlodyUnresolvedValue,
+            ParquetTraversalStrategy,
+            _lookup_entity,
+        )
+        from mlody.core.traversal_grammar import FieldSegment, SliceSegment
+
+        lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
+        assert lookup is not None
+        _, struct = lookup
+
+        label = parse_label("@data//pkg/rich:rich_dataset")
+        result = ParquetTraversalStrategy().traverse(
+            struct, (SliceSegment(0, 3, None), FieldSegment("ts")), label
+        )
+
+        assert isinstance(result, MlodyUnresolvedValue), f"Expected MlodyUnresolvedValue, got {result!r}"
+        assert "ts" in result.reason
+        assert "timestamp" in result.reason.lower() or "no mlody primitive" in result.reason
+
+    def test_nested_arrow_column_not_promoted(self, tmp_path: Path) -> None:
+        """FR-006/FR-010: Arrow struct-typed column is returned as _RawAttrValue unchanged.
+
+        WHEN the path is [0:3].meta on a parquet where meta is struct-typed
+        THEN result is _RawAttrValue (no promotion for nested types).
+        """
+        parquet_file = tmp_path / "rich.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_rich_workspace(tmp_path, parquet_file)
+
+        from mlody.resolver.label_value import (
+            ParquetTraversalStrategy,
+            _RawAttrValue,
+            _lookup_entity,
+        )
+        from mlody.core.traversal_grammar import FieldSegment, SliceSegment
+
+        lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
+        assert lookup is not None
+        _, struct = lookup
+
+        label = parse_label("@data//pkg/rich:rich_dataset")
+        result = ParquetTraversalStrategy().traverse(
+            struct, (SliceSegment(0, 3, None), FieldSegment("meta")), label
+        )
+
+        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue for struct column, got {result!r}"
+
+    def test_declaration_mismatch_returns_unresolved(self, tmp_path: Path) -> None:
+        """FR-003: mlody declaration conflicts with Arrow schema → MlodyUnresolvedValue.
+
+        WHEN the Arrow schema has id: int64 but mlody declares id as bool()
+        THEN result is MlodyUnresolvedValue naming both type names.
+        """
+        parquet_file = tmp_path / "rich.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_mismatch_workspace(tmp_path, parquet_file)
+
+        from mlody.resolver.label_value import (
+            MlodyUnresolvedValue,
+            ParquetTraversalStrategy,
+            _lookup_entity,
+        )
+        from mlody.core.traversal_grammar import FieldSegment, SliceSegment
+
+        lookup = _lookup_entity(ws, "teams/data/pkg/mismatch", "mismatch_dataset")
+        assert lookup is not None
+        _, struct = lookup
+
+        label = parse_label("@data//pkg/mismatch:mismatch_dataset")
+        result = ParquetTraversalStrategy().traverse(
+            struct, (SliceSegment(0, 3, None), FieldSegment("id")), label
+        )
+
+        assert isinstance(result, MlodyUnresolvedValue), f"Expected MlodyUnresolvedValue, got {result!r}"
+        assert "mismatch" in result.reason.lower()
+        # Should name both the inferred type ('integer') and declared type ('bool')
+        assert "integer" in result.reason
+        assert "bool" in result.reason
+
+    def test_backward_compat_raw_attr_value_still_works(self, tmp_path: Path) -> None:
+        """NFR-002: Raw index access (no field step) still returns _RawAttrValue.
+
+        WHEN the path is just [0] (no field segment)
+        THEN result is _RawAttrValue wrapping the row dict (unchanged from before).
+        """
+        parquet_file = tmp_path / "rich.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_rich_workspace(tmp_path, parquet_file)
+
+        from mlody.resolver.label_value import (
+            ParquetTraversalStrategy,
+            _RawAttrValue,
+            _lookup_entity,
+        )
+        from mlody.core.traversal_grammar import IndexSegment
+
+        lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
+        assert lookup is not None
+        _, struct = lookup
+
+        label = parse_label("@data//pkg/rich:rich_dataset")
+        result = ParquetTraversalStrategy().traverse(
+            struct, (IndexSegment(0),), label
+        )
+
+        # Raw row dict — no promotion attempted when no field segment
+        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue for row dict, got {result!r}"
+        assert isinstance(result.value, dict)
+        assert result.value["label"] == "cat"
+
+
+# ---------------------------------------------------------------------------
+# Regression: end-to-end traversal of `<entity>.<field>[1:4].<col>` where the
+# field is parquet-backed.  This shape (record-typed root, parquet field, slice,
+# column) repeatedly leaked the str/PathSegment asymmetry across strategy
+# boundaries — see plan "Fix `.valid[1:4].Bald` traversal".
+# ---------------------------------------------------------------------------
+
+# Record-typed root with one field `valid` whose declaration carries a
+# parquet representation and location.  After `:dataset.valid`, the rebuilt
+# accumulator is parquet-backed and the engine hands the remaining segments
+# off to ParquetTraversalStrategy.
+_RECORD_WITH_PARQUET_FIELD_TEMPLATE = """\
+builtins.register("value", struct(
+    kind="value",
+    name="dataset",
+    type=struct(
+        kind="type",
+        type="record",
+        name="record",
+        _root_kind="record",
+        attributes={{}},
+        _allowed_attrs={{}},
+        fields=[
+            struct(
+                kind="field",
+                name="valid",
+                type=struct(
+                    kind="type",
+                    type="vector",
+                    name="vector",
+                    _root_kind="vector",
+                    attributes={{}},
+                    _allowed_attrs={{}},
+                ),
+                representation=struct(
+                    kind="representation",
+                    type="parquet",
+                    name="parquet",
+                ),
+                location=struct(
+                    kind="posix",
+                    type="parquet",
+                    name="loc",
+                    path="{parquet_path}",
+                ),
+            ),
+        ],
+    ),
+    location=None,
+    representation=None,
+    default=None,
+    source=None,
+    _lineage=[],
+))
+"""
+
+
+def _make_record_with_parquet_field_workspace(
+    root: Path, parquet_path: Path
+) -> Workspace:
+    """Workspace with `:dataset` whose `valid` field is parquet-backed."""
+    (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
+    (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
+    (root / "teams" / "data" / "pkg").mkdir(parents=True, exist_ok=True)
+
+    (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
+    (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
+    (root / "mlody" / "common" / "types.mlody").write_text("")
+
+    content = _RECORD_WITH_PARQUET_FIELD_TEMPLATE.format(parquet_path=str(parquet_path))
+    (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(content)
+
+    ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
+    ws.load()
+    return ws
+
+
+class TestParquetFieldSliceFieldRegression:
+    """Regression: `:dataset.valid[1:4].Bald` end-to-end with a parquet field."""
+
+    def test_record_field_slice_field_promotes_to_vector_bool(
+        self, tmp_path: Path
+    ) -> None:
+        """Resolving ``:dataset.valid[1:4].Bald`` on a record whose ``valid`` field
+        is parquet-backed must return a MlodyValueValue with vector(bool) type
+        and a 3-element inline tuple.
+
+        This exercises the full pipeline:
+          1. parser accepts inline ``[1:4]`` brackets in the attribute path
+          2. resolver normalises the heterogeneous (str | PathSegment) tuple
+             into ``tuple[PathSegment, ...]`` at the chokepoint
+          3. ValueTraversalStrategy._traverse_with_engine handles the first
+             FieldSegment("valid") and detects the parquet-backed accumulator
+          4. handoff to ParquetTraversalStrategy with (SliceSegment, FieldSegment("Bald"))
+          5. parquet strategy reads rows 1:4, extracts column Bald, promotes
+             to MlodyValueValue with vector<bool> type
+        """
+        parquet_file = tmp_path / "valid.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_record_with_parquet_field_workspace(tmp_path, parquet_file)
+
+        label = parse_label("@data//pkg/dataset:dataset.valid[1:4].Bald")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyValueValue), (
+            f"Expected MlodyValueValue, got {result!r}"
+        )
+        # type=vector(element_type=bool())
+        assert getattr(result.struct.type, "name", None) == "vector"  # type: ignore[union-attr]
+        element_type = result.struct.type.attributes["element_type"]  # type: ignore[union-attr]
+        assert getattr(element_type, "name", None) == "bool"
+        # location is inline with a 3-tuple of bools (rows 1, 2, 3 of the fixture)
+        assert getattr(result.struct.location, "type", None) == "inline"  # type: ignore[union-attr]
+        assert result.struct.location.data == (False, True, False)  # type: ignore[union-attr]

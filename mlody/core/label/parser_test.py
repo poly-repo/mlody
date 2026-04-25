@@ -327,6 +327,29 @@ class TestEntityFieldPath:
         assert result.entity.name is None
         assert result.entity.field_path is None
 
+    def test_inline_bracket_in_field_path_does_not_raise(self) -> None:
+        # Scenario: slice notation embedded mid-path, e.g. .valid[1:4].Bald
+        # The bracket is NOT a trailing entity_query; it must parse without error
+        # and land in the field_path tuple.
+        result = parse_label("@pixelle//...:celebA-dataset-bald.valid[1:4].Bald")
+        assert result.entity is not None
+        assert result.entity.name == "celebA-dataset-bald"
+        assert result.entity.field_path == ("valid[1:4]", "Bald")
+        assert result.entity_query is None
+
+    def test_trailing_bracket_still_parsed_as_entity_query(self) -> None:
+        # Regression: a bracket at the very end of the entity spec is still
+        # captured as entity_query (existing behaviour must not change).
+        result = parse_label("@pixelle//...:celebA-dataset-bald.valid[1:4]")
+        assert result.entity is not None
+        assert result.entity.name == "celebA-dataset-bald"
+        assert result.entity.field_path == ("valid",)
+        assert result.entity_query == "1:4"
+
+    def test_truly_unclosed_bracket_still_raises(self) -> None:
+        with pytest.raises(EntityParseError):
+            parse_label("//foo/bar[kind=action")
+
 
 class TestExtractSqlQuery:
     """Requirement: Parse @sql dialect tag from entity query suffix.

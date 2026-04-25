@@ -12,23 +12,21 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        "//common/python:python_pkg",
+        "//common/python/console:console_lib",  # keep — label_value.py imports RichDomNode
+        "//common/python/starlarkish/core:core_lib",
         "//mlody/core:core_lib",
-        "//mlody/core:derived",  # keep — ParquetTraversalStrategy lazy-imports materialise_derived for derived locations
-        "//mlody/core:location_composition_lib",
-        "//mlody/core:traversal_grammar",  # keep — label_value.py imports PathSegment types for engine dispatch
-        "//mlody/core/parquet:parquet",  # keep — ParquetTraversalStrategy lazy-imports ParquetDeserializer
-        "//mlody/core/sql:sql",  # keep — ParquetTraversalStrategy lazy-imports mlody_query for SqlSegment dispatch
+        "//mlody/core/label:label_lib",
+        "//mlody/core/parquet:parquet_lib",
         "//mlody/db:db_lib",  # keep — resolver.py imports open_db, write_evaluation, compute_local_diff_sha
     ],
 )
-
 
 o_py_test(
     name = "errors_test",
     srcs = ["errors_test.py"],
     deps = [
         ":resolver_lib",
-        "//common/python/starlarkish",
         "@pip//pytest",
     ],
 )
@@ -38,7 +36,6 @@ o_py_test(
     srcs = ["git_client_test.py"],
     deps = [
         ":resolver_lib",
-        "//common/python/starlarkish",
         "@pip//pytest",
     ],
 )
@@ -48,7 +45,6 @@ o_py_test(
     srcs = ["cache_test.py"],
     deps = [
         ":resolver_lib",
-        "//common/python/starlarkish",
         "@pip//pytest",
     ],
 )
@@ -58,7 +54,6 @@ o_py_test(
     srcs = ["resolver_test.py"],
     deps = [
         ":resolver_lib",
-        "//common/python/starlarkish",
         "//mlody/db:db_lib",  # keep — resolver_test queries SQLite directly after resolve_workspace
         "@pip//pytest",
     ],
@@ -69,10 +64,10 @@ o_py_test(
     srcs = ["label_value_test.py"],
     deps = [
         ":resolver_lib",
-        "//common/python/starlarkish",  # keep — starlarkish evaluator used by Workspace
-        "//mlody/core/parquet:parquet",  # keep — Parquet integration tests create real Parquet files
-        "@pip//pyarrow",  # keep — integration tests write Parquet fixtures directly
+        "//common/python/starlarkish/core:core_lib",
+        "//mlody/core:core_lib",
         "@pip//pyfakefs",  # keep — pyfakefs provides the `fs` fixture via pytest plugin
+        "@pip//pytest",
     ],
 )
 
@@ -81,8 +76,9 @@ o_py_test(
     srcs = ["parquet_integration_test.py"],
     deps = [
         ":resolver_lib",
-        "//common/python/starlarkish",  # keep — starlarkish evaluator + Struct used in tests
-        "//mlody/core/parquet:parquet",  # keep — ParquetTraversalStrategy imported directly
+        "//common/python/starlarkish/core:core_lib",
+        "//mlody/core:core_lib",
         "@pip//pyarrow",  # keep — tests write real Parquet files via pyarrow
+        "@pip//pytest",
     ],
 )

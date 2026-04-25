@@ -43,3 +43,33 @@ class Label:
     # None means no "'" separator was present; an empty tuple is not used.
     attribute_path: tuple[str, ...] | None
     attribute_query: str | None
+
+    def format_inner(self) -> str:
+        """Re-serialise the label without the workspace/committoid prefix."""
+        if self.entity is None and self.attribute_path is None:
+            return ""
+        if self.entity is None:
+            assert self.attribute_path is not None
+            attr_str = ".".join(self.attribute_path)
+            if self.attribute_query:
+                attr_str += f"[{self.attribute_query}]"
+            return f"'{attr_str}"
+        parts: list[str] = []
+        if self.entity.root is not None:
+            parts.append(f"@{self.entity.root}")
+        path = self.entity.path or ""
+        if self.entity.wildcard:
+            parts.append(f"//{path}/...")
+        elif path:
+            parts.append(f"//{path}")
+        if self.entity.name is not None:
+            parts.append(f":{self.entity.name}")
+            if self.entity.field_path:
+                parts.append("." + ".".join(self.entity.field_path))
+            if self.entity_query is not None:
+                parts.append(f"[{self.entity_query}]")
+        if self.attribute_path:
+            parts.append("'" + ".".join(self.attribute_path))
+            if self.attribute_query is not None:
+                parts.append(f"[{self.attribute_query}]")
+        return "".join(parts)
