@@ -33,7 +33,6 @@ from mlody.core.virtual_value import (
     step_virtual_value,
 )
 from mlody.core.workspace import LabelWriteAnchor, Workspace
-from mlody.resolver.resolver import parse_label as split_resolved_label
 
 
 @dataclass(frozen=True)
@@ -506,7 +505,7 @@ def resolve_setf_anchor(
         raise ValueError(msg)
 
     authoritative_workspace = workspace or _load_cwd_workspace()
-    _, inner_label = split_resolved_label(ref)
+    inner_label = label.format_inner()
 
     label_anchor = authoritative_workspace.resolve_label_anchor(inner_label)
     return SetfAnchor(
@@ -537,7 +536,7 @@ def _resolve_setf_anchors(
         raise ValueError(msg)
 
     authoritative_workspace = workspace or _load_cwd_workspace()
-    _, inner_label = split_resolved_label(ref)
+    inner_label = label.format_inner()
 
     concrete_labels = authoritative_workspace.expand_wildcard_label(inner_label)
     anchors: list[SetfAnchor] = []

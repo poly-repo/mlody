@@ -257,3 +257,16 @@ def csv(
     if resolved_schema != None:
         kwargs["schema"] = resolved_schema
     return _csv_factory(**kwargs)
+
+_console_struct = representation(
+    name="console",
+    attrs={
+    },
+)
+_console_factory = _make_representation_factory(_console_struct)
+
+
+def console(
+):
+    kwargs = {}
+    return _console_factory(**kwargs)

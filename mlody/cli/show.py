@@ -19,8 +19,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from rich.console import Console
 from rich.pretty import pretty_repr
-from rich.syntax import Syntax
 from rich.table import Table
+
+from common.python.console import RichDomNode, RichDomExecutor
 
 from mlody.cli.main import cli
 from mlody.core.dag import Edge, TaskNode, ancestors_subgraph, build_dag
@@ -179,7 +180,10 @@ def _to_pil_image(value: object):  # -> PIL.Image.Image | None
         if not raw:
             return None
         # Quick magic check: PNG, JPEG, GIF, WEBP, BMP
-        if not (raw[:4] in (b"\x89PNG", b"GIF8", b"RIFF", b"BM\x00\x00") or raw[:2] == b"\xff\xd8"):
+        if not (
+            raw[:4] in (b"\x89PNG", b"GIF8", b"RIFF", b"BM\x00\x00")
+            or raw[:2] == b"\xff\xd8"
+        ):
             return None
         return _PIL.open(_io.BytesIO(raw))
     except Exception:
@@ -271,9 +275,9 @@ def _sixel_encode(img, *, max_width: int = 320) -> str | None:  # img: PIL.Image
             h = pad_h
 
         q = img.convert("RGB").quantize(colors=256, method=_PIL.Quantize.MEDIANCUT)
-        pal = q.getpalette()          # flat [R, G, B, …]; length = num_used_colors × 3
+        pal = q.getpalette()  # flat [R, G, B, …]; length = num_used_colors × 3
         num_colors = len(pal) // 3
-        pixels = q.load()             # PixelAccess: pixels[x, y] → palette index
+        pixels = q.load()  # PixelAccess: pixels[x, y] → palette index
 
         parts: list[str] = ["\x1bPq"]
 
@@ -300,7 +304,7 @@ def _sixel_encode(img, *, max_width: int = 320) -> str | None:  # img: PIL.Image
             first_color = True
             for ci in sorted(color_rows):
                 if not first_color:
-                    parts.append("$")   # carriage-return: restart at column 0
+                    parts.append("$")  # carriage-return: restart at column 0
                 first_color = False
                 parts.append(f"#{ci}")
                 row = color_rows[ci]
@@ -314,9 +318,9 @@ def _sixel_encode(img, *, max_width: int = 320) -> str | None:  # img: PIL.Image
                     ch = chr(c)
                     parts.append(f"!{run}{ch}" if run > 3 else ch * run)
                     i = j
-            parts.append("-")           # advance to next sixel band
+            parts.append("-")  # advance to next sixel band
 
-        parts.append("\x1b\\")          # DCS string terminator
+        parts.append("\x1b\\")  # DCS string terminator
         return "".join(parts)
     except Exception:
         return None
@@ -357,7 +361,9 @@ def _image_encoder_for_terminal():
     return None
 
 
-def _format_value(value: object, *, total_rows: int | None = None, image_encoder=None) -> str:
+def _format_value(
+    value: object, *, total_rows: int | None = None, image_encoder=None
+) -> str:
     try:
         import pyarrow as pa  # noqa: PLC0415
 
@@ -389,6 +395,7 @@ def _format_value(value: object, *, total_rows: int | None = None, image_encoder
     return pretty_repr(value)
 
 
+<<<<<<< Updated upstream
 def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
     """Recursively format a Starlark struct into an indented Python-like string.
 
@@ -427,6 +434,8 @@ def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
     return repr(obj)
 
 
+=======
+>>>>>>> Stashed changes
 def _source_paths_from_location(location: object) -> str | list[str] | None:
     """Extract the file path(s) from a posix location struct.
 
@@ -470,51 +479,51 @@ def _print_row_list(rows: list, *, image_encoder=None) -> None:
             click.echo(f"  {k}: {_cell_label(v, image_encoder=image_encoder)}")
 
 
-def _print_mlody_value(value: MlodyValue, *, _has_error: list[bool] | None = None) -> None:
-    """Print a MlodyValue to the console with syntax highlighting.
+def _print_mlody_value(
+    value: MlodyValue, *, _has_error: list[bool] | None = None
+) -> None:
+    """Print a MlodyValue to the console.
 
-    For ``MlodyValueValue`` instances with a ``derived`` location, materialises
-    the derived value first.  Any ``DerivedValueShapeError`` or
-    ``MlodyQueryError`` is caught, displayed in red, and the ``_has_error`` flag
-    is set so the caller can exit with code 1.
+    Data-backed values (parquet, derived) are rendered inline via click.echo.
+    All structural values are rendered through the DOM via dom_executor.
     """
+    dom_executor = RichDomExecutor(_console)
+
     if isinstance(value, MlodyVectorValue):
-        # Render each element in the vector using the existing per-kind dispatchers.
-        # Elements are printed sequentially; an empty vector produces no output.
         for elem in value.elements:
             _print_mlody_value(elem, _has_error=_has_error)
         return
+
     if isinstance(value, MlodyValueValue):
         location = getattr(value.struct, "location", None)
-        loc_type = None
-        if location is not None:
-            loc_type = getattr(location, "type", None)
+        loc_type = getattr(location, "type", None) if location is not None else None
 
         if loc_type == "derived":
-            # Materialise the derived value and render the resulting table.
             attrs: dict[str, object] = getattr(location, "attributes", {})  # type: ignore[assignment]
             source_ref = attrs.get("source_ref", "")
-            # Prefer pre-resolved source_paths stored in attributes (populated
-            # during construction in values.mlody and updated by _derived_compose
-            # during field traversal).
             source_paths_attr = attrs.get("source_paths")
             if source_paths_attr and isinstance(source_paths_attr, list):
                 source_paths: str | list[str] = source_paths_attr
             else:
-                # Fall back: resolve from the source value's location struct.
                 source_struct = getattr(value.struct, "source", None)
-                source_location = getattr(source_struct, "location", None) if source_struct else None
+                source_location = (
+                    getattr(source_struct, "location", None) if source_struct else None
+                )
                 source_paths = _source_paths_from_location(source_location)
-                # Final fallback to source_ref string.
                 if source_paths is None:
                     source_paths = str(source_ref)
             try:
                 output_path = materialise_derived(location, source_paths)
                 table: pa.Table = pq.read_table(output_path)
-                click.echo(_format_value(table, image_encoder=_image_encoder_for_terminal()))
+                click.echo(
+                    _format_value(table, image_encoder=_image_encoder_for_terminal())
+                )
             except DerivedValueShapeError as exc:
                 click.echo(
-                    click.style(f"Error: derived query produced a scalar result — {exc}", fg="red"),
+                    click.style(
+                        f"Error: derived query produced a scalar result — {exc}",
+                        fg="red",
+                    ),
                     err=True,
                 )
                 if _has_error is not None:
@@ -528,11 +537,6 @@ def _print_mlody_value(value: MlodyValue, *, _has_error: list[bool] | None = Non
                     _has_error.append(True)
             return
 
-        # For any location with resolvable paths, attempt to read as parquet
-        # using mlody_query (DuckDB) which handles globs natively.
-        # Directories are converted to recursive globs so DuckDB can find
-        # nested parquet files. Falls through silently to struct display if
-        # the location is not parquet-backed or the files are absent.
         if location is not None:
             raw_paths = _source_paths_from_location(location)
             if raw_paths is not None:
@@ -543,8 +547,9 @@ def _print_mlody_value(value: MlodyValue, *, _has_error: list[bool] | None = Non
 
                 if isinstance(raw_paths, list):
                     coerced = [_parquet_path(p) for p in raw_paths]
-                    # Unwrap single-element list so DuckDB treats it as a glob
-                    query_paths: str | list[str] = coerced[0] if len(coerced) == 1 else coerced
+                    query_paths: str | list[str] = (
+                        coerced[0] if len(coerced) == 1 else coerced
+                    )
                 else:
                     query_paths = _parquet_path(raw_paths)
 
@@ -553,24 +558,13 @@ def _print_mlody_value(value: MlodyValue, *, _has_error: list[bool] | None = Non
                     total_rows = int(count_table.column("n")[0].as_py())
                     table = mlody_query(query_paths, "SELECT * LIMIT 50")
                     enc = _image_encoder_for_terminal()
-                    click.echo(_format_value(table, total_rows=total_rows, image_encoder=enc))
+                    click.echo(
+                        _format_value(table, total_rows=total_rows, image_encoder=enc)
+                    )
                     return
                 except Exception:
-                    pass  # not parquet or unreadable — fall through
+                    pass  # not parquet or unreadable — fall through to DOM
 
-        _console.print("value:")
-        _console.print(Syntax(_pretty_struct_str(value.struct), "python", theme="monokai", word_wrap=True))
-        return
-    if isinstance(value, MlodyTaskValue):
-        _console.print("task:")
-        _console.print(Syntax(_pretty_struct_str(value.struct), "python", theme="monokai", word_wrap=True))
-        return
-    if isinstance(value, MlodyActionValue):
-        _console.print("action:")
-        _console.print(Syntax(_pretty_struct_str(value.struct), "python", theme="monokai", word_wrap=True))
-        return
-    # _RawAttrValue wrapping a pa.Table or list-of-dicts (from parquet traversal
-    # or [@sql …] entity query) — render with full image support.
     from mlody.resolver.label_value import _RawAttrValue  # noqa: PLC0415
 
     if isinstance(value, _RawAttrValue):
@@ -584,26 +578,23 @@ def _print_mlody_value(value: MlodyValue, *, _has_error: list[bool] | None = Non
         if isinstance(value.value, dict):
             _print_row_list([value.value], image_encoder=enc)
             return
-    click.echo(_render_mlody_value(value))
+
+    dom_executor.render(_render_mlody_value(value))
 
 
-def _render_mlody_value(value: MlodyValue) -> str:
-    """Render a typed MlodyValue to a human-readable string for stdout.
+def _render_mlody_value(value: MlodyValue) -> RichDomNode:
+    return value.to_console_representation()
 
-    Each branch corresponds to a value kind. The exact format is an
-    implementation-time detail (design Q-01): using str()/pretty_repr()
-    for now to produce sensible output for all types.
-    """
+
+def _describe_mlody_value(value: MlodyValue) -> str:
+    """Return a plain-text description of a value (for SQLite storage)."""
     if isinstance(value, MlodyVectorValue):
-        # Render each element separated by newlines; empty vector → empty string.
-        parts = [_render_mlody_value(elem) for elem in value.elements]
-        return "\n".join(parts)
+        return "\n".join(_describe_mlody_value(e) for e in value.elements)
     if isinstance(value, MlodyWorkspaceValue):
-        name = value.name or "(cwd)"
-        return f"workspace: {name}\nroot: {value.root}"
+        return f"workspace: {value.name or '(cwd)'}\nroot: {value.root}"
     if isinstance(value, MlodyFolderValue):
-        children_display = ", ".join(value.children) if value.children else "(empty)"
-        return f"folder: {value.path}\nchildren: {children_display}"
+        children = ", ".join(value.children) if value.children else "(empty)"
+        return f"folder: {value.path}\nchildren: {children}"
     if isinstance(value, MlodySourceValue):
         return f"source: {value.path}.mlody"
     if isinstance(value, MlodyTaskValue):
@@ -612,12 +603,10 @@ def _render_mlody_value(value: MlodyValue) -> str:
         return f"action:\n{pretty_repr(value.struct)}"
     if isinstance(value, MlodyValueValue):
         return f"value:\n{pretty_repr(value.struct)}"
-    # _RawAttrValue — terminal attribute reached after traversal
     from mlody.resolver.label_value import _RawAttrValue
 
     if isinstance(value, _RawAttrValue):
         return _format_value(value.value)
-    # MlodyUnresolvedValue is handled by the caller (exits 1), not here
     return pretty_repr(value)
 
 
@@ -811,15 +800,14 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
                                 "resolved_at", datetime.now(timezone.utc).isoformat()
                             )
                         ),
-                        value_description=_render_mlody_value(mlody_value),
+                        value_description=_describe_mlody_value(mlody_value),
                     )
 
-                print("-------------------------------")
+                print()
                 _error_sink: list[bool] = []
                 _print_mlody_value(mlody_value, _has_error=_error_sink)
                 if _error_sink:
                     has_error = True
-                print("-------------------------------")
         except WorkspaceLoadError as exc:
             has_error = True
             click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
