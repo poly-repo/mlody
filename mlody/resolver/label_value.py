@@ -2521,3 +2521,71 @@ def resolve_label_to_value(
             f"under '{workspace._workspace_root}' (label: {label!r})"  # noqa: SLF001
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Workspace traversal hook
+# ---------------------------------------------------------------------------
+# Registers _workspace_traverse_record with workspace.py so that
+# mlody.core.workspace never needs to import from mlody.resolver.  This runs
+# once at module-import time; resolver_lib already depends on core_lib so
+# workspace.py is guaranteed to be importable here without a cycle.
+
+
+def _workspace_traverse_record(
+    obj: object,
+    field_parts: list[object],
+    entity_query: str | None,
+    lbl: object,
+) -> object:
+    """Traverse a record-typed resolver value along *field_parts*.
+
+    Extracted from workspace.py to break the core ↔ resolver BUILD dep cycle.
+    """
+    from mlody.core.traversal_parser import (
+        TraversalParseError,
+        parse_traversal_expression,
+    )
+
+    current: object = obj
+    for fp_i, fp_seg in enumerate(field_parts):
+        step_result = _traverse_one_step(
+            current, fp_seg, tuple(field_parts[:fp_i]), lbl
+        )
+        if isinstance(step_result, MlodyUnresolvedValue):
+            return step_result
+        if isinstance(step_result, tuple):
+            current = step_result[0]
+        else:
+            current = step_result
+            break
+
+    if entity_query is not None:
+        try:
+            expr = parse_traversal_expression(f"[{entity_query}]")
+        except TraversalParseError:
+            expr = None
+        if expr is not None and expr.segments:
+            seg = expr.segments[0]
+            q_result = _traverse_one_step(
+                current, seg, field_parts, lbl, TraversalErrorPolicy.RAISE
+            )
+            if isinstance(q_result, MlodyUnresolvedValue):
+                return q_result
+            if isinstance(q_result, tuple):
+                current = q_result[0]
+            else:
+                return getattr(q_result, "value", q_result)
+
+    if isinstance(current, _RawAttrValue):
+        return current.value
+    return current
+
+
+def _register_workspace_hook() -> None:
+    from mlody.core.workspace import _register_resolver_traverse
+
+    _register_resolver_traverse(_workspace_traverse_record)
+
+
+_register_workspace_hook()

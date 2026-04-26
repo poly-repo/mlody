@@ -11,6 +11,8 @@ from pyfakefs.fake_filesystem import FakeFilesystem
 from rich.console import Console
 from common.python.starlarkish.core.struct import Struct
 
+import mlody.resolver.label_value  # noqa: F401 — triggers _register_workspace_hook()
+
 from mlody.core.targets import TargetAddress
 from mlody.core.workspace import RootInfo, Workspace, WorkspaceLoadError
 

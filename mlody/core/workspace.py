@@ -16,10 +16,22 @@ from common.python.starlarkish.evaluator.evaluator import Evaluator
 from mlody.common.context import build_ctx
 from mlody.core.source_parser import extract_entity_ranges
 from mlody.core.targets import TargetAddress, parse_target, resolve_target_value
+from mlody.core.traversal_grammar import IndexSegment, KeySegment, WildcardSegment
+from mlody.core.traversal_parser import TraversalParseError, parse_traversal_expression
 from mlody.core.virtual_value import force_virtual_value, make_virtual_value, traverse_virtual_value
 
 _logger = logging.getLogger(__name__)
 _DEFAULT_SKIPPED_MLODY_PATHS = ("mlody/common/sandbox.mlody",)
+
+# Resolver traversal hook — registered by mlody.resolver.label_value at import
+# time.  workspace.py itself never imports from mlody.resolver; this breaks the
+# core ↔ resolver BUILD dependency cycle.
+_RESOLVER_TRAVERSE: Callable | None = None
+
+
+def _register_resolver_traverse(fn: Callable) -> None:
+    global _RESOLVER_TRAVERSE
+    _RESOLVER_TRAVERSE = fn
 
 
 def force(v: object) -> object:
@@ -624,82 +636,28 @@ class Workspace:
                         len(field_parts) >= 1
                         and getattr(obj, "kind", None) == "value"
                         and _is_record_type
+                        and _RESOLVER_TRAVERSE is not None
                     ):
-                        from mlody.resolver.label_value import (  # noqa: PLC0415
-                            MlodyUnresolvedValue as _MlodyUnresolvedValue,
-                            TraversalErrorPolicy as _TraversalErrorPolicy,
-                            _RawAttrValue as _RawAttrValue_t,
-                            _traverse_one_step as _ts,
+                        return _RESOLVER_TRAVERSE(
+                            obj, field_parts, anchor.entity_query, lbl
                         )
-                        from mlody.core.traversal_parser import (  # noqa: PLC0415
-                            TraversalParseError as _TraversalParseError,
-                            parse_traversal_expression as _parse_traversal,
-                        )
-
-                        current: object = obj
-                        for fp_i, fp_seg in enumerate(field_parts):
-                            step_result = _ts(
-                                current, fp_seg, tuple(field_parts[:fp_i]), lbl
-                            )
-                            if isinstance(step_result, _MlodyUnresolvedValue):
-                                return step_result
-                            if isinstance(step_result, tuple):
-                                current = step_result[0]
-                            else:
-                                current = step_result
-                                break
-
-                        eq = anchor.entity_query
-                        if eq is not None:
-                            try:
-                                expr = _parse_traversal(f"[{eq}]")
-                            except _TraversalParseError:
-                                expr = None
-                            if expr is not None and expr.segments:
-                                seg = expr.segments[0]
-                                q_result = _ts(
-                                    current,
-                                    seg,
-                                    field_parts,
-                                    lbl,
-                                    _TraversalErrorPolicy.RAISE,
-                                )
-                                if isinstance(q_result, _MlodyUnresolvedValue):
-                                    return q_result
-                                if isinstance(q_result, tuple):
-                                    current = q_result[0]
-                                else:
-                                    return getattr(q_result, "value", q_result)
-
-                        if isinstance(current, _RawAttrValue_t):
-                            return current.value
-                        return current
 
                     for field in field_parts:
                         obj = self._step_resolved_object(obj, field)
 
                     eq = anchor.entity_query
                     if eq is not None:
-                        from mlody.core.traversal_parser import (  # noqa: PLC0415
-                            TraversalParseError as _TraversalParseError2,
-                            parse_traversal_expression as _parse_traversal2,
-                        )
                         try:
-                            expr2 = _parse_traversal2(f"[{eq}]")
-                        except _TraversalParseError2:
+                            expr2 = parse_traversal_expression(f"[{eq}]")
+                        except TraversalParseError:
                             expr2 = None
                         if expr2 is not None and expr2.segments:
-                            from mlody.core.traversal_grammar import (  # noqa: PLC0415
-                                IndexSegment as _IndexSegment,
-                                KeySegment as _KeySegment,
-                                WildcardSegment as _WildcardSegment,
-                            )
                             seg2 = expr2.segments[0]
-                            if isinstance(seg2, _IndexSegment) and isinstance(obj, (list, tuple)):
+                            if isinstance(seg2, IndexSegment) and isinstance(obj, (list, tuple)):
                                 obj = obj[seg2.index]
-                            elif isinstance(seg2, _KeySegment) and isinstance(obj, dict):
+                            elif isinstance(seg2, KeySegment) and isinstance(obj, dict):
                                 obj = obj[seg2.key]
-                            elif isinstance(seg2, _WildcardSegment) and isinstance(obj, (list, tuple, dict)):
+                            elif isinstance(seg2, WildcardSegment) and isinstance(obj, (list, tuple, dict)):
                                 obj = list(obj.values()) if isinstance(obj, dict) else list(obj)
                     return obj
 

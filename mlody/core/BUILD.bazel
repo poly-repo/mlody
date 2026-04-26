@@ -1,4 +1,3 @@
-# gazelle:ignore
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
@@ -42,7 +41,7 @@ o_py_test(
     name = "import_paths_test",
     srcs = ["import_paths_test.py"],
     deps = [
-        "//mlody/common:common_lib",  # keep — test imports mlody.common
+        "//mlody/common:common_lib",  # keep — test uses importlib.import_module("mlody.common")
         "@pip//pytest",
     ],
 )
