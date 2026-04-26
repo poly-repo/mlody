@@ -105,8 +105,9 @@ o_py_library(
 o_py_test(
     name = "calibration_test",
     srcs = ["calibration_test.py"],
+    package_collisions = "warning",
     deps = [
-        "//mlody:mlody_lib",
+        ":framera_lib",
         "@pip//numpy",
         "@pip//pytest",
     ],
@@ -115,8 +116,9 @@ o_py_test(
 o_py_test(
     name = "camera_calibrate_test",
     srcs = ["camera_calibrate_test.py"],
+    package_collisions = "warning",
     deps = [
-        "//mlody:mlody_lib",
+        ":framera_lib",
         "@pip//click",
         "@pip//numpy",
     ],
@@ -125,8 +127,9 @@ o_py_test(
 o_py_test(
     name = "geometry_test",
     srcs = ["geometry_test.py"],
+    package_collisions = "warning",
     deps = [
-        "//mlody:mlody_lib",
+        ":framera_lib",
         "@pip//numpy",
     ],
 )
@@ -134,8 +137,9 @@ o_py_test(
 o_py_test(
     name = "mediapipe_adapter_test",
     srcs = ["mediapipe_adapter_test.py"],
+    package_collisions = "warning",
     deps = [
-        "//mlody:mlody_lib",
+        ":framera_lib",
         "@pip//pytest",
     ],
 )
@@ -143,8 +147,9 @@ o_py_test(
 o_py_test(
     name = "pose_estimator_test",
     srcs = ["pose_estimator_test.py"],
+    package_collisions = "warning",
     deps = [
-        "//mlody:mlody_lib",
+        ":framera_lib",
         "@pip//click",
     ],
 )
@@ -152,11 +157,13 @@ o_py_test(
 o_py_test(
     name = "runtime_test",
     srcs = ["runtime_test.py"],
-    deps = ["//mlody:mlody_lib"],
+    package_collisions = "warning",
+    deps = [":framera_lib"],
 )
 
 o_py_test(
     name = "schema_test",
     srcs = ["schema_test.py"],
-    deps = ["//mlody:mlody_lib"],
+    package_collisions = "warning",
+    deps = [":framera_lib"],
 )

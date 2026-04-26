@@ -40,7 +40,10 @@ o_py_test(
 o_py_test(
     name = "import_paths_test",
     srcs = ["import_paths_test.py"],
-    deps = ["@pip//pytest"],
+    deps = [
+        "//mlody/common:common_lib",  # keep — test imports mlody.common
+        "@pip//pytest",
+    ],
 )
 
 o_py_library(

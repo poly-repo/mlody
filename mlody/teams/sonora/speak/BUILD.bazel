@@ -9,7 +9,6 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
-        ":sonora_speak_lib",
         "@pip//click",
         "@pip//kokoro",
         "@pip//numpy",

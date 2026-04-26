@@ -10,6 +10,8 @@ o_py_test(
     name = "tags_test",
     srcs = ["tags_test.py"],
     deps = [
+        ":tests_lib",  # keep — provides __init__.py for pytest package discovery
+        "//mlody:mlody_lib",  # keep — provides mlody/__init__.py so pytest resolves mlody.common correctly
         "//mlody/common/image_builder/phases:phases_lib",  # keep
     ],
 )
@@ -18,8 +20,11 @@ o_py_test(
     name = "clone_test",
     srcs = ["clone_test.py"],
     deps = [
+        ":tests_lib",  # keep — provides __init__.py for pytest package discovery
+        "//mlody:mlody_lib",  # keep — provides mlody/__init__.py so pytest resolves mlody.common correctly
         "//mlody/common:common_lib",
         "//mlody/common/image_builder/phases:phases_lib",  # keep
+        "@pip//pyfakefs",  # keep — tests use the fs fixture
         "@pip//pytest",
     ],
 )
@@ -28,8 +33,11 @@ o_py_test(
     name = "build_test",
     srcs = ["build_test.py"],
     deps = [
+        ":tests_lib",  # keep — provides __init__.py for pytest package discovery
+        "//mlody:mlody_lib",  # keep — provides mlody/__init__.py so pytest resolves mlody.common correctly
         "//mlody/common:common_lib",
         "//mlody/common/image_builder/phases:phases_lib",  # keep
+        "@pip//pyfakefs",  # keep — tests use the fs fixture
         "@pip//pytest",
     ],
 )
@@ -38,6 +46,8 @@ o_py_test(
     name = "errors_test",
     srcs = ["errors_test.py"],
     deps = [
+        ":tests_lib",  # keep — provides __init__.py for pytest package discovery
+        "//mlody:mlody_lib",  # keep — provides mlody/__init__.py so pytest resolves mlody.common correctly
         "//mlody/common:common_lib",
         "//mlody/common/image_builder:image_builder_core",  # keep
     ],
@@ -47,6 +57,8 @@ o_py_test(
     name = "output_test",
     srcs = ["output_test.py"],
     deps = [
+        ":tests_lib",  # keep — provides __init__.py for pytest package discovery
+        "//mlody:mlody_lib",  # keep — provides mlody/__init__.py so pytest resolves mlody.common correctly
         "//mlody/common:common_lib",
         "//mlody/common/image_builder:image_builder_core",  # keep
         "@pip//pytest",
@@ -57,6 +69,8 @@ o_py_test(
     name = "cli_test",
     srcs = ["cli_test.py"],
     deps = [
+        ":tests_lib",  # keep — provides __init__.py for pytest package discovery
+        "//mlody:mlody_lib",  # keep — provides mlody/__init__.py so pytest resolves mlody.common correctly
         "//mlody/common:common_lib",
         "//mlody/common/image_builder:cli_lib",  # keep
         "@pip//click",
@@ -68,6 +82,8 @@ o_py_test(
     name = "push_phase_test",
     srcs = ["push_phase_test.py"],
     deps = [
+        ":tests_lib",  # keep — provides __init__.py for pytest package discovery
+        "//mlody:mlody_lib",  # keep — provides mlody/__init__.py so pytest resolves mlody.common correctly
         "//mlody/common:common_lib",
         "//mlody/common/image_builder/phases:phases_lib",  # keep
         "@pip//pytest",

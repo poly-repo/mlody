@@ -16,6 +16,7 @@ o_py_test(
     srcs = ["local_diff_test.py"],
     deps = [
         ":db_lib",
+        "@pip//pyfakefs",  # keep — tests use the fs fixture
         "@pip//pytest",
     ],
 )

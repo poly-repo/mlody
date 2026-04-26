@@ -39,7 +39,7 @@ o_py_test(
     name = "kind_cluster_test",
     srcs = ["kind_cluster_test.py"],
     deps = [
-        "//mlody/infra:infra_lib",
+        ":kind_cluster_lib",  # keep — test imports from mlody.infra.kind.kind_cluster and runner
         "@pip//pytest",
     ],
 )

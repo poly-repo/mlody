@@ -24,5 +24,8 @@ o_py_test(
     name = "model_download_test",
     srcs = ["model_download_test.py"],
     data = ["model-download.py"],
-    deps = ["@pip//pytest"],
+    deps = [
+        ":huggingface_lib",
+        "@pip//pytest",
+    ],
 )

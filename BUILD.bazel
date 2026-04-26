@@ -3,6 +3,7 @@ load("@gazelle//:def.bzl", "gazelle")
 load("@pip//:requirements.bzl", "all_whl_requirements")
 load("@rules_python_gazelle_plugin//manifest:defs.bzl", "gazelle_python_manifest")
 load("@rules_python_gazelle_plugin//modules_mapping:def.bzl", "modules_mapping")
+load("//build/bzl:python.bzl", "o_py_binary", "o_py_library")
 
 # TODO this seems to do nothing
 exports_files(
@@ -60,4 +61,28 @@ gazelle_python_manifest(
     name = "gazelle_python_manifest",
     modules_mapping = ":modules_map",
     pip_repository_name = "pip",
+)
+
+o_py_binary(
+    name = "pytorch-doctor-1",
+    srcs = ["pytorch-doctor-1.py"],
+    visibility = ["//:__subpackages__"],
+    deps = ["@pip//torch"],
+)
+
+o_py_binary(
+    name = "pytorch-doctor",
+    srcs = ["pytorch-doctor.py"],
+    visibility = ["//:__subpackages__"],
+    deps = ["@pip//torch"],
+)
+
+o_py_library(
+    name = "omega_lib",
+    srcs = [
+        "pytorch-doctor.py",
+        "pytorch-doctor-1.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = ["@pip//torch"],
 )

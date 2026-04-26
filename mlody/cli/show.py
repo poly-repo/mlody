@@ -395,7 +395,6 @@ def _format_value(
     return pretty_repr(value)
 
 
-<<<<<<< Updated upstream
 def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
     """Recursively format a Starlark struct into an indented Python-like string.
 
@@ -434,8 +433,7 @@ def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
     return repr(obj)
 
 
-=======
->>>>>>> Stashed changes
+
 def _source_paths_from_location(location: object) -> str | list[str] | None:
     """Extract the file path(s) from a posix location struct.
 

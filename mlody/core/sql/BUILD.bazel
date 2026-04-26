@@ -24,7 +24,8 @@ o_py_test(
     name = "sql_test",
     srcs = ["sql_test.py"],
     deps = [
-        "//mlody/core:core_lib",
+        ":sql",
+        ":sql_query_lib",
         "@pip//pyarrow",
         "@pip//pytest",
     ],

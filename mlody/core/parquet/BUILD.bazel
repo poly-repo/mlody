@@ -22,7 +22,7 @@ o_py_test(
     name = "parquet_test",
     srcs = ["parquet_test.py"],
     deps = [
-        "//mlody/core:core_lib",
+        ":parquet_lib",
         "@pip//pyarrow",
         "@pip//pytest",
     ],

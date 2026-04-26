@@ -12,6 +12,7 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        "//common/python/console:console_lib",
         "//mlody/common:context_lib",  # keep
         "//mlody/core:core_lib",
         "//mlody/core/label:label_lib",
