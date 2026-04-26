@@ -1,3 +1,4 @@
+# gazelle:ignore
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
