@@ -8,6 +8,10 @@ import pytest
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
+from mlody.core.value_context_validation import (
+    ContextRestrictedValueValidationError,
+    validate_context_restricted_values_evaluator,
+)
 
 _THIS_DIR = Path(__file__).parent
 _RULE_MLODY = (_THIS_DIR.parent / "core" / "rule.mlody").read_text()
@@ -57,6 +61,7 @@ def _eval(extra_mlody: str) -> Evaluator:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
         ev.resolve()
+        validate_context_restricted_values_evaluator(ev)
     return ev
 
 
@@ -369,3 +374,125 @@ def test_scoped_value_carries_representation_from_source() -> None:
     act_scoped = ev._values_by_name.get("act.out")
     assert act_scoped is not None
     assert act_scoped.representation is None
+
+
+def test_task_output_value_accepts_group_and_scoped_value_preserves_it() -> None:
+    ev = _eval(
+        'task(\n'
+        '  name="train",\n'
+        '  inputs=[],\n'
+        '  outputs=[value(name="artifact", type=string(), location=s3(), group="bundle")],\n'
+        '  action=action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy")),\n'
+        ')\n'
+    )
+    task_value = ev._tasks_by_name["train"].outputs[0]
+    scoped_value = ev._values_by_name["train.artifact"]
+    assert task_value.group == "bundle"
+    assert scoped_value.group == "bundle"
+    assert scoped_value._context_attr_policies == {"group": ("task.outputs",)}
+
+
+def test_task_input_value_with_group_raises_context_validation_error() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'task(\n'
+            '  name="train",\n'
+            '  inputs=[value(name="artifact", type=string(), location=s3(), group="bundle")],\n'
+            '  outputs=[],\n'
+            '  action=action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy")),\n'
+            ')\n'
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "task.inputs"
+    assert violation.task_name == "train"
+    assert violation.slot_path == "task.inputs[0]"
+
+
+def test_task_config_value_accepts_constraint() -> None:
+    ev = _eval(
+        'task(\n'
+        '  name="train",\n'
+        '  inputs=[],\n'
+        '  outputs=[],\n'
+        '  config=[value(name="cfg", type=string(), location=inline(), constraint="x > 0")],\n'
+        '  action=action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy")),\n'
+        ')\n'
+    )
+    assert ev._tasks_by_name["train"].config[0].constraint == "x > 0"
+
+
+def test_task_output_value_with_constraint_raises_context_validation_error() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'task(\n'
+            '  name="train",\n'
+            '  inputs=[],\n'
+            '  outputs=[value(name="cfg", type=string(), location=s3(), constraint="x > 0")],\n'
+            '  action=action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy")),\n'
+            ')\n'
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "task.outputs"
+    assert violation.attr_name == "constraint"
+
+
+def test_shared_group_value_is_valid_when_used_only_in_task_outputs() -> None:
+    ev = _eval(
+        'value(name="artifact", type=string(), location=s3(), group="bundle")\n'
+        'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+        'task(name="train", inputs=[], outputs=["artifact"], action="act")\n'
+    )
+    assert ev._tasks_by_name["train"].outputs[0].group == "bundle"
+
+
+def test_shared_group_value_fails_when_reused_in_allowed_and_disallowed_contexts() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'value(name="artifact", type=string(), location=s3(), group="bundle")\n'
+            'action(name="act_a", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+            'action(name="act_b", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+            'task(name="producer", inputs=[], outputs=["artifact"], action="act_a")\n'
+            'task(name="consumer", inputs=["artifact"], outputs=[], action="act_b")\n'
+        )
+
+    assert any(
+        violation.actual_context == "task.inputs" and violation.value_name == "artifact"
+        for violation in exc_info.value.violations
+    )
+
+
+def test_top_level_action_constraint_is_valid_via_task_action_config() -> None:
+    ev = _eval(
+        'action(\n'
+        '  name="act",\n'
+        '  inputs=[],\n'
+        '  outputs=[],\n'
+        '  config=[value(name="cfg", type=string(), location=inline(), constraint="x > 0")],\n'
+        '  implementation=shell_script(content="dummy")\n'
+        ')\n'
+        'task(name="train", inputs=[], outputs=[], action="act")\n'
+    )
+    assert ev._tasks_by_name["train"].action.config[0].constraint == "x > 0"
+
+
+def test_task_action_input_with_constraint_raises_context_validation_error() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'task(\n'
+            '  name="train",\n'
+            '  inputs=[],\n'
+            '  outputs=[],\n'
+            '  action=action(\n'
+            '    name="act",\n'
+            '    inputs=[value(name="cfg", type=string(), location=inline(), constraint="x > 0")],\n'
+            '    outputs=[],\n'
+            '    implementation=shell_script(content="dummy")\n'
+            '  )\n'
+            ')\n'
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "task.action.inputs"
+    assert violation.attr_name == "constraint"

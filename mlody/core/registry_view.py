@@ -67,6 +67,15 @@ class RegistryView:
     def root_values_snapshot(self) -> dict[str, object]:
         return dict(self._evaluator._roots_by_name)
 
+    def task_values_snapshot(self) -> dict[str, object]:
+        return dict(self._evaluator._tasks_by_name)
+
+    def action_values_snapshot(self) -> dict[str, object]:
+        return dict(self._evaluator._actions_by_name)
+
+    def value_values_snapshot(self) -> dict[str, object]:
+        return dict(self._evaluator._values_by_name)
+
     def set_root_value(self, root_name: str, value: object) -> None:
         self._evaluator._roots_by_name[root_name] = value
 

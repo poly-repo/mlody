@@ -22,6 +22,9 @@ from mlody.core.anchor import (
     WorkspaceAttributeAnchor,
 )
 from mlody.core.targets import TargetAddress
+from mlody.core.value_context_validation import (
+    ContextRestrictedValueValidationError,
+)
 from mlody.core.workspace import RootInfo, Workspace, WorkspaceLoadError
 
 ROOT = Path("/project")
@@ -226,6 +229,39 @@ class TestTwoPhaseLoading:
         ws = Workspace(monorepo_root=project, full_workspace=True)
         ws.load()
         assert "mlody/common/sandbox:sandbox_only" in ws.evaluator.roots
+
+    def test_workspace_load_raises_on_context_restricted_value_violation(
+        self, fs: FakeFilesystem, project: Path
+    ) -> None:
+        fs.create_file(
+            str(project / "mlody" / "teams" / "lexica" / "pipeline.mlody"),
+            contents="""\
+bad_value = Struct(
+    kind="value",
+    name="artifact",
+    group="bundle",
+    _context_attr_policies={"group": ("task.outputs",)},
+    location=Struct(kind="location", type="inline", name="inline"),
+    _lineage=[],
+)
+builtins.register("value", bad_value)
+builtins.register("task", Struct(
+    kind="task",
+    name="train",
+    inputs=[bad_value],
+    outputs=[],
+    config=[],
+    action=Struct(kind="action", name="act", inputs=[], outputs=[], config=[]),
+))
+""",
+        )
+
+        ws = Workspace(monorepo_root=project)
+
+        with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+            ws.load()
+
+        assert exc_info.value.violations[0].actual_context == "task.inputs"
 
     def test_skip_pattern_with_ellipsis_skips_subtree(
         self, fs: FakeFilesystem, project: Path

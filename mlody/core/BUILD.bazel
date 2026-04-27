@@ -77,7 +77,20 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":registry_view",
+        ":value_context_validation",
         ":workspace_models",
+    ],
+)
+
+o_py_library(
+    name = "value_context_validation",
+    srcs = ["value_context_validation.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":registry_view",
+        ":workspace_models",
+        "//common/python/starlarkish/core:core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
     ],
 )
 
@@ -87,6 +100,16 @@ o_py_test(
     deps = [
         ":core_lib",
         "@pip//pyfakefs",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "value_context_validation_test",
+    srcs = ["value_context_validation_test.py"],
+    deps = [
+        ":value_context_validation",
+        "//common/python/starlarkish/core:core_lib",
         "@pip//pytest",
     ],
 )
@@ -385,6 +408,7 @@ o_py_library(
         "traversal_grammar.py",
         "traversal_parser.py",
         "traversal_runtime.py",
+        "value_context_validation.py",
         "virtual_value.py",
         "workspace.py",
         "workspace_loader.py",

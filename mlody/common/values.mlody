@@ -1,5 +1,19 @@
 load("//mlody//core/rule.mlody", "rule")
-load("//mlody/common/attrs.mlody", "attr")
+load("//mlody/common/attrs.mlody", "attr", "validate_attr_value")
+
+
+_CONTEXTUAL_VALUE_ATTRS = {
+    "group": attr(
+        type="string",
+        mandatory=False,
+        allowed_in=["task.outputs"],
+    ),
+    "constraint": attr(
+        type="string",
+        mandatory=False,
+        allowed_in=["task.config", "task.action.config"],
+    ),
+}
 
 
 def _resolve_ref(value, kind):
@@ -101,6 +115,47 @@ def _extract_source_query(source_raw):
     return clean_label, "duckdb", sql_fragment
 
 
+def clone_value(value_struct, **overrides):
+    if type(value_struct) != "struct" or python.getattr(value_struct, "kind", None) != "value":
+        raise TypeError("clone_value expects a value struct")
+    fields = dict(value_struct.as_mapping())
+    for key, value in overrides.items():
+        fields[key] = value
+    return Struct(**fields)
+
+
+def _contextual_value_fields(ctx_attr):
+    fields = {}
+    policies = {}
+    for attr_name, attr_def in _CONTEXTUAL_VALUE_ATTRS.items():
+        if not python.hasattr(ctx_attr, attr_name):
+            continue
+        attr_value = python.getattr(ctx_attr, attr_name, None)
+        if attr_value == None:
+            continue
+        validate_attr_value(attr_name, attr_value, attr_def.get("type"))
+        fields[attr_name] = attr_value
+        metadata = attr_def.get("metadata", {})
+        allowed_in = metadata.get("allowed_in", [])
+        policies[attr_name] = tuple(allowed_in)
+    if policies:
+        fields["_context_attr_policies"] = policies
+    return fields
+
+
+def _value_rule_attrs():
+    attrs = {
+        "type":           attr(type="type_ref", mandatory=False),
+        "location":       attr(type="location_ref", mandatory=False),
+        "default":        attr(mandatory=False),
+        "source":         attr(type="value_ref", mandatory=False),
+        "representation": attr(type="representation_ref", mandatory=False),
+    }
+    for attr_name, attr_def in _CONTEXTUAL_VALUE_ATTRS.items():
+        attrs[attr_name] = attr_def
+    return attrs
+
+
 def _value_impl(ctx):
     type_raw = python.getattr(ctx.attr, "type", None)
     loc_raw = python.getattr(ctx.attr, "location", None)
@@ -182,16 +237,20 @@ def _value_impl(ctx):
         type_ref = builtins.lookup("type", "nothing")
     rep_ref = _resolve_representation_ref(rep_raw) if rep_raw != None else None
 
-    value_struct = Struct(
-        kind="value",
-        name=ctx.attr.name,
-        type=type_ref,
-        location=loc_ref,
-        default=default_raw,
-        source=source_ref,
-        representation=rep_ref,
-        _lineage=[],          # managed by MLody, not the user
-    )
+    value_fields = {
+        "kind": "value",
+        "name": ctx.attr.name,
+        "type": type_ref,
+        "location": loc_ref,
+        "default": default_raw,
+        "source": source_ref,
+        "representation": rep_ref,
+        "_lineage": [],          # managed by MLody, not the user
+    }
+    for field_name, field_value in _contextual_value_fields(ctx.attr).items():
+        value_fields[field_name] = field_value
+
+    value_struct = Struct(**value_fields)
     builtins.register(ctx.kind, value_struct)
     return value_struct
 
@@ -199,11 +258,5 @@ def _value_impl(ctx):
 value = rule(
     implementation=_value_impl,
     kind="value",
-    attrs={
-        "type":           attr(type="type_ref", mandatory=False),
-        "location":       attr(type="location_ref", mandatory=False),
-        "default":        attr(mandatory=False),
-        "source":         attr(type="value_ref", mandatory=False),
-        "representation": attr(type="representation_ref", mandatory=False),
-    },
+    attrs=_value_rule_attrs(),
 )

@@ -7,15 +7,20 @@ from pathlib import Path
 
 from pyfakefs.fake_filesystem import FakeFilesystem
 import pytest
+from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.workspace_loader import WorkspaceLoader
 from mlody.core.workspace_models import RootInfo, WorkspaceLoadError
+from mlody.core.value_context_validation import (
+    ContextRestrictedValueValidationError,
+)
 
 
 @dataclass
 class _FakeRegistry:
     root_infos_to_return: dict[str, RootInfo]
     eval_failures: dict[Path, Exception] = field(default_factory=dict)
+    registry_items: tuple[tuple[tuple[object, object, object], object], ...] = ()
     loaded_files: set[Path] = field(default_factory=set)
     eval_calls: list[Path] = field(default_factory=list)
     placeholders: list[tuple[str, str, str]] = field(default_factory=list)
@@ -47,6 +52,32 @@ class _FakeRegistry:
 
     def resolve_all(self) -> None:
         self.resolved = True
+
+    def iter_registry_items(
+        self,
+    ) -> tuple[tuple[tuple[object, object, object], object], ...]:
+        return self.registry_items
+
+    def task_values_snapshot(self) -> dict[str, object]:
+        return {
+            str(key[2]): value
+            for key, value in self.registry_items
+            if key[0] == "task"
+        }
+
+    def action_values_snapshot(self) -> dict[str, object]:
+        return {
+            str(key[2]): value
+            for key, value in self.registry_items
+            if key[0] == "action"
+        }
+
+    def value_values_snapshot(self) -> dict[str, object]:
+        return {
+            str(key[2]): value
+            for key, value in self.registry_items
+            if key[0] == "value"
+        }
 
 
 def test_workspace_loader_collects_all_phase_two_failures(
@@ -137,3 +168,57 @@ def test_workspace_loader_injects_extra_and_lazy_roots(
     assert ("mlody", "//mlody", "injected") in registry.placeholders
     assert converted == ["converted"]
     assert registry.resolved is True
+
+
+def test_workspace_loader_validates_contextual_values_before_port_conversion(
+    fs: FakeFilesystem,
+) -> None:
+    project = Path("/workspace")
+    fs.create_dir(str(project / "mlody" / "teams" / "lexica"))
+    fs.create_file(str(project / "mlody" / "common" / "types.mlody"), contents="")
+
+    value = Struct(
+        kind="value",
+        name="artifact",
+        group="bundle",
+        _context_attr_policies={"group": ("task.outputs",)},
+    )
+    task = Struct(
+        kind="task",
+        name="train",
+        inputs=[value],
+        outputs=[],
+        config=[],
+        action=Struct(kind="action", name="act", inputs=[], outputs=[], config=[]),
+    )
+
+    registry = _FakeRegistry(
+        root_infos_to_return={
+            "lexica": RootInfo(
+                name="lexica",
+                path="//mlody/teams/lexica",
+                description="team root",
+            )
+        },
+        registry_items=(
+            (("value", "pkg", "artifact"), value),
+            (("task", "pkg", "train"), task),
+        ),
+    )
+    converted: list[str] = []
+    loader = WorkspaceLoader(
+        monorepo_root=project,
+        roots_file=project / "mlody" / "roots.mlody",
+        root_infos={},
+        registry=registry,  # type: ignore[arg-type]
+        extra_roots={},
+        lazy_roots={},
+        should_skip_mlody_file=lambda _path: False,
+        convert_ports_to_structs=lambda: converted.append("converted"),
+    )
+
+    with pytest.raises(ContextRestrictedValueValidationError):
+        loader.load()
+
+    assert registry.resolved is True
+    assert converted == []

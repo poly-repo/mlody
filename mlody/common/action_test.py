@@ -8,6 +8,9 @@ import pytest
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
+from mlody.core.value_context_validation import (
+    validate_context_restricted_values_evaluator,
+)
 
 _THIS_DIR = Path(__file__).parent
 _RULE_MLODY = (_THIS_DIR.parent / "core" / "rule.mlody").read_text()
@@ -50,6 +53,7 @@ def _eval(extra_mlody: str) -> Evaluator:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
         ev.resolve()
+        validate_context_restricted_values_evaluator(ev)
     return ev
 
 
@@ -295,3 +299,16 @@ def test_action_gpu_requirement_defaults_type_to_star() -> None:
     assert len(a.requirements) == 1
     assert a.requirements[0].requirement == "gpu"
     assert a.requirements[0].type == "*"
+
+
+def test_unused_top_level_action_with_contextual_constraint_is_allowed() -> None:
+    ev = _eval(
+        'action(\n'
+        '  name="templated",\n'
+        '  inputs=[],\n'
+        '  outputs=[],\n'
+        '  config=[value(name="cfg", type=string(), location=inline(), constraint="x > 0")],\n'
+        '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
+        ')\n'
+    )
+    assert ev._actions_by_name["templated"].config[0].constraint == "x > 0"

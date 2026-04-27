@@ -441,12 +441,13 @@ def extend_attrs(
     return Struct(**merged_fields)
 
 
-def attr(*, type=None, mandatory=True, default=None):
+def attr(*, type=None, mandatory=True, default=None, allowed_in=None):
     return {
         "type": type,
         "metadata": {
             "mandatory": mandatory,
             "default": default,
+            "allowed_in": allowed_in,
         }
     }
 

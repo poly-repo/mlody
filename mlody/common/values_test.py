@@ -8,6 +8,10 @@ import pytest
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
+from mlody.core.value_context_validation import (
+    ContextRestrictedValueValidationError,
+    validate_context_restricted_values_evaluator,
+)
 
 _THIS_DIR = Path(__file__).parent
 _RULE_MLODY = (_THIS_DIR.parent / "core" / "rule.mlody").read_text()
@@ -45,6 +49,11 @@ def _eval(extra_mlody: str) -> Evaluator:
 
 def _result(ev: Evaluator) -> object:
     return ev._module_globals[ev.root_path / "test.mlody"]["result"]
+
+
+def _resolve_and_validate(ev: Evaluator) -> None:
+    ev.resolve()
+    validate_context_restricted_values_evaluator(ev)
 
 
 # ---------------------------------------------------------------------------
@@ -656,3 +665,42 @@ def test_value_sql_derived_source_paths_extracted_from_source_location() -> None
     assert loc is not None
     assert loc.type == "derived"
     assert loc.attributes.get("source_paths") == ["data/*.parquet"]
+
+
+def test_value_stores_group_and_context_policy() -> None:
+    ev = _eval('value(name="artifact", type=string(), location=s3(), group="train")')
+    value = ev._values_by_name["artifact"]
+    assert value.group == "train"
+    assert value._context_attr_policies == {"group": ("task.outputs",)}
+
+
+def test_value_stores_constraint_and_context_policy() -> None:
+    ev = _eval('value(name="cfg", type=string(), location=inline(), constraint="x > 0")')
+    value = ev._values_by_name["cfg"]
+    assert value.constraint == "x > 0"
+    assert value._context_attr_policies == {
+        "constraint": ("task.config", "task.action.config")
+    }
+
+
+def test_value_group_rejects_non_string() -> None:
+    with pytest.raises(TypeError):
+        _eval("value(name='artifact', type=string(), location=s3(), group=1)")
+
+
+def test_value_constraint_rejects_non_string() -> None:
+    with pytest.raises(TypeError):
+        _eval("value(name='cfg', type=string(), location=inline(), constraint=1)")
+
+
+def test_value_with_contextual_attr_requires_materialized_context() -> None:
+    ev = _eval('value(name="artifact", type=string(), location=s3(), group="train")')
+
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _resolve_and_validate(ev)
+
+    violation = exc_info.value.violations[0]
+    assert violation.value_name == "artifact"
+    assert violation.attr_name == "group"
+    assert violation.actual_context == "standalone"
+    assert violation.allowed_contexts == ("task.outputs",)

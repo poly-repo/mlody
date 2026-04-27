@@ -1,6 +1,7 @@
 load("//mlody/core/rule.mlody", "rule")
 load("//mlody/common/attrs.mlody", "attr")
 load("//mlody/common/types.mlody", "typedef")
+load("//mlody/common/values.mlody", "clone_value")
 
 
 def _validate_value_refs(attr_name, items):
@@ -78,14 +79,10 @@ def _task_impl(ctx):
 
     def _register_scoped_value(prefix, v):
         if type(v) == "struct" and python.getattr(v, "kind", None) == "value":
-            scoped = Struct(
-                kind           = "value",
-                name           = prefix + "." + python.getattr(v, "name", ""),
-                type           = python.getattr(v, "type", None),
-                location       = python.getattr(v, "location", None),
-                source         = python.getattr(v, "source", None),
-                representation = python.getattr(v, "representation", None),
-                _lineage       = [],
+            scoped = clone_value(
+                v,
+                name=prefix + "." + python.getattr(v, "name", ""),
+                _lineage=[],
             )
             builtins.register("value", scoped)
 

@@ -7,6 +7,9 @@ from collections.abc import Callable, Mapping, MutableMapping
 from pathlib import Path
 
 from mlody.core.registry_view import RegistryView
+from mlody.core.value_context_validation import (
+    validate_context_restricted_values_registry,
+)
 from mlody.core.workspace_models import RootInfo, WorkspaceLoadError
 
 _logger = logging.getLogger(__name__)
@@ -42,6 +45,7 @@ class WorkspaceLoader:
         if load_errors:
             raise WorkspaceLoadError(load_errors)
         self._registry.resolve_all()
+        validate_context_restricted_values_registry(self._registry)
         self._convert_ports_to_structs()
 
     def _phase1_root_discovery(self) -> None:
