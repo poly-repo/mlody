@@ -8,9 +8,12 @@ import pytest
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
+import mlody
 from mlody.core.value_context_validation import (
     validate_context_restricted_values_evaluator,
 )
+
+assert mlody.__name__ == "mlody"
 
 _THIS_DIR = Path(__file__).parent
 _RULE_MLODY = (_THIS_DIR.parent / "core" / "rule.mlody").read_text()

@@ -99,6 +99,7 @@ o_py_test(
     srcs = ["workspace_loader_test.py"],
     deps = [
         ":core_lib",
+        "//common/python/starlarkish/core:core_lib",
         "@pip//pyfakefs",
         "@pip//pytest",
     ],
@@ -108,7 +109,7 @@ o_py_test(
     name = "value_context_validation_test",
     srcs = ["value_context_validation_test.py"],
     deps = [
-        ":value_context_validation",
+        ":core_lib",
         "//common/python/starlarkish/core:core_lib",
         "@pip//pytest",
     ],

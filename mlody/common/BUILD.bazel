@@ -53,8 +53,6 @@ o_py_test(
     ],
     deps = [
         "//common/python/starlarkish/evaluator:evaluator_lib",
-        "//mlody:mlody_lib",
-        "//mlody/core:core_lib",
         "@pip//pytest",
     ],
 )
@@ -70,8 +68,6 @@ o_py_test(
     ],
     deps = [
         "//common/python/starlarkish/evaluator:evaluator_lib",
-        "//mlody:mlody_lib",
-        "//mlody/core:core_lib",
         "@pip//pytest",
     ],
 )
@@ -145,8 +141,6 @@ o_py_test(
     ],
     deps = [
         "//common/python/starlarkish/evaluator:evaluator_lib",
-        "//mlody:mlody_lib",
-        "//mlody/core:core_lib",
         "@pip//pytest",
     ],
 )
@@ -169,8 +163,6 @@ o_py_test(
     ],
     deps = [
         "//common/python/starlarkish/evaluator:evaluator_lib",
-        "//mlody:mlody_lib",
-        "//mlody/core:core_lib",
         "@pip//pytest",
     ],
 )
