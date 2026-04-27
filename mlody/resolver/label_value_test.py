@@ -111,6 +111,31 @@ builtins.register("action", struct(
 ))
 """
 
+TASK_WITH_VALUE_OUTPUTS_MLODY = """\
+builtins.register("task", struct(
+    kind="task",
+    name="my_task",
+    inputs=[],
+    outputs=[
+        struct(kind="value", name="result"),
+    ],
+    action=None,
+))
+"""
+
+TASK_WITH_MIXED_OUTPUTS_MLODY = """\
+builtins.register("task", struct(
+    kind="task",
+    name="my_task",
+    inputs=[],
+    outputs=[
+        struct(kind="value", name="a"),
+        struct(name="not_a_value"),
+    ],
+    action=None,
+))
+"""
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -2241,3 +2266,90 @@ class TestStructScalarPromotion:
         result = strategy.traverse(struct, ("nested",), _make_label())
 
         assert isinstance(result, _RawAttrValue)
+
+
+# ---------------------------------------------------------------------------
+# List-of-entity-structs promotion  (StructTraversalStrategy)
+# ---------------------------------------------------------------------------
+
+
+class TestStructListPromotion:
+    """Requirement: list of known-kind structs promotes to MlodyVectorValue."""
+
+    def test_outputs_list_of_value_structs_returns_vector(self) -> None:
+        from common.python.starlarkish.core.struct import Struct
+        from mlody.resolver.label_value import MlodyValueValue, MlodyVectorValue, StructTraversalStrategy
+
+        task = Struct(
+            kind="task",
+            name="my_task",
+            inputs=[],
+            outputs=[Struct(kind="value", name="result")],
+            action=None,
+        )
+        strategy = StructTraversalStrategy("task")
+        result = strategy.traverse(task, ("outputs",), _make_label())
+
+        assert isinstance(result, MlodyVectorValue)
+        assert len(result.elements) == 1
+        assert isinstance(result.elements[0], MlodyValueValue)
+
+    def test_empty_outputs_list_returns_empty_vector(self) -> None:
+        from common.python.starlarkish.core.struct import Struct
+        from mlody.resolver.label_value import MlodyVectorValue, StructTraversalStrategy
+
+        task = Struct(
+            kind="task",
+            name="my_task",
+            inputs=[],
+            outputs=[],
+            action=None,
+        )
+        strategy = StructTraversalStrategy("task")
+        result = strategy.traverse(task, ("outputs",), _make_label())
+
+        assert isinstance(result, MlodyVectorValue)
+        assert result.elements == ()
+
+    def test_mixed_kind_list_stays_raw(self) -> None:
+        from common.python.starlarkish.core.struct import Struct
+        from mlody.resolver.label_value import StructTraversalStrategy
+
+        task = Struct(
+            kind="task",
+            name="my_task",
+            inputs=[],
+            outputs=[Struct(kind="value", name="a"), Struct(name="not_a_value")],
+            action=None,
+        )
+        strategy = StructTraversalStrategy("task")
+        result = strategy.traverse(task, ("outputs",), _make_label())
+
+        assert isinstance(result, _RawAttrValue)
+
+    def test_outputs_via_workspace_returns_vector(self, fs: FakeFilesystem) -> None:
+        from mlody.resolver.label_value import MlodyValueValue, MlodyVectorValue
+
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/foo.mlody": TASK_WITH_VALUE_OUTPUTS_MLODY},
+        )
+        label = parse_label("@myroot//pkg/foo:my_task.outputs")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyVectorValue), f"Got {result!r}"
+        assert len(result.elements) == 1
+        assert isinstance(result.elements[0], MlodyValueValue)
+
+    def test_empty_outputs_via_workspace_returns_empty_vector(self, fs: FakeFilesystem) -> None:
+        from mlody.resolver.label_value import MlodyVectorValue
+
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/foo.mlody": TASK_MLODY},
+        )
+        label = parse_label("@myroot//pkg/foo:my_task.outputs")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyVectorValue), f"Got {result!r}"
+        assert result.elements == ()

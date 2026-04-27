@@ -547,6 +547,36 @@ class StructTraversalStrategy:
                     if _promoted is not None:
                         return _promoted
 
+        # Promote a list/tuple of homogeneous known-kind entity structs to MlodyVectorValue.
+        # An empty list also promotes (empty vector).
+        if isinstance(obj, (list, tuple)):
+            elements = tuple(
+                _wrap_struct(getattr(item, "kind"), item)
+                for item in obj
+                if isinstance(getattr(item, "kind", None), str)
+                and getattr(item, "kind", None) in TRAVERSAL_STRATEGIES
+            )
+            if len(elements) == len(obj):
+                return MlodyVectorValue(elements=elements)
+
+        # Promote a struct-of-values to MlodyVectorValue.
+        # After workspace loading, _convert_ports_to_structs transforms port lists
+        # into Struct(name→entity_struct) objects.  If every field value is a
+        # known-kind entity struct (or the struct is empty), treat as a vector.
+        from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
+        if isinstance(obj, _Struct):
+            field_values = list(obj.as_mapping().values())
+            if all(
+                isinstance(getattr(fv, "kind", None), str)
+                and getattr(fv, "kind", None) in TRAVERSAL_STRATEGIES
+                for fv in field_values
+            ):
+                return MlodyVectorValue(
+                    elements=tuple(
+                        _wrap_struct(getattr(fv, "kind"), fv) for fv in field_values
+                    )
+                )
+
         return _RawAttrValue(value=obj, label=label)
 
 
