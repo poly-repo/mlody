@@ -13,11 +13,11 @@ import pytest
 from click.testing import CliRunner
 from common.python.starlarkish.core.struct import Struct, struct
 
+import mlody.cli.show
+from mlody.cli.dag_render import DagSelectionResult
 from mlody.cli.main import cli
 from mlody.cli.show import show_fn
-from mlody.core.derived import DerivedValueShapeError
 from mlody.core.label import parse_label as _parse_label
-from mlody.core.sql.sql_query import MlodyQueryError
 from mlody.resolver.errors import UnknownRefError
 from mlody.resolver.label_value import (
     MlodyActionValue,
@@ -335,8 +335,11 @@ class TestShowCommandDagPlan:
         runner = CliRunner()
         with (
             patch("mlody.cli.show.build_dag", return_value=dag),
-            patch("mlody.cli.show._subgraph_for_show_output_label", return_value=dag),
-            patch("mlody.cli.show._render_dag_table") as mock_render,
+            patch(
+                "mlody.cli.show.resolve_show_output_selection",
+                return_value=DagSelectionResult(graph=dag, resolved_label="model"),
+            ),
+            patch("mlody.cli.show.render_dag_table") as mock_render,
         ):
             result = runner.invoke(
                 cli,
@@ -346,7 +349,9 @@ class TestShowCommandDagPlan:
 
         assert result.exit_code == 0
         mock_render.assert_called_once_with(
-            dag, "DAG — ancestors of '@common//huggingface/downloader:downloader.outputs.model'"
+            dag,
+            "DAG — ancestors of '@common//huggingface/downloader:downloader.outputs.model'",
+            console=mlody.cli.show._console,
         )
         ws.resolve.assert_called_once_with(
             "@common//huggingface/downloader:downloader.outputs.model"
@@ -362,8 +367,8 @@ class TestShowCommandDagPlan:
         runner = CliRunner()
         with (
             patch("mlody.cli.show.build_dag", return_value=dag),
-            patch("mlody.cli.show._subgraph_for_show_output_label", return_value=None),
-            patch("mlody.cli.show._render_dag_table") as mock_render,
+            patch("mlody.cli.show.resolve_show_output_selection", return_value=None),
+            patch("mlody.cli.show.render_dag_table") as mock_render,
         ):
             result = runner.invoke(
                 cli,
@@ -591,31 +596,63 @@ class TestShowMlodyValueRendering:
 # ---------------------------------------------------------------------------
 
 
-def _make_derived_location(output_path: str, sql_fragment: str = "WHERE x > 0") -> object:
+def _make_derived_location(
+    output_path: str,
+    sql_fragment: str = "WHERE x > 0",
+    *,
+    source_paths: list[str] | None = None,
+) -> object:
     """Create a Struct that mimics a derived location for CLI tests."""
+    attributes: dict[str, object] = {
+        "source_ref": ":data",
+        "sql_fragment": sql_fragment,
+        "dialect": "duckdb",
+        "output_path": output_path,
+    }
+    if source_paths is not None:
+        attributes["source_paths"] = source_paths
     return Struct(
         kind="location",
         type="derived",
         name="derived",
         abstract=False,
         _root_kind="derived",
-        attributes={
-            "source_ref": ":data",
-            "sql_fragment": sql_fragment,
-            "dialect": "duckdb",
-            "output_path": output_path,
-        },
+        attributes=attributes,
     )
 
 
-def _make_value_with_derived_location(output_path: str, sql_fragment: str = "WHERE x > 0") -> MlodyValueValue:
+def _make_value_with_derived_location(
+    output_path: str,
+    sql_fragment: str = "WHERE x > 0",
+    *,
+    source_paths: list[str] | None = None,
+) -> MlodyValueValue:
     """Return a MlodyValueValue whose location is a derived location struct."""
-    loc = _make_derived_location(output_path, sql_fragment)
+    loc = _make_derived_location(
+        output_path,
+        sql_fragment,
+        source_paths=source_paths,
+    )
     value_struct = Struct(
         kind="value",
         name="derived_val",
         type=None,
         location=loc,
+        default=None,
+        source=None,
+        representation=None,
+        _lineage=[],
+    )
+    return MlodyValueValue(struct=value_struct)
+
+
+def _make_value_with_plain_location(path: str) -> MlodyValueValue:
+    """Return a MlodyValueValue whose location exposes a direct file path."""
+    value_struct = Struct(
+        kind="value",
+        name="plain_table",
+        type=None,
+        location=Struct(kind="location", type="path", path=path),
         default=None,
         source=None,
         representation=None,
@@ -646,24 +683,55 @@ def _invoke_show_with_derived(
         )
 
 
+class TestShowPlainParquetValue:
+    """Requirements: plain parquet-backed value preview and fallback behavior."""
+
+    def test_plain_parquet_location_displays_preview(self, tmp_path: Path) -> None:
+        """Scenario: path-backed value renders a preview through TabularSource."""
+        parquet_path = tmp_path / "plain.parquet"
+        pq.write_table(pa.table({"x": [1, 2, 3]}), parquet_path)
+
+        result = _make_show_runner(
+            tmp_path,
+            _make_value_with_plain_location(str(parquet_path)),
+            target="@bert//models:plain_table",
+        )
+
+        assert result.exit_code == 0  # type: ignore[union-attr]
+        assert "3 rows" in result.output or "x" in result.output  # type: ignore[union-attr]
+
+    def test_unreadable_plain_parquet_falls_back_to_dom_rendering(
+        self, tmp_path: Path
+    ) -> None:
+        """Scenario: plain path-backed value falls back to DOM when parquet read fails."""
+        parquet_path = tmp_path / "broken.parquet"
+
+        result = _make_show_runner(
+            tmp_path,
+            _make_value_with_plain_location(str(parquet_path)),
+            target="@bert//models:plain_table",
+        )
+
+        assert result.exit_code == 0  # type: ignore[union-attr]
+        assert "plain_table" in result.output  # type: ignore[union-attr]
+
+
 class TestShowDerivedValue:
     """Requirements: derived value materialisation in mlody show."""
 
     def test_cache_miss_materialises_and_displays_table(self, tmp_path: Path) -> None:
         """Scenario: derived value — cache miss materialises and displays table."""
+        source_path = tmp_path / "source.parquet"
         output_path = str(tmp_path / "output.parquet")
-        result_table = pa.table({"x": [1, 2, 3], "y": [4, 5, 6]})
-        # Write the parquet to disk so materialise_derived returns it
-        pq.write_table(result_table, output_path)
-
-        value = _make_value_with_derived_location(output_path)
-
-        with patch("mlody.cli.show.materialise_derived", return_value=output_path) as mock_mat:
-            result = _invoke_show_with_derived(tmp_path, value)
+        pq.write_table(pa.table({"x": [1, 2, 3], "y": [4, 5, 6]}), source_path)
+        value = _make_value_with_derived_location(
+            output_path,
+            source_paths=[str(source_path)],
+        )
+        result = _invoke_show_with_derived(tmp_path, value)
 
         assert result.exit_code == 0  # type: ignore[union-attr]
-        mock_mat.assert_called_once()
-        # Output should mention row/column counts or column names
+        assert Path(output_path).exists()
         assert "3 rows" in result.output or "x" in result.output  # type: ignore[union-attr]
 
     def test_cache_hit_reuses_file_without_reexecution(self, tmp_path: Path) -> None:
@@ -673,26 +741,25 @@ class TestShowDerivedValue:
         cached_table = pa.table({"a": [10, 20], "b": [30, 40]})
         pq.write_table(cached_table, output_path)
 
-        value = _make_value_with_derived_location(output_path)
-
-        # materialise_derived returns the path immediately (cache hit behaviour)
-        with patch("mlody.cli.show.materialise_derived", return_value=output_path):
-            result = _invoke_show_with_derived(tmp_path, value)
+        value = _make_value_with_derived_location(
+            output_path,
+            source_paths=[str(tmp_path / "source.parquet")],
+        )
+        result = _invoke_show_with_derived(tmp_path, value)
 
         assert result.exit_code == 0  # type: ignore[union-attr]
 
     def test_shape_error_exits_1_with_red_message(self, tmp_path: Path) -> None:
         """Requirement: DerivedValueShapeError displayed as a resolution error."""
+        source_path = tmp_path / "source.parquet"
         output_path = str(tmp_path / "output.parquet")
-        value = _make_value_with_derived_location(output_path, sql_fragment="SELECT COUNT(*)")
-
-        shape_err = DerivedValueShapeError(
+        pq.write_table(pa.table({"x": [1, 2, 3]}), source_path)
+        value = _make_value_with_derived_location(
+            output_path,
             sql_fragment="SELECT COUNT(*)",
-            num_rows=1,
-            num_columns=1,
+            source_paths=[str(source_path)],
         )
-        with patch("mlody.cli.show.materialise_derived", side_effect=shape_err):
-            result = _invoke_show_with_derived(tmp_path, value)
+        result = _invoke_show_with_derived(tmp_path, value)
 
         assert result.exit_code == 1  # type: ignore[union-attr]
         output_and_err = (result.output or "") + (result.stderr or "")
@@ -700,17 +767,15 @@ class TestShowDerivedValue:
 
     def test_sql_error_exits_1_with_message_no_traceback(self, tmp_path: Path) -> None:
         """Requirement: MlodyQueryError during materialisation displayed as error."""
+        source_path = tmp_path / "source.parquet"
         output_path = str(tmp_path / "output.parquet")
-        value = _make_value_with_derived_location(output_path, sql_fragment="BAD SQL")
-
-        query_err = MlodyQueryError(
-            query="BAD SQL",
-            expanded_query="BAD SQL",
-            columns=[],
-            cause=Exception("syntax error near BAD"),
+        pq.write_table(pa.table({"x": [1, 2, 3]}), source_path)
+        value = _make_value_with_derived_location(
+            output_path,
+            sql_fragment="BAD SQL",
+            source_paths=[str(source_path)],
         )
-        with patch("mlody.cli.show.materialise_derived", side_effect=query_err):
-            result = _invoke_show_with_derived(tmp_path, value)
+        result = _invoke_show_with_derived(tmp_path, value)
 
         assert result.exit_code == 1  # type: ignore[union-attr]
         output_and_err = (result.output or "") + (result.stderr or "")

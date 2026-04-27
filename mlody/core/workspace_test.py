@@ -13,6 +13,14 @@ from common.python.starlarkish.core.struct import Struct
 
 import mlody.resolver.label_value  # noqa: F401 — triggers _register_workspace_hook()
 
+from mlody.core.anchor import (
+    ModuleAggregateAnchor,
+    ModuleGlobalAnchor,
+    RegistryEntityAnchor,
+    RootCollectionAnchor,
+    RootObjectAnchor,
+    WorkspaceAttributeAnchor,
+)
 from mlody.core.targets import TargetAddress
 from mlody.core.workspace import RootInfo, Workspace, WorkspaceLoadError
 
@@ -363,6 +371,109 @@ class TestResolve:
         assert "action/trainer" in result
         assert isinstance(result["action/trainer"], Struct)
         assert result["action/trainer"].name == "trainer"  # type: ignore[attr-defined]
+
+
+class TestResolveLabelAnchor:
+    """Requirement: resolve_label_anchor returns concrete anchor objects."""
+
+    def test_workspace_attribute_anchor(self, project: Path) -> None:
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        anchor = ws.resolve_label_anchor("'info.branch")
+
+        assert isinstance(anchor, WorkspaceAttributeAnchor)
+        assert anchor.root_attribute == "info"
+        assert anchor.field_parts == ("branch",)
+        assert getattr(anchor.root_value, "label", None) == "'info"
+
+    def test_registry_entity_anchor(self, project: Path, fs: FakeFilesystem) -> None:
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/pipeline.mlody"),
+            contents='builtins.register("task", Struct(kind="task", name="trainer", inputs=[], outputs=[], config=[]))',
+        )
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        anchor = ws.resolve_label_anchor("@lexica//pipeline:trainer.outputs")
+
+        assert isinstance(anchor, RegistryEntityAnchor)
+        assert anchor.registry_key == ("task", "mlody/teams/lexica/pipeline", "trainer")
+        assert anchor.field_parts == ("outputs",)
+        assert getattr(anchor.root_value, "name", None) == "trainer"
+
+    def test_root_object_anchor(self, project: Path) -> None:
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        anchor = ws.resolve_label_anchor("@bert//models:lr")
+
+        assert isinstance(anchor, RootObjectAnchor)
+        assert anchor.root_name == "bert"
+        assert anchor.field_parts == ("lr",)
+        assert getattr(anchor.root_value, "name", None) == "bert"
+
+    def test_module_global_anchor(self, project: Path, fs: FakeFilesystem) -> None:
+        module_path = ROOT / "mlody/teams/lexica/module_globals.mlody"
+        fs.create_file(
+            str(module_path),
+            contents='global_cfg = Struct(kind="value", name="global_cfg", nested=Struct(answer=42))',
+        )
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        anchor = ws.resolve_label_anchor("//mlody/teams/lexica/module_globals:global_cfg.nested")
+
+        assert isinstance(anchor, ModuleGlobalAnchor)
+        assert anchor.file_path == module_path
+        assert anchor.symbol_name == "global_cfg"
+        assert anchor.field_parts == ("nested",)
+        assert getattr(anchor.root_value, "name", None) == "global_cfg"
+
+    def test_module_aggregate_anchor(self, project: Path, fs: FakeFilesystem) -> None:
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/pipeline.mlody"),
+            contents='builtins.register("action", Struct(kind="action", name="trainer", inputs=[], outputs=[], config=[]))',
+        )
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        anchor = ws.resolve_label_anchor("@lexica//pipeline")
+
+        assert isinstance(anchor, ModuleAggregateAnchor)
+        assert anchor.root_name == "lexica"
+        assert anchor.module_stem == "mlody/teams/lexica/pipeline"
+        assert isinstance(anchor.root_value, dict)
+        assert "action/trainer" in anchor.root_value
+
+    def test_root_collection_anchor(self, project: Path) -> None:
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        anchor = ws.resolve_label_anchor("//mlody/teams/lexica/models")
+
+        assert isinstance(anchor, RootCollectionAnchor)
+        assert isinstance(anchor.root_value, dict)
+        assert "bert" in anchor.root_value
+
+
+class TestWorkspaceStepResolvedObject:
+    """Requirement: workspace traversal preserves list-by-name semantics."""
+
+    def test_step_resolved_object_selects_named_item_from_list(self) -> None:
+        items = [
+            Struct(name="features", kind="value"),
+            Struct(name="labels", kind="value"),
+        ]
+
+        result = Workspace._step_resolved_object(items, "labels")
+
+        assert getattr(result, "name", None) == "labels"
+
+    def test_step_resolved_object_falls_back_to_getattr(self) -> None:
+        result = Workspace._step_resolved_object(Struct(answer=42), "answer")
+
+        assert result == 42
 
 
 

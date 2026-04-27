@@ -7,7 +7,7 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         "@pip//duckdb",
-        "@pip//pyarrow",
+        "@pip//pyarrow",  # keep — consumed by core/tabular parquet and derived sources
         "@pip//sqlglot",
     ],
 )

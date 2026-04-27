@@ -4,21 +4,32 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, cast
 
 from rich.console import Console
 from rich.syntax import Syntax
 
-from common.python.starlarkish.core.struct import Struct
+from mlody.common.struct import Struct
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from mlody.common.context import build_ctx
+from mlody.core.anchor import (
+    Anchor,
+    ModuleAggregateAnchor,
+    ModuleGlobalAnchor,
+    RootCollectionAnchor,
+    RootObjectAnchor,
+    WorkspaceAttributeAnchor,
+)
+from mlody.core.registry_view import RegistryView
 from mlody.core.source_parser import extract_entity_ranges
 from mlody.core.targets import TargetAddress, parse_target, resolve_target_value
+from mlody.core.traversal_runtime import step_named_child
 from mlody.core.traversal_grammar import IndexSegment, KeySegment, WildcardSegment
 from mlody.core.traversal_parser import TraversalParseError, parse_traversal_expression
 from mlody.core.virtual_value import force_virtual_value, make_virtual_value, traverse_virtual_value
+from mlody.core.workspace_loader import WorkspaceLoader
+from mlody.core.workspace_models import RootInfo, WorkspaceLoadError
 
 _logger = logging.getLogger(__name__)
 _DEFAULT_SKIPPED_MLODY_PATHS = ("mlody/common/sandbox.mlody",)
@@ -42,38 +53,6 @@ def force(v: object) -> object:
     called and its return value is returned.  All other inputs pass through.
     """
     return cast(Any, force_virtual_value(v))
-
-
-class WorkspaceLoadError(Exception):
-    """One or more .mlody files failed to evaluate during Phase 2 loading."""
-
-    def __init__(self, failures: list[tuple[Path, Exception]]) -> None:
-        self.failures = failures
-        lines = "\n".join(
-            f"  {path}: {type(exc).__name__}: {exc}"
-            for path, exc in failures
-        )
-        super().__init__(f"{len(failures)} file(s) failed to load:\n{lines}")
-
-
-@dataclass(frozen=True)
-class RootInfo:
-    """Metadata for a registered root."""
-
-    name: str
-    path: str
-    description: str
-
-
-@dataclass(frozen=True)
-class LabelWriteAnchor:
-    """Writable anchor for a resolved label target."""
-
-    root_value: object
-    writeback_kind: str
-    writeback_locator: object | None
-    field_parts: tuple[str, ...] = ()
-    entity_query: str | None = None
 
 
 class Workspace:
@@ -107,12 +86,13 @@ class Workspace:
             extra_ctx=build_ctx(monorepo_root),
             line_range_extractor=extract_entity_ranges,
         )
+        self._registry = RegistryView(self._evaluator)
         self._root_infos: dict[str, RootInfo] = {}
-        # extra_roots: registered in both _root_infos and _roots_by_name; Phase 2
-        # eagerly globs their directories (e.g. @workspace pointing to the sandbox).
+        # extra_roots are eagerly globbed during Phase 2 (for example, a
+        # sandbox-local @workspace root).
         self._extra_roots: dict[str, str] = extra_roots or {}
-        # lazy_roots: registered only in _roots_by_name for on-demand load() resolution
-        # (e.g. @mlody pointing to the monorepo mlody/ dir — too large to pre-glob).
+        # lazy_roots are available for on-demand resolution but are not
+        # eagerly globbed (for example, @mlody for the full monorepo tree).
         self._lazy_roots: dict[str, str] = lazy_roots or {}
 
     @property
@@ -122,6 +102,10 @@ class Workspace:
     @property
     def root_infos(self) -> dict[str, RootInfo]:
         return self._root_infos
+
+    @property
+    def registry_view(self) -> RegistryView:
+        return self._registry
 
     @property
     def info(self) -> object:
@@ -156,113 +140,9 @@ class Workspace:
     @staticmethod
     def _step_resolved_object(obj: object, segment: str) -> object:
         """Traverse one field while preserving list-by-name resolution."""
-        if isinstance(obj, list):
-            for item in obj:
-                if getattr(item, "name", None) == segment:
-                    return item
-            raise KeyError(segment)
-        return getattr(obj, segment)
+        return step_named_child(obj, segment)
 
-    def _match_registry_entity_label(
-        self,
-        target: str,
-        *,
-        entity: object,
-        attribute_path: tuple[str, ...] | None,
-    ) -> LabelWriteAnchor | None:
-        """Return a registry-backed label anchor when the entity is registered."""
-        entity_root = getattr(entity, "root", None)
-        entity_path = getattr(entity, "path", None)
-        entity_name = getattr(entity, "name", None)
-        entity_field_path = getattr(entity, "field_path", ()) or ()
-        entity_query = getattr(entity, "entity_query", None)
-
-        if entity_name is None:
-            return None
-
-        name_parts = entity_name.split(".")
-        base_name = name_parts[0]
-        if entity_field_path:
-            field_parts = entity_field_path
-        else:
-            field_parts = tuple(name_parts[1:])
-        if attribute_path:
-            field_parts = field_parts + attribute_path
-
-        stem_parts: list[str] = []
-        can_registry_resolve = True
-        if entity_root is not None:
-            if entity_root in self._root_infos:
-                root_rel = self._root_infos[entity_root].path.lstrip("/").rstrip("/")
-                if root_rel:
-                    stem_parts.append(root_rel)
-            elif entity_root in self._evaluator._roots_by_name:
-                can_registry_resolve = False
-            else:
-                available = sorted(self._evaluator._roots_by_name)
-                msg = f"Root {entity_root!r} not found; available roots: {available}"
-                raise KeyError(msg)
-        if entity_path:
-            stem_parts.append(entity_path.lstrip("/").rstrip("/"))
-        stem = "/".join([part for part in stem_parts if part])
-        path_suffix = entity_path.lstrip("/").rstrip("/") if entity_path else ""
-        root_prefix = None
-        if entity_root is not None and entity_root in self._root_infos:
-            root_prefix = self._root_infos[entity_root].path.lstrip("/").rstrip("/")
-
-        matches: list[tuple[tuple[object, object, object], object]] = []
-        if can_registry_resolve:
-            for key, value in self._evaluator.all.items():
-                if (
-                    isinstance(key, tuple)
-                    and len(key) == 3
-                    and key[1] == stem
-                    and key[2] == base_name
-                ):
-                    matches.append((key, value))
-
-        if can_registry_resolve and not matches:
-            for key, value in self._evaluator.all.items():
-                if not (isinstance(key, tuple) and len(key) == 3 and key[2] == base_name):
-                    continue
-                key_stem = key[1]
-                if not isinstance(key_stem, str):
-                    continue
-                if root_prefix and not key_stem.startswith(root_prefix):
-                    continue
-                if path_suffix and not key_stem.endswith(path_suffix):
-                    continue
-                matches.append((key, value))
-
-        if not matches:
-            if can_registry_resolve and entity_root is not None:
-                msg = (
-                    f"Entity {base_name!r} not found"
-                    + (f" in module {stem!r}" if stem else "")
-                    + f" (label: {target!r})"
-                )
-                raise KeyError(msg)
-            return None
-
-        kind_order = {
-            "task": 0,
-            "action": 1,
-            "value": 2,
-            "type": 3,
-            "location": 4,
-            "root": 5,
-        }
-        matches.sort(key=lambda kv: kind_order.get(kv[0][0], 99))
-        match_key, match_value = matches[0]
-        return LabelWriteAnchor(
-            root_value=match_value,
-            writeback_kind="registry_entity",
-            writeback_locator=match_key,
-            field_parts=field_parts,
-            entity_query=entity_query,
-        )
-
-    def resolve_label_anchor(self, target: str) -> LabelWriteAnchor:
+    def resolve_label_anchor(self, target: str) -> Anchor:
         """Resolve a label string into a writable anchor plus residual path."""
         from mlody.core.label import parse_label as _core_parse_label
 
@@ -271,10 +151,9 @@ class Workspace:
         if lbl.attribute_path is not None:
             root_attr = lbl.attribute_path[0]
             root_value = self.resolve(f"'{root_attr}")
-            return LabelWriteAnchor(
+            return WorkspaceAttributeAnchor(
                 root_value=root_value,
-                writeback_kind="workspace_attribute",
-                writeback_locator=root_attr,
+                root_attribute=root_attr,
                 field_parts=lbl.attribute_path[1:],
             )
 
@@ -282,52 +161,50 @@ class Workspace:
             msg = f"Label {target!r} does not select a writable anchor"
             raise ValueError(msg)
 
-        registry_anchor = self._match_registry_entity_label(
+        registry_anchor = self._registry.match_registry_entity_label(
             target,
             entity=lbl.entity,
             attribute_path=lbl.attribute_path,
+            root_infos=self._root_infos,
         )
         if registry_anchor is not None:
             return registry_anchor
 
         entity = lbl.entity
         name = entity.name
-        if name is not None and entity.root is not None and entity.root in self._evaluator._roots_by_name:
+        if name is not None and entity.root is not None and self._registry.has_root(entity.root):
             name_parts = name.split(".")
             field_parts = entity.field_path or tuple(name_parts[1:])
             if lbl.attribute_path:
                 field_parts = field_parts + lbl.attribute_path
-            return LabelWriteAnchor(
-                root_value=self._evaluator._roots_by_name[entity.root],
-                writeback_kind="root_object",
-                writeback_locator=entity.root,
+            return RootObjectAnchor(
+                root_value=self._registry.root_value(entity.root),
+                root_name=entity.root,
                 field_parts=(name_parts[0],) + field_parts,
                 entity_query=lbl.entity_query,
             )
 
         if name is not None and entity.root is None:
             file_path = self._monorepo_root / (entity.path.lstrip("/") + ".mlody")
-            if file_path not in self._evaluator.loaded_files:
-                self._evaluator.eval_file(file_path)
-            module_globals: dict[str, object] = self._evaluator._module_globals.get(file_path, {})  # type: ignore[attr-defined]
+            self._registry.ensure_module_loaded(file_path)
+            module_globals = self._registry.module_globals(file_path)
             name_parts = name.split(".")
             if name_parts[0] not in module_globals:
                 raise KeyError(f"Entity {name_parts[0]!r} not found in {file_path}")
             field_parts = entity.field_path or tuple(name_parts[1:])
             if lbl.attribute_path:
                 field_parts = field_parts + lbl.attribute_path
-            return LabelWriteAnchor(
+            return ModuleGlobalAnchor(
                 root_value=module_globals[name_parts[0]],
-                writeback_kind="module_global",
-                writeback_locator=(file_path, name_parts[0]),
+                file_path=file_path,
+                symbol_name=name_parts[0],
                 field_parts=field_parts,
                 entity_query=lbl.entity_query,
             )
 
-        roots = self._evaluator._roots_by_name
         if entity.root is not None:
-            if entity.root not in roots:
-                available = sorted(roots)
+            if not self._registry.has_root(entity.root):
+                available = list(self._registry.available_root_names())
                 msg = f"Root {entity.root!r} not found; available roots: {available}"
                 raise KeyError(msg)
             if entity.path and entity.root in self._root_infos:
@@ -337,26 +214,18 @@ class Workspace:
                     stem_parts_mod.append(root_rel_mod)
                 stem_parts_mod.append(entity.path.lstrip("/").rstrip("/"))
                 mod_stem = "/".join([part for part in stem_parts_mod if part])
-                module_value = {
-                    f"{key[0]}/{key[2]}": value
-                    for key, value in self._evaluator.all.items()
-                    if isinstance(key, tuple) and len(key) == 3 and key[1] == mod_stem
-                }
-                return LabelWriteAnchor(
-                    root_value=module_value,
-                    writeback_kind="module_aggregate",
-                    writeback_locator=(entity.root, mod_stem),
+                return ModuleAggregateAnchor(
+                    root_value=self._registry.module_aggregate(mod_stem),
+                    root_name=entity.root,
+                    module_stem=mod_stem,
                 )
-            return LabelWriteAnchor(
-                root_value=roots[entity.root],
-                writeback_kind="root_object",
-                writeback_locator=entity.root,
+            return RootObjectAnchor(
+                root_value=self._registry.root_value(entity.root),
+                root_name=entity.root,
             )
 
-        return LabelWriteAnchor(
-            root_value=dict(roots),
-            writeback_kind="root_collection",
-            writeback_locator=None,
+        return RootCollectionAnchor(
+            root_value=self._registry.root_values_snapshot(),
         )
 
     @staticmethod
@@ -417,32 +286,30 @@ class Workspace:
         new_config = _convert_port("config")
 
         updated: dict[str, object] = {
-            **entity._fields,
             "inputs": new_inputs,
             "outputs": new_outputs,
             "config": new_config,
         }
         if action_field is not None:
             updated["action"] = action_field
-        return Struct(**updated)
+        return entity.updated(**updated)
 
     def _convert_ports_to_structs(self) -> None:
         """Replace port lists on every task/action entity in the evaluator registry.
 
-        Iterates ``self._evaluator.all``, converts each ``task`` and ``action``
-        entity via ``_convert_single_entity``, and writes the results back.
-        Updates are staged in a temporary dict to avoid mutating the dict
-        during iteration.
+        Iterates the shared registry view, converts each ``task`` and
+        ``action`` entity via ``_convert_single_entity``, and stages the
+        updates before writing them back.
         """
         staging: dict[object, Struct] = {}
-        for key, value in self._evaluator.all.items():
+        for key, value in self._registry.iter_registry_items():
             if not isinstance(value, Struct):
                 continue
             if getattr(value, "kind", None) not in ("task", "action"):
                 continue
             staging[key] = self._convert_single_entity(value)
         for key, new_value in staging.items():
-            self._evaluator.all[key] = new_value  # type: ignore[index]
+            self._registry.set_registry_entity(key, new_value)
 
     def _is_skipped_mlody_file(self, mlody_file: Path) -> bool:
         """Return True when a file matches the configured skip patterns.
@@ -469,88 +336,24 @@ class Workspace:
 
     def load(self, verbose: bool = False) -> None:
         """Execute two-phase loading of pipeline definitions."""
-        # Phase 1: Root discovery.  When no roots file exists (e.g. a sandbox
-        # workspace addressed via --workspace that has no roots.mlody), Phase 1
-        # is skipped and the workspace operates purely from injected roots.
-        if self._roots_file.exists():
-            self._evaluator.eval_file(self._roots_file)
-
-        # Load type definitions (best-effort; may not be available in all environments)
-        types_path = self._monorepo_root / "mlody" / "common" / "types.mlody"
-        if types_path not in self._evaluator.loaded_files:
-            try:
-                self._evaluator.eval_file(types_path)
-            except Exception:
-                pass
-
-        self._root_infos = {}
-        for _key, root_obj in self._evaluator.roots.items():
-            name = root_obj.name
-            self._root_infos[name] = RootInfo(
-                name=name,
-                path=getattr(root_obj, "path", ""),
-                description=getattr(root_obj, "description", ""),
-            )
-
-        # Extra roots: added to _root_infos so Phase 2 eagerly globs their files
-        # (e.g. @workspace → the sandbox directory itself).
-        for root_name, root_path in self._extra_roots.items():
-            if root_name not in self._root_infos:
-                self._root_infos[root_name] = RootInfo(
-                    name=root_name,
-                    path=root_path,
-                    description="injected",
-                )
-                self._evaluator._roots_by_name[root_name] = Struct(
-                    name=root_name,
-                    path=root_path,
-                    description="injected",
-                )
-
-        # Lazy roots: only in _roots_by_name for on-demand load() resolution;
-        # not pre-globbed (e.g. @mlody — the full mlody tree is too large to
-        # load eagerly into a sandbox workspace).
-        for root_name, root_path in self._lazy_roots.items():
-            if root_name not in self._evaluator._roots_by_name:
-                self._evaluator._roots_by_name[root_name] = Struct(
-                    name=root_name,
-                    path=root_path,
-                    description="injected",
-                )
-
-        # Phase 2: Full evaluation
-        # .resolve() normalises any ".." or "." components in injected root paths.
-        load_errors: list[tuple[Path, Exception]] = []
-        for info in self._root_infos.values():
-            root_abs = (self._monorepo_root / info.path.lstrip("/")).resolve()
-            _logger.debug("Loading root: %s", root_abs)
-            if not root_abs.is_dir():
-                continue
-            for mlody_file in sorted(root_abs.glob("**/*.mlody")):
-                if not self._full_workspace and self._is_skipped_mlody_file(mlody_file):
-                    _logger.debug("Skipping %s due to workspace skip list", mlody_file)
-                    continue
-                if mlody_file in self._evaluator.loaded_files:
-                    continue
-                try:
-                    self._evaluator.eval_file(mlody_file)
-                except Exception as exc:
-                    _logger.error(
-                        "Failed to load %s: %s: %s", mlody_file, type(exc).__name__, exc
-                    )
-                    load_errors.append((mlody_file, exc))
-
-        if load_errors:
-            raise WorkspaceLoadError(load_errors)
-
-        self._evaluator.resolve()
-
-        # Phase 3: Convert port lists (inputs/outputs/config) on task and action
-        # entities to named Structs, enabling pure getattr-based traversal.
-        self._convert_ports_to_structs()
+        loader = WorkspaceLoader(
+            monorepo_root=self._monorepo_root,
+            roots_file=self._roots_file,
+            root_infos=self._root_infos,
+            registry=self._registry,
+            extra_roots=self._extra_roots,
+            lazy_roots=self._lazy_roots,
+            should_skip_mlody_file=(
+                (lambda _path: False)
+                if self._full_workspace
+                else self._is_skipped_mlody_file
+            ),
+            convert_ports_to_structs=self._convert_ports_to_structs,
+        )
+        loader.load()
 
         if verbose:
-            data = {str(k): v.to_dict() if hasattr(v, "to_dict") else v for k, v in self._evaluator.all.items()}
+            data = self._registry.debug_dump()
             self._console.print(Syntax(json.dumps(data, indent=2, default=repr), "json"))
 
     def resolve(self, target: str | TargetAddress) -> object:
@@ -573,9 +376,12 @@ class Workspace:
                 msg = f"Empty attribute path in label: {target!r}"
                 raise ValueError(msg)
 
-            ws_type = self._evaluator._types_by_name.get("mlody-workspace")  # type: ignore[attr-defined]
+            ws_type = self._registry.type_by_name("mlody-workspace")
             if ws_type is None:
-                msg = "Type 'mlody-workspace' is not registered; ensure load() is called before resolve()"
+                msg = (
+                    "Type 'mlody-workspace' is not registered; ensure load() "
+                    "is called before resolve()"
+                )
                 raise RuntimeError(msg)
 
             def _workspace_materializer(_v: object) -> object:
@@ -612,10 +418,11 @@ class Workspace:
                     obj = anchor.root_value
                     field_parts = anchor.field_parts
 
-                    if anchor.writeback_kind in {
-                        "module_aggregate",
-                        "root_collection",
-                    } and not field_parts and anchor.entity_query is None:
+                    if (
+                        anchor.exposes_collection_view()
+                        and not field_parts
+                        and anchor.entity_query is None
+                    ):
                         return obj
 
                     # Resolve direct entity labels (with optional dotted field path)
@@ -653,80 +460,30 @@ class Workspace:
                             expr2 = None
                         if expr2 is not None and expr2.segments:
                             seg2 = expr2.segments[0]
-                            if isinstance(seg2, IndexSegment) and isinstance(obj, (list, tuple)):
+                            if isinstance(seg2, IndexSegment) and isinstance(
+                                obj,
+                                (list, tuple),
+                            ):
                                 obj = obj[seg2.index]
                             elif isinstance(seg2, KeySegment) and isinstance(obj, dict):
                                 obj = obj[seg2.key]
-                            elif isinstance(seg2, WildcardSegment) and isinstance(obj, (list, tuple, dict)):
-                                obj = list(obj.values()) if isinstance(obj, dict) else list(obj)
+                            elif isinstance(seg2, WildcardSegment) and isinstance(
+                                obj,
+                                (list, tuple, dict),
+                            ):
+                                obj = (
+                                    list(obj.values())
+                                    if isinstance(obj, dict)
+                                    else list(obj)
+                                )
                     return obj
 
         address = parse_target(target) if isinstance(target, str) else target
-        return resolve_target_value(address, self._evaluator._roots_by_name)
+        return resolve_target_value(address, self._registry.root_mapping())
 
     def expand_wildcard_label(self, inner_label: str) -> list[str]:
-        """Expand a wildcard inner label into concrete labels (wildcard=False).
-
-        Scans the loaded evaluator registry for all stems matching the wildcard
-        pattern and returns one concrete label string per matching stem.
-
-        If the label is not a wildcard, returns ``[inner_label]`` unchanged.
-        """
-        from mlody.core.label import parse_label as _core_parse_label
-        from mlody.core.label.errors import LabelParseError
-
-        try:
-            lbl = _core_parse_label(inner_label)
-        except LabelParseError:
-            return [inner_label]
-
-        if lbl.entity is None or not lbl.entity.wildcard:
-            return [inner_label]
-
-        entity = lbl.entity
-        base_name = entity.name.split(".")[0] if entity.name else None
-
-        root_prefix: str | None = None
-        if entity.root is not None and entity.root in self._root_infos:
-            root_prefix = self._root_infos[entity.root].path.lstrip("/").rstrip("/")
-
-        path_suffix = entity.path.lstrip("/").rstrip("/") if entity.path else ""
-
-        stems: set[str] = set()
-        for key in self._evaluator.all:
-            if not (isinstance(key, tuple) and len(key) == 3):
-                continue
-            k_stem, k_name = key[1], key[2]
-            if not isinstance(k_stem, str):
-                continue
-            if base_name is not None and k_name != base_name:
-                continue
-            if root_prefix is not None and not k_stem.startswith(root_prefix):
-                continue
-            if path_suffix and not k_stem.endswith(path_suffix):
-                continue
-            stems.add(k_stem)
-
-        result: list[str] = []
-        for stem in sorted(stems):
-            if root_prefix and stem.startswith(root_prefix):
-                rel_path = stem[len(root_prefix):].lstrip("/")
-            else:
-                rel_path = stem
-
-            parts: list[str] = []
-            if entity.root:
-                parts.append(f"@{entity.root}//{rel_path}")
-            else:
-                parts.append(f"//{rel_path}")
-            if entity.name:
-                field_suffix = (
-                    "." + ".".join(entity.field_path) if entity.field_path else ""
-                )
-                query_suffix = f"[{lbl.entity_query}]" if lbl.entity_query else ""
-                parts.append(f":{entity.name}{field_suffix}{query_suffix}")
-            if lbl.attribute_path:
-                parts.append(f"'{'.' .join(lbl.attribute_path)}")
-            result.append("".join(parts))
-
-        return result
+        """Expand a wildcard inner label into one or more concrete labels."""
+        return self._registry.expand_wildcard_label(
+            inner_label,
+            root_infos=self._root_infos,
+        )

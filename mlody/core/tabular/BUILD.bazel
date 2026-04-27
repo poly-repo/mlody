@@ -1,0 +1,106 @@
+# gazelle:ignore
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
+
+o_py_library(
+    name = "interfaces_lib",
+    srcs = ["interfaces.py"],
+    visibility = ["//:__subpackages__"],
+    deps = ["@pip//pyarrow"],
+)
+
+o_py_library(
+    name = "location_specs_lib",
+    srcs = ["location_specs.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":interfaces_lib",
+        "//mlody/common:common_lib",
+    ],
+)
+
+o_py_library(
+    name = "parquet_source_lib",
+    srcs = ["parquet_source.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":interfaces_lib",
+        "//mlody/core/sql:sql_query_lib",
+        "@pip//pyarrow",
+    ],
+)
+
+o_py_library(
+    name = "derived_source_lib",
+    srcs = ["derived_source.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":interfaces_lib",
+        ":location_specs_lib",
+        ":parquet_source_lib",
+        "//mlody/core:optimiser",
+        "//mlody/core/sql:sql_query_lib",
+        "@pip//pyarrow",
+    ],
+)
+
+o_py_library(
+    name = "tabular",
+    srcs = ["__init__.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":derived_source_lib",
+        ":interfaces_lib",
+        ":location_specs_lib",
+        ":parquet_source_lib",
+    ],
+)
+
+o_py_library(
+    name = "tabular_lib",
+    srcs = [
+        "__init__.py",
+        "derived_source.py",
+        "interfaces.py",
+        "location_specs.py",
+        "parquet_source.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//mlody/common:common_lib",
+        "//mlody/core:optimiser",
+        "//mlody/core/sql:sql_query_lib",
+        "@pip//pyarrow",
+    ],
+)
+
+o_py_test(
+    name = "location_specs_test",
+    srcs = ["location_specs_test.py"],
+    deps = [
+        ":tabular",
+        "//mlody/common:common_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "parquet_source_test",
+    srcs = ["parquet_source_test.py"],
+    deps = [
+        ":parquet_source_lib",
+        "@pip//pyarrow",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "derived_source_test",
+    srcs = ["derived_source_test.py"],
+    deps = [
+        ":derived_source_lib",
+        ":interfaces_lib",
+        ":location_specs_lib",
+        "@pip//pyarrow",
+        "@pip//pytest",
+    ],
+)

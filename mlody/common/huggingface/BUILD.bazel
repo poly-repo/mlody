@@ -5,15 +5,19 @@ o_py_binary(
     name = "model-download",
     srcs = ["model-download.py"],
     visibility = ["//:__subpackages__"],
-    deps = [
-        "@pip//huggingface_hub",
-        "@pip//requests",
-    ],
+    deps = [":huggingface_lib"],
 )
 
 o_py_library(
     name = "huggingface_lib",
-    srcs = ["model-download.py"],
+    srcs = [
+        "__init__.py",
+        "cli.py",
+        "download.py",
+        "repo_client.py",
+        "repo_types.py",
+        "resume_state.py",
+    ],
     visibility = ["//:__subpackages__"],
     deps = [
         "@pip//huggingface_hub",

@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from common.python.starlarkish.core.struct import Struct
+from mlody.common.struct import Struct
 
+from mlody.core.anchor import Anchor
 from mlody.core.label import parse_label as parse_ref_label
 from mlody.core.lineage import append_lineage, build_lineage_event
 from mlody.core.place import AssignmentMode, Place, PlaceSet
@@ -16,6 +17,12 @@ from mlody.core.setf_strategies import (
     SequenceSliceSetter,
     StructFieldSetter,
     VirtualValueFieldSetter,
+)
+from mlody.core.traversal_runtime import (
+    has_named_child,
+    iter_children,
+    replace_child,
+    step_segment,
 )
 from mlody.core.traversal_grammar import (
     FieldSegment,
@@ -27,12 +34,8 @@ from mlody.core.traversal_grammar import (
     WildcardSegment,
 )
 from mlody.core.traversal_parser import parse_traversal_expression
-from mlody.core.virtual_value import (
-    is_virtual_value,
-    iter_virtual_children,
-    step_virtual_value,
-)
-from mlody.core.workspace import LabelWriteAnchor, Workspace
+from mlody.core.virtual_value import is_virtual_value
+from mlody.core.workspace import Workspace
 
 
 @dataclass(frozen=True)
@@ -41,10 +44,12 @@ class SetfAnchor:
 
     workspace: Workspace
     resolved_label: str
-    root_value: object
-    writeback_kind: str
-    writeback_locator: object | None
+    target: Anchor
     residual_selector: PathExpression
+
+    @property
+    def root_value(self) -> object:
+        return self.target.root_value
 
 
 def _normalize_selector(selector: str | PathExpression) -> PathExpression:
@@ -56,62 +61,17 @@ def _normalize_selector(selector: str | PathExpression) -> PathExpression:
 
 def _step(current: object, segment: object) -> object:
     """Traverse one direct segment for the current v1 resolver subset."""
-    if isinstance(segment, FieldSegment):
-        if is_virtual_value(current):
-            assert isinstance(current, Struct)
-            return step_virtual_value(current, segment.name)
-        return getattr(current, segment.name)
-    if isinstance(segment, IndexSegment):
-        if not isinstance(current, (list, tuple)):
-            raise TypeError(
-                f"IndexSegment requires a sequence, got {type(current).__name__}"
-            )
-        return current[segment.index]
-    if isinstance(segment, KeySegment):
-        if not isinstance(current, dict):
-            raise TypeError(f"KeySegment requires a dict, got {type(current).__name__}")
-        return current[segment.key]
-    if isinstance(segment, SliceSegment):
-        if not isinstance(current, (list, tuple)):
-            raise TypeError(
-                f"SliceSegment requires a sequence, got {type(current).__name__}"
-            )
-        return list(current[slice(segment.start, segment.stop, segment.step)])
-    raise NotImplementedError(
-        f"selector segment {type(segment).__name__} is not supported yet"
-    )
+    return step_segment(current, segment)
 
 
 def _children(current: object) -> list[tuple[object, object]]:
     """Return the immediate traversable children of *current*."""
-    if is_virtual_value(current):
-        assert isinstance(current, Struct)
-        return [
-            (FieldSegment(name), value)
-            for name, value in iter_virtual_children(current)
-        ]
-    if isinstance(current, Struct):
-        return [
-            (FieldSegment(name), value) for name, value in current.as_mapping().items()
-        ]
-    if isinstance(current, (list, tuple)):
-        return [(IndexSegment(index), value) for index, value in enumerate(current)]
-    if isinstance(current, dict):
-        children: list[tuple[object, object]] = []
-        for key, value in current.items():
-            if isinstance(key, str):
-                children.append((KeySegment(key), value))
-        return children
-    return []
+    return list(iter_children(current))
 
 
 def _has_lineage(value: object) -> bool:
     """Return True when *value* can store `_lineage`."""
-    if isinstance(value, Struct):
-        return "_lineage" in value.as_mapping()
-    if isinstance(value, dict):
-        return "_lineage" in value
-    return False
+    return has_named_child(value, "_lineage")
 
 
 def _resolve_contract(values: list[object]) -> tuple[object | None, object | None]:
@@ -330,33 +290,7 @@ def _resolve_places_recursive(
 
 def _replace_one(container: object, segment: object, new_child: object) -> object:
     """Return *container* with *segment* replaced by *new_child*."""
-    if isinstance(segment, FieldSegment):
-        if not isinstance(container, Struct):
-            raise TypeError(
-                f"FieldSegment requires a Struct, got {type(container).__name__}"
-            )
-        updated = dict(container.as_mapping())
-        updated[segment.name] = new_child
-        return Struct(**updated)
-    if isinstance(segment, IndexSegment):
-        if not isinstance(container, list):
-            raise TypeError(
-                f"IndexSegment requires a list, got {type(container).__name__}"
-            )
-        updated = list(container)
-        updated[segment.index] = new_child
-        return updated
-    if isinstance(segment, KeySegment):
-        if not isinstance(container, dict):
-            raise TypeError(
-                f"KeySegment requires a dict, got {type(container).__name__}"
-            )
-        updated = dict(container)
-        updated[segment.key] = new_child
-        return updated
-    raise NotImplementedError(
-        f"selector segment {type(segment).__name__} is not supported yet"
-    )
+    return replace_child(container, segment, new_child)
 
 
 def _rebuild_owner(
@@ -471,7 +405,7 @@ def setf_root(
     return working_root
 
 
-def _selector_from_label_anchor(anchor: LabelWriteAnchor) -> PathExpression:
+def _selector_from_label_anchor(anchor: Anchor) -> PathExpression:
     """Convert workspace anchor residuals into a traversal selector."""
     segments: list[object] = [FieldSegment(field) for field in anchor.field_parts]
     if anchor.entity_query is not None:
@@ -511,9 +445,7 @@ def resolve_setf_anchor(
     return SetfAnchor(
         workspace=authoritative_workspace,
         resolved_label=inner_label,
-        root_value=label_anchor.root_value,
-        writeback_kind=label_anchor.writeback_kind,
-        writeback_locator=label_anchor.writeback_locator,
+        target=label_anchor,
         residual_selector=_selector_from_label_anchor(label_anchor),
     )
 
@@ -546,9 +478,7 @@ def _resolve_setf_anchors(
             SetfAnchor(
                 workspace=authoritative_workspace,
                 resolved_label=concrete_label,
-                root_value=label_anchor.root_value,
-                writeback_kind=label_anchor.writeback_kind,
-                writeback_locator=label_anchor.writeback_locator,
+                target=label_anchor,
                 residual_selector=_selector_from_label_anchor(label_anchor),
             )
         )
@@ -570,12 +500,7 @@ def _preflight_anchor(
     mode: AssignmentMode,
 ) -> None:
     """Validate that an anchor can accept the proposed assignment."""
-    if anchor.writeback_kind == "workspace_attribute":
-        raise NotImplementedError("workspace attribute selectors are not writable yet")
-    if anchor.writeback_kind in {"module_aggregate", "root_collection"}:
-        raise NotImplementedError(
-            f"{anchor.writeback_kind.replace('_', ' ')} assignments are not supported yet"
-        )
+    anchor.target.ensure_writable()
     if not anchor.residual_selector.segments:
         _validate_root_assignment(anchor.root_value, new_value)
         return
@@ -618,24 +543,7 @@ def _apply_anchor_assignment(
 
 def _write_back_anchor(anchor: SetfAnchor, updated_root: object) -> None:
     """Persist an updated anchor root back into the owning workspace."""
-    if anchor.writeback_kind == "registry_entity":
-        assert anchor.writeback_locator is not None
-        anchor.workspace.evaluator.all[anchor.writeback_locator] = updated_root
-        return
-    if anchor.writeback_kind == "root_object":
-        assert isinstance(anchor.writeback_locator, str)
-        anchor.workspace.evaluator._roots_by_name[anchor.writeback_locator] = updated_root  # type: ignore[attr-defined]  # noqa: SLF001
-        return
-    if anchor.writeback_kind == "module_global":
-        assert isinstance(anchor.writeback_locator, tuple)
-        file_path, symbol_name = anchor.writeback_locator
-        anchor.workspace.evaluator._module_globals[file_path][symbol_name] = updated_root  # type: ignore[attr-defined]  # noqa: SLF001
-        return
-    if anchor.writeback_kind == "workspace_attribute":
-        raise NotImplementedError("workspace attribute selectors are not writable yet")
-    raise NotImplementedError(
-        f"writeback kind {anchor.writeback_kind!r} is not supported yet"
-    )
+    anchor.target.write_back(anchor.workspace.registry_view, updated_root)
 
 
 def setf(

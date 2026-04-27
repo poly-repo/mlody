@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Callable
 
 from common.python.starlarkish.core.struct import Struct
+from mlody.core.traversal_runtime import step_named_child
 
 
 _SENTINEL = object()
@@ -45,12 +46,7 @@ def step_object(obj: object, segment: str) -> object:
     Lists are traversed by matching an element's ``name`` field.
     Everything else uses ``getattr``.
     """
-    if isinstance(obj, list):
-        for item in obj:
-            if getattr(item, "name", None) == segment:
-                return item
-        raise KeyError(segment)
-    return getattr(obj, segment)
+    return step_named_child(obj, segment)
 
 
 def is_record_type(value_type: object) -> bool:

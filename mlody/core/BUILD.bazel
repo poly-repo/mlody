@@ -1,6 +1,21 @@
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
+    name = "anchor",
+    srcs = ["anchor.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_test(
+    name = "anchor_test",
+    srcs = ["anchor_test.py"],
+    deps = [
+        ":anchor",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
     name = "place",
     srcs = ["place.py"],
     visibility = ["//:__subpackages__"],
@@ -25,6 +40,7 @@ o_py_library(
     deps = [
         ":place",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/common:common_lib",
     ],
 )
 
@@ -34,6 +50,45 @@ o_py_test(
     deps = [
         ":core_lib",
         "//common/python/starlarkish/core:core_lib",
+    ],
+)
+
+o_py_library(
+    name = "workspace_models",
+    srcs = ["workspace_models.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_library(
+    name = "registry_view",
+    srcs = ["registry_view.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":anchor",
+        ":workspace_models",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody/common:common_lib",
+    ],
+)
+
+o_py_library(
+    name = "workspace_loader",
+    srcs = ["workspace_loader.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":registry_view",
+        ":workspace_models",
+    ],
+)
+
+o_py_test(
+    name = "workspace_loader_test",
+    srcs = ["workspace_loader_test.py"],
+    deps = [
+        ":workspace_loader",
+        ":workspace_models",
+        "@pip//pyfakefs",
+        "@pip//pytest",
     ],
 )
 
@@ -52,8 +107,10 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":place",
+        ":traversal_runtime",
         ":virtual_value",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/common:common_lib",
     ],
 )
 
@@ -62,14 +119,17 @@ o_py_library(
     srcs = ["setf.py"],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":anchor",
         ":lineage",
         ":place",
         ":setf_strategies",
         ":traversal_grammar",
         ":traversal_parser",
+        ":traversal_runtime",
         ":virtual_value",
         ":workspace_lib",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/common:common_lib",
     ],
 )
 
@@ -80,6 +140,36 @@ o_py_test(
         ":core_lib",
         "//common/python/starlarkish/core:core_lib",
         "@pip//pyfakefs",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "virtual_value_test",
+    srcs = ["virtual_value_test.py"],
+    deps = [
+        ":core_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
+    name = "traversal_runtime",
+    srcs = ["traversal_runtime.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":traversal_grammar",
+        "//mlody/common:common_lib",
+    ],
+)
+
+o_py_test(
+    name = "traversal_runtime_test",
+    srcs = ["traversal_runtime_test.py"],
+    deps = [
+        ":core_lib",
+        "//mlody/common:common_lib",
         "@pip//pytest",
     ],
 )
@@ -140,8 +230,7 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":optimiser",
-        "//mlody/core/sql:sql_query_lib",  # keep — mlody_query and MlodyQueryError
-        "@pip//pyarrow",
+        "//mlody/core/tabular:tabular_lib",
     ],
 )
 
@@ -210,7 +299,8 @@ o_py_library(
     srcs = ["location_composition.py"],
     visibility = ["//:__subpackages__"],
     deps = [
-        "//common/python/starlarkish/core:core_lib",
+        "//mlody/common:common_lib",
+        "//mlody/core/tabular:tabular_lib",
     ],
 )
 
@@ -223,12 +313,18 @@ o_py_library(
     data = ["builtins.mlody"],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":anchor",
         ":location_composition_lib",
+        ":registry_view",
         ":source_parser_lib",
         ":targets_lib",
         ":traversal_parser",
+        ":traversal_runtime",
+        ":workspace_loader",
+        ":workspace_models",
         "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody/common:common_lib",
         "//mlody/common:context_lib",  # keep
         "@pip//rich",
     ],
@@ -239,6 +335,7 @@ o_py_library(
     srcs = ["virtual_value.py"],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":traversal_runtime",
         "//common/python/starlarkish/core:core_lib",
     ],
 )
@@ -271,6 +368,7 @@ o_py_library(
     name = "core_lib",
     srcs = [
         "__init__.py",
+        "anchor.py",
         "dag.py",
         "derived.py",
         "lineage.py",
@@ -278,14 +376,18 @@ o_py_library(
         "optimiser.py",
         "place.py",
         "plan.py",
+        "registry_view.py",
         "setf.py",
         "setf_strategies.py",
         "source_parser.py",
         "targets.py",
         "traversal_grammar.py",
         "traversal_parser.py",
+        "traversal_runtime.py",
         "virtual_value.py",
         "workspace.py",
+        "workspace_loader.py",
+        "workspace_models.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [
@@ -294,7 +396,7 @@ o_py_library(
         "//mlody/common:common_lib",
         "//mlody/common:context_lib",  # keep
         "//mlody/core/label:label_pkg",  # keep
-        "//mlody/core/sql:sql_query_lib",  # keep — derived.py imports mlody_query and MlodyQueryError
+        "//mlody/core/tabular:tabular_lib",
         "@pip//networkx",  # keep — workspace DAG builder
         "@pip//pyarrow",
         "@pip//rich",

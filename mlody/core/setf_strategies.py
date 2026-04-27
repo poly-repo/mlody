@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from common.python.starlarkish.core.struct import Struct
+from mlody.common.struct import Struct
 
 from mlody.core.place import AssignmentMode, Place
+from mlody.core.traversal_runtime import replace_child, step_segment
 from mlody.core.traversal_grammar import FieldSegment, IndexSegment, KeySegment, SliceSegment
 from mlody.core.virtual_value import is_virtual_value
 
@@ -25,17 +26,14 @@ class StructFieldSetter:
             raise TypeError(f"expected Struct owner, got {type(place.owner).__name__}")
         if not isinstance(segment, FieldSegment):
             raise TypeError(f"expected FieldSegment, got {type(segment).__name__}")
-        if segment.name not in place.owner.as_mapping():
-            raise AttributeError(segment.name)
+        _ = step_segment(place.owner, segment)
 
     def commit(self, place: Place, new_value: object, *, mode: AssignmentMode) -> object:
         _ = mode
         self.preflight(place, new_value, mode="copy")
         segment = _terminal_segment(place)
         assert isinstance(segment, FieldSegment)
-        updated = dict(place.owner.as_mapping())
-        updated[segment.name] = new_value
-        return Struct(**updated)
+        return replace_child(place.owner, segment, new_value)
 
 
 class VirtualValueFieldSetter:
@@ -67,16 +65,14 @@ class ListIndexSetter:
             raise TypeError(f"expected list owner, got {type(place.owner).__name__}")
         if not isinstance(segment, IndexSegment):
             raise TypeError(f"expected IndexSegment, got {type(segment).__name__}")
-        _ = place.owner[segment.index]
+        _ = step_segment(place.owner, segment)
 
     def commit(self, place: Place, new_value: object, *, mode: AssignmentMode) -> object:
         _ = mode
         self.preflight(place, new_value, mode="copy")
         segment = _terminal_segment(place)
         assert isinstance(segment, IndexSegment)
-        updated = list(place.owner)
-        updated[segment.index] = new_value
-        return updated
+        return replace_child(place.owner, segment, new_value)
 
 
 class DictKeySetter:
@@ -89,17 +85,14 @@ class DictKeySetter:
             raise TypeError(f"expected dict owner, got {type(place.owner).__name__}")
         if not isinstance(segment, KeySegment):
             raise TypeError(f"expected KeySegment, got {type(segment).__name__}")
-        if segment.key not in place.owner:
-            raise KeyError(segment.key)
+        _ = step_segment(place.owner, segment)
 
     def commit(self, place: Place, new_value: object, *, mode: AssignmentMode) -> object:
         _ = mode
         self.preflight(place, new_value, mode="copy")
         segment = _terminal_segment(place)
         assert isinstance(segment, KeySegment)
-        updated = dict(place.owner)
-        updated[segment.key] = new_value
-        return updated
+        return replace_child(place.owner, segment, new_value)
 
 
 class SequenceSliceSetter:
@@ -112,14 +105,11 @@ class SequenceSliceSetter:
             raise TypeError(f"expected list owner, got {type(place.owner).__name__}")
         if not isinstance(segment, SliceSegment):
             raise TypeError(f"expected SliceSegment, got {type(segment).__name__}")
-        _ = range(*slice(segment.start, segment.stop, segment.step).indices(len(place.owner)))
+        _ = step_segment(place.owner, segment)
 
     def commit(self, place: Place, new_value: object, *, mode: AssignmentMode) -> object:
         _ = mode
         self.preflight(place, new_value, mode="copy")
         segment = _terminal_segment(place)
         assert isinstance(segment, SliceSegment)
-        updated = list(place.owner)
-        for index in range(*slice(segment.start, segment.stop, segment.step).indices(len(updated))):
-            updated[index] = new_value
-        return updated
+        return replace_child(place.owner, segment, new_value)

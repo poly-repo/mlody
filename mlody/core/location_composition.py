@@ -27,12 +27,10 @@ Design rationale (design.md D-5):
 
 from __future__ import annotations
 
-import glob
-import hashlib
-import os
 from typing import Callable
 
-from common.python.starlarkish.core.struct import Struct
+from mlody.common.struct import Struct
+from mlody.core.tabular.location_specs import DerivedLocationSpec, PosixLocationSpec
 
 
 class _LocationComposeError(Exception):
@@ -134,46 +132,6 @@ def compose_location(
     return handler(parent_loc, field_loc, field_name)
 
 
-# ---------------------------------------------------------------------------
-# Built-in posix handler (design D-7: registered at module import time)
-# ---------------------------------------------------------------------------
-
-
-def _as_path_list(path_value: object) -> list[str]:
-    """Coerce a location ``path`` value to a list of strings."""
-    if path_value is None:
-        return []
-    if isinstance(path_value, str):
-        return [path_value]
-    if isinstance(path_value, (list, tuple)):
-        return [str(p) for p in path_value]
-    return [str(path_value)]
-
-
-def _get_paths(loc: Struct) -> list[str]:
-    """Extract ``path`` from a location Struct as a list of strings.
-
-    Location structs produced by the mlody evaluator store ``path`` inside
-    the ``attributes`` dict (via ``extend_attrs``).  Test fixtures may store
-    it as a direct top-level field.  Check both.
-    """
-    direct = getattr(loc, "path", None)
-    if direct is not None:
-        return _as_path_list(direct)
-    attrs = getattr(loc, "attributes", None)
-    if isinstance(attrs, dict):
-        return _as_path_list(attrs.get("path"))
-    return []
-
-
-def _expand_glob(path_pattern: str) -> list[str]:
-    """Expand ``path_pattern`` if it contains glob syntax."""
-    expanded_pattern = os.path.expanduser(path_pattern)
-    if not glob.has_magic(expanded_pattern):
-        return [path_pattern]
-    return sorted(glob.glob(expanded_pattern))
-
-
 def _posix_compose(
     parent_loc: Struct,
     field_loc: Struct | None,
@@ -186,33 +144,13 @@ def _posix_compose(
     - Every composed element is glob-expanded.
     - The returned location always uses ``path`` as ``list[str]``.
     """
-    parent_paths = _get_paths(parent_loc)
-    if not parent_paths:
-        parent_paths = [""]
-
-    field_paths = _get_paths(field_loc) if field_loc is not None else [field_name]
-    if not field_paths:
-        field_paths = [field_name]
-
-    composed_patterns = [
-        os.path.join(parent_path, field_path)
-        for parent_path in parent_paths
-        for field_path in field_paths
-    ]
-    expanded_paths = [p for pattern in composed_patterns for p in _expand_glob(pattern)]
-    # If no globs matched anything, keep the raw composed paths.
-    if not expanded_paths:
-        expanded_paths = composed_patterns
-
-    # Preserve order while deduplicating.
-    seen: set[str] = set()
-    composed_path = [p for p in expanded_paths if not (p in seen or seen.add(p))]
-    return Struct(
-        kind="location",
-        type="posix",
-        name=getattr(parent_loc, "name", ""),
-        path=composed_path,
-    )
+    parent_spec = PosixLocationSpec.from_location(parent_loc)
+    if parent_spec is None:
+        raise _LocationComposeError(
+            f"Cannot compose invalid posix parent location {parent_loc!r}"
+        )
+    field_spec = PosixLocationSpec.from_location(field_loc) if field_loc is not None else None
+    return parent_spec.compose(field_spec, field_name).to_struct()
 
 
 register_location_composer("posix", _posix_compose)
@@ -239,52 +177,13 @@ def _derived_compose(
     ``celebA-dataset-bald.valid``) to query the correct subdirectory of the
     materialised parquet dataset.
     """
-    attrs: dict[str, object] = getattr(parent_loc, "attributes", {}) or {}
-    source_paths: list[str] = list(attrs.get("source_paths") or [])  # type: ignore[arg-type]
-    sql_fragment: str = str(attrs.get("sql_fragment") or "")
-    dialect: str = str(attrs.get("dialect") or "duckdb")
-    source_ref: str = str(attrs.get("source_ref") or "")
-
-    field_paths: list[str] = _get_paths(field_loc) if field_loc is not None else [field_name]
-    if not field_paths:
-        field_paths = [field_name]
-
-    # Cartesian composition: join each source path with each field path.
-    composed_patterns = [
-        os.path.join(os.path.expanduser(sp), fp)
-        for sp in (source_paths or [""])
-        for fp in field_paths
-    ]
-
-    expanded_paths = [p for pat in composed_patterns for p in _expand_glob(pat)]
-    if not expanded_paths:
-        expanded_paths = composed_patterns
-
-    # Preserve order while deduplicating.
-    seen: set[str] = set()
-    new_paths = [p for p in expanded_paths if not (p in seen or seen.add(p))]  # type: ignore[func-returns-value]
-
-    # Compute a new deterministic cache hash over the composed paths + query.
-    raw_key = ":".join(sorted(new_paths)) + ":" + dialect + ":" + sql_fragment
-    hash_hex = hashlib.sha256(raw_key.encode()).hexdigest()[:40]
-    new_output = os.path.join(
-        os.path.expanduser("~"), ".cache", "mlody", "derived", hash_hex + ".parquet"
-    )
-
-    return Struct(
-        kind="location",
-        type="derived",
-        name="derived",
-        abstract=False,
-        _root_kind="derived",
-        attributes={
-            "source_ref": source_ref,
-            "source_paths": new_paths,
-            "sql_fragment": sql_fragment,
-            "dialect": dialect,
-            "output_path": new_output,
-        },
-    )
+    parent_spec = DerivedLocationSpec.from_location(parent_loc)
+    if parent_spec is None:
+        raise _LocationComposeError(
+            f"Cannot compose invalid derived parent location {parent_loc!r}"
+        )
+    field_spec = PosixLocationSpec.from_location(field_loc) if field_loc is not None else None
+    return parent_spec.compose(field_spec, field_name).to_struct()
 
 
 register_location_composer("derived", _derived_compose)

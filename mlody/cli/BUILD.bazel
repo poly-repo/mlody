@@ -5,6 +5,7 @@ o_py_library(
     srcs = [
         "__init__.py",
         "dag_cmd.py",
+        "dag_render.py",
         "dag_gui.py",
         "main.py",
         "shell.py",
@@ -16,6 +17,7 @@ o_py_library(
         "//mlody/common:context_lib",  # keep
         "//mlody/core:core_lib",
         "//mlody/core/label:label_lib",
+        "//mlody/core/tabular:tabular",
         "//mlody/db:db_lib",
         "//mlody/resolver:resolver_lib",
         "@pip//click",
@@ -23,7 +25,7 @@ o_py_library(
         "@pip//networkx",
         "@pip//pillow",
         "@pip//ptpython",
-        "@pip//pyarrow",  # keep — show.py reads derived parquet output
+        "@pip//pyarrow",  # keep — show.py formats pyarrow.Table previews
         "@pip//rich",
     ],
 )
@@ -43,11 +45,11 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":cli_lib",
-        "//mlody/core:derived",  # keep — materialise_derived, DerivedValueShapeError
+        "//mlody/core/tabular:tabular",
         "//mlody/core:workspace_lib",
         "//mlody/db:db_lib",  # keep — show.py imports open_db, write_evaluation, compute_local_diff_sha
         "@pip//click",
-        "@pip//pyarrow",  # keep — derived value parquet reading
+        "@pip//pyarrow",
         "@pip//rich",
     ],
 )
@@ -96,6 +98,14 @@ o_py_test(
         "@pip//networkx",  # keep — TestShowCommandDagPlan
         "@pip//pyarrow",  # keep — derived value test tables
         "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "dag_render_test",
+    srcs = ["dag_render_test.py"],
+    deps = [
+        ":cli_lib",
     ],
 )
 

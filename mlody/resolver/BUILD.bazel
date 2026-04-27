@@ -18,6 +18,7 @@ o_py_library(
         "//mlody/core:core_lib",
         "//mlody/core/label:label_lib",
         "//mlody/core/parquet:parquet_lib",  # keep — label_value.py inline-imports ParquetDeserializer and read_file_as_rows
+        "//mlody/core/tabular:tabular",
         "//mlody/db:db_lib",  # keep — resolver.py imports open_db, write_evaluation, compute_local_diff_sha
         "@pip//pyarrow",  # keep — label_value.py inline-imports pyarrow.parquet
         "@pip//rich",

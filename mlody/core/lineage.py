@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from common.python.starlarkish.core.struct import Struct
+from mlody.common.struct import Struct
 
 from mlody.core.place import AssignmentMode
 
@@ -32,11 +32,9 @@ def append_lineage(value: object, event: object, *, mode: AssignmentMode) -> obj
     """Append a lineage event to a value and return the updated value."""
     _ = mode
     if isinstance(value, Struct):
-        fields = dict(value.as_mapping())
-        lineage = list(fields.get("_lineage", []))
+        lineage = list(value.get("_lineage", []))
         lineage.append(event)
-        fields["_lineage"] = lineage
-        return Struct(**fields)
+        return value.updated(_lineage=lineage)
     if isinstance(value, dict):
         updated = dict(value)
         lineage = list(updated.get("_lineage", []))

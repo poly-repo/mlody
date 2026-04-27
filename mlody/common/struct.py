@@ -1,84 +1,62 @@
-from typing import Any, Dict
-from types import MappingProxyType
-import pickle
+"""mlody-owned compatibility layer for the shared Starlarkish Struct type."""
 
-class Struct:
-    __slots__ = ("_fields",)
+from __future__ import annotations
 
-    def __init__(self, **kwargs: Any):
-        # Store a plain dict internally; we expose a read-only view if needed.
-        object.__setattr__(self, "_fields", dict(kwargs))
+from collections.abc import ItemsView
+from typing import Any
 
-    def __getattr__(self, name: str) -> Any:
-        fields = object.__getattribute__(self, "_fields")
-        if name in fields:
-            return fields[name]
-        raise AttributeError(name)
+from common.python.starlarkish.core.struct import Struct as Struct
+from common.python.starlarkish.core.struct import struct as struct
 
-    def __setattr__(self, key, value):
+_MISSING = object()
+
+
+def _struct_get(self: Struct, name: str, default: Any = None) -> Any:
+    """Return a field value with an optional default for missing names."""
+    return self.as_mapping().get(name, default)
+
+
+def _struct_items(self: Struct) -> ItemsView[str, Any]:
+    """Expose field iteration without leaking the private backing mapping."""
+    return self.as_mapping().items()
+
+
+def _struct_updated(self: Struct, **changes: Any) -> Struct:
+    """Return a new Struct with ``changes`` applied."""
+    updated_fields = dict(self.as_mapping())
+    updated_fields.update(changes)
+    return Struct(**updated_fields)
+
+
+class _FieldAwareMethod:
+    """Descriptor that preserves field access for helper names like ``items``."""
+
+    def __init__(self, field_name: str, func: object):
+        self._field_name = field_name
+        self._func = func
+
+    def __get__(self, instance: Struct | None, owner: type[Struct]) -> object:
+        if instance is None:
+            return self._func
+        field_value = instance.as_mapping().get(self._field_name, _MISSING)
+        if field_value is not _MISSING:
+            return field_value
+        return self._func.__get__(instance, owner)
+
+    def __set__(self, instance: Struct, value: object) -> None:
         raise AttributeError("Struct is immutable")
 
-    def to_dict(self) -> Dict[str, Any]:
-        def conv(x):
-            if isinstance(x, Struct):
-                return x.to_dict()
-            if isinstance(x, dict):
-                return {k: conv(v) for k, v in x.items()}
-            if isinstance(x, (list, tuple)):
-                return [conv(v) for v in x]
-            return x
-        return {k: conv(v) for k, v in self._fields.items()}
 
-    def as_mapping(self) -> MappingProxyType:
-        """Read-only view of the backing dict; avoids exposing mutable dict directly."""
-        return MappingProxyType(self._fields)
+# Patch the shared Struct type in place so evaluator-produced Struct instances
+# automatically expose the mlody helpers without changing upstream code.
+if not hasattr(Struct, "get"):
+    setattr(Struct, "get", _FieldAwareMethod("get", _struct_get))
 
-    def __repr__(self):
-        items = ", ".join(f"{k}={v!r}" for k, v in self._fields.items())
-        return f"struct({items})"
+if not hasattr(Struct, "items"):
+    setattr(Struct, "items", _FieldAwareMethod("items", _struct_items))
 
-    # --- Pickle support: simple, reliable ---
-    def __getstate__(self):
-        # Return a plain serializable representation (the inner dict)
-        # This will be pickled and passed to __setstate__ on unpickle.
-        return self._fields
-
-    def __setstate__(self, state):
-        # Reconstruct from the state (a dict)
-        object.__setattr__(self, "_fields", dict(state))
-
-# factory helper (keeps API similar to Starlark struct())
-def struct(**kwargs: Any) -> Struct:
-    # Optionally coerce nested dicts -> Struct for nicer nesting semantics
-    def maybe_wrap(x):
-        if isinstance(x, dict):
-            return struct(**x)
-        if isinstance(x, (list, tuple)):
-            return [maybe_wrap(v) for v in x]
-        return x
-    wrapped = {k: maybe_wrap(v) for k, v in kwargs.items()}
-    return Struct(**wrapped)
+if not hasattr(Struct, "updated"):
+    setattr(Struct, "updated", _FieldAwareMethod("updated", _struct_updated))
 
 
-# def struct(**kwargs):
-#     """
-#     Mimic Starlark's struct:
-#       - Dot-accessible attributes
-#       - Immutable after creation
-#       - Can be created dynamically from kwargs
-#     """
-#     class Struct:
-#         __slots__ = kwargs.keys()  # prevent dynamic attributes
-
-#         def __init__(self, **inner_kwargs):
-#             for k, v in inner_kwargs.items():
-#                 object.__setattr__(self, k, v)
-
-#         def __setattr__(self, key, value):
-#             raise AttributeError("Cannot modify fields of a struct")
-
-#         def __repr__(self):
-#             fields = ", ".join(f"{k} = {getattr(self, k)!r}" for k in self.__slots__)
-#             return f"struct({fields})"
-
-#     return Struct(**kwargs)
+__all__ = ["Struct", "struct"]

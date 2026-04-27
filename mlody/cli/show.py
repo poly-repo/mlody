@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from functools import singledispatch
 import json
 import logging
 import os
@@ -16,18 +17,20 @@ from typing import Callable
 import click
 import networkx
 import pyarrow as pa
-import pyarrow.parquet as pq
 from rich.console import Console
 from rich.pretty import pretty_repr
-from rich.table import Table
 
 from common.python.console import RichDomNode, RichDomExecutor
 
+from mlody.cli.dag_render import render_dag_table, resolve_show_output_selection
 from mlody.cli.main import cli
-from mlody.core.dag import Edge, TaskNode, ancestors_subgraph, build_dag
-from mlody.core.derived import DerivedValueShapeError, materialise_derived
-from mlody.core.sql.sql_query import MlodyQueryError, mlody_query
-from mlody.core.targets import parse_target
+from mlody.core.dag import build_dag
+from mlody.core.derived import DerivedValueShapeError
+from mlody.core.sql.sql_query import MlodyQueryError
+from mlody.core.tabular.derived_source import DerivedSource
+from mlody.core.tabular.interfaces import PreviewResult
+from mlody.core.tabular.location_specs import source_from_value
+from mlody.core.tabular.parquet_source import ParquetSource
 from mlody.core.workspace import Workspace, WorkspaceLoadError, force
 from mlody.db.evaluations import open_db, write_evaluation
 from mlody.db.local_diff import compute_local_diff_sha, get_repo_root
@@ -432,40 +435,6 @@ def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
 
     return repr(obj)
 
-
-
-def _source_paths_from_location(location: object) -> str | list[str] | None:
-    """Extract the file path(s) from a posix location struct.
-
-    Checks both the top-level ``path`` field (used by composed locations
-    produced by ``_posix_compose``) and the nested ``attributes["path"]`` field
-    (used by factory-created locations from ``extend_attrs``).
-
-    Returns a string path, list of paths, or None if no path is found.
-    """
-    if location is None:
-        return None
-
-    def _coerce(path: object) -> str | list[str]:
-        if isinstance(path, list):
-            return [str(p) for p in path]
-        return str(path)
-
-    # Composed locations (from _posix_compose) store path as a direct field.
-    direct = getattr(location, "path", None)
-    if direct is not None:
-        return _coerce(direct)
-
-    # Factory-created locations (from extend_attrs) store path inside attributes.
-    attrs: dict[str, object] | None = getattr(location, "attributes", None)
-    if isinstance(attrs, dict):
-        path = attrs.get("path")
-        if path is not None:
-            return _coerce(path)
-
-    return None
-
-
 def _print_row_list(rows: list, *, image_encoder=None) -> None:
     """Display a list of row dicts from parquet traversal with inline image support."""
     for i, row in enumerate(rows):
@@ -475,6 +444,70 @@ def _print_row_list(rows: list, *, image_encoder=None) -> None:
         click.echo(f"[{i}]")
         for k, v in row.items():
             click.echo(f"  {k}: {_cell_label(v, image_encoder=image_encoder)}")
+
+
+def _emit_tabular_preview(preview: PreviewResult) -> None:
+    """Render a tabular preview to the terminal."""
+    click.echo(
+        _format_value(
+            preview.table,
+            total_rows=preview.total_rows,
+            image_encoder=_image_encoder_for_terminal(),
+        )
+    )
+
+
+@singledispatch
+def _print_tabular_source(
+    source: object,
+    *,
+    _has_error: list[bool] | None = None,
+) -> bool:
+    """Render a tabular source when supported; return True on handled output."""
+    _ = _has_error
+    return False
+
+
+@_print_tabular_source.register
+def _(
+    source: DerivedSource,
+    *,
+    _has_error: list[bool] | None = None,
+) -> bool:
+    try:
+        _emit_tabular_preview(source.preview(50))
+    except DerivedValueShapeError as exc:
+        click.echo(
+            click.style(
+                f"Error: derived query produced a scalar result — {exc}",
+                fg="red",
+            ),
+            err=True,
+        )
+        if _has_error is not None:
+            _has_error.append(True)
+    except MlodyQueryError as exc:
+        click.echo(
+            click.style(f"Error: {exc}", fg="red"),
+            err=True,
+        )
+        if _has_error is not None:
+            _has_error.append(True)
+    return True
+
+
+@_print_tabular_source.register
+def _(
+    source: ParquetSource,
+    *,
+    _has_error: list[bool] | None = None,
+) -> bool:
+    _ = _has_error
+    try:
+        _emit_tabular_preview(source.preview(50))
+        return True
+    except Exception:
+        return False
 
 
 def _print_mlody_value(
@@ -493,75 +526,12 @@ def _print_mlody_value(
         return
 
     if isinstance(value, MlodyValueValue):
-        location = getattr(value.struct, "location", None)
-        loc_type = getattr(location, "type", None) if location is not None else None
-
-        if loc_type == "derived":
-            attrs: dict[str, object] = getattr(location, "attributes", {})  # type: ignore[assignment]
-            source_ref = attrs.get("source_ref", "")
-            source_paths_attr = attrs.get("source_paths")
-            if source_paths_attr and isinstance(source_paths_attr, list):
-                source_paths: str | list[str] = source_paths_attr
-            else:
-                source_struct = getattr(value.struct, "source", None)
-                source_location = (
-                    getattr(source_struct, "location", None) if source_struct else None
-                )
-                source_paths = _source_paths_from_location(source_location)
-                if source_paths is None:
-                    source_paths = str(source_ref)
-            try:
-                output_path = materialise_derived(location, source_paths)
-                table: pa.Table = pq.read_table(output_path)
-                click.echo(
-                    _format_value(table, image_encoder=_image_encoder_for_terminal())
-                )
-            except DerivedValueShapeError as exc:
-                click.echo(
-                    click.style(
-                        f"Error: derived query produced a scalar result — {exc}",
-                        fg="red",
-                    ),
-                    err=True,
-                )
-                if _has_error is not None:
-                    _has_error.append(True)
-            except MlodyQueryError as exc:
-                click.echo(
-                    click.style(f"Error: {exc}", fg="red"),
-                    err=True,
-                )
-                if _has_error is not None:
-                    _has_error.append(True)
+        tabular_source = source_from_value(value.struct)
+        if tabular_source is not None and _print_tabular_source(
+            tabular_source,
+            _has_error=_has_error,
+        ):
             return
-
-        if location is not None:
-            raw_paths = _source_paths_from_location(location)
-            if raw_paths is not None:
-
-                def _parquet_path(p: str) -> str:
-                    ep = os.path.expanduser(p)
-                    return ep + "/**/*.parquet" if os.path.isdir(ep) else ep
-
-                if isinstance(raw_paths, list):
-                    coerced = [_parquet_path(p) for p in raw_paths]
-                    query_paths: str | list[str] = (
-                        coerced[0] if len(coerced) == 1 else coerced
-                    )
-                else:
-                    query_paths = _parquet_path(raw_paths)
-
-                try:
-                    count_table = mlody_query(query_paths, "SELECT COUNT(*) as n")
-                    total_rows = int(count_table.column("n")[0].as_py())
-                    table = mlody_query(query_paths, "SELECT * LIMIT 50")
-                    enc = _image_encoder_for_terminal()
-                    click.echo(
-                        _format_value(table, total_rows=total_rows, image_encoder=enc)
-                    )
-                    return
-                except Exception:
-                    pass  # not parquet or unreadable — fall through to DOM
 
     from mlody.resolver.label_value import _RawAttrValue  # noqa: PLC0415
 
@@ -608,97 +578,21 @@ def _describe_mlody_value(value: MlodyValue) -> str:
     return pretty_repr(value)
 
 
-def _short_type_name(value: object) -> str:
-    t = getattr(value, "type", None)
-    if t is None:
-        return "?"
-    t_name = getattr(t, "name", None)
-    if isinstance(t_name, str) and t_name:
-        return t_name
-    if isinstance(t, str) and t:
-        return t
-    return "?"
-
-
-def _format_value_list(values: object) -> str:
-    if not isinstance(values, list) or not values:
-        return "—"
-    rendered: list[str] = []
-    for v in values:
-        name = getattr(v, "name", None)
-        if not isinstance(name, str) or not name:
-            name = str(v)
-        rendered.append(f"{name}:{_short_type_name(v)}")
-    return ", ".join(rendered)
-
-
-def _format_action_cell(action_obj: object, fallback_name: str) -> str:
-    if action_obj is None:
-        return fallback_name
-    name = getattr(action_obj, "name", None)
-    if not isinstance(name, str) or not name:
-        name = fallback_name
-    a_inputs = _format_value_list(getattr(action_obj, "inputs", []))
-    a_outputs = _format_value_list(getattr(action_obj, "outputs", []))
-    a_config = _format_value_list(getattr(action_obj, "config", []))
-    return f"{name}\nAIn:  {a_inputs}\nAOut: {a_outputs}\nACfg: {a_config}"
-
-
-def _render_dag_table(display_graph: networkx.MultiDiGraph, title: str) -> None:
+def _maybe_print_dag_plan(workspace: Workspace, label: str) -> None:
     try:
-        order = list(networkx.topological_sort(display_graph))
+        dag = build_dag(workspace)
+        selection = resolve_show_output_selection(dag, label)
+        if selection is None or len(selection.graph.nodes) == 0:
+            return
+        render_dag_table(
+            selection.graph,
+            f"DAG — ancestors of '{label}'",
+            console=_console,
+        )
     except networkx.NetworkXUnfeasible:
         click.echo(
             click.style("Error: cycle detected in task graph", fg="red"), err=True
         )
-        return
-
-    table = Table(title=title, show_lines=True, expand=True)
-    table.add_column("Task", style="cyan", no_wrap=True, ratio=4)
-    table.add_column("Action", style="magenta", no_wrap=False, ratio=2)
-    table.add_column("Dependencies", style="white", ratio=5)
-
-    for node_id in order:
-        task_node = display_graph.nodes[node_id]["task"]
-        task_struct = display_graph.nodes[node_id]["task_struct"]
-        deps: list[str] = []
-        for src_id, _, data in display_graph.in_edges(node_id, data=True):
-            edge: Edge = data["edge"]
-            deps.append(f"{src_id}\n  {edge.src_port} → {edge.dst_path}")
-        inputs_str = _format_value_list(getattr(task_struct, "inputs", []))
-        outputs_str = _format_value_list(getattr(task_struct, "outputs", []))
-        config_str = _format_value_list(getattr(task_struct, "config", []))
-        task_cell = (
-            f"{node_id}\nIn:  {inputs_str}\nOut: {outputs_str}\nCfg: {config_str}"
-        )
-        table.add_row(
-            task_cell,
-            _format_action_cell(getattr(task_struct, "action", None), task_node.action),
-            "\n\n".join(deps) if deps else "—",
-        )
-
-    _console.print(table)
-
-
-def _subgraph_for_show_output_label(
-    dag: networkx.MultiDiGraph, label: str
-) -> networkx.MultiDiGraph | None:
-    try:
-        addr = parse_target(label)
-    except ValueError:
-        return None
-    if len(addr.field_path) == 2 and addr.field_path[0] == "outputs":
-        return ancestors_subgraph(dag, addr.field_path[1])
-    return None
-
-
-def _maybe_print_dag_plan(workspace: Workspace, label: str) -> None:
-    try:
-        dag = build_dag(workspace)
-        subgraph = _subgraph_for_show_output_label(dag, label)
-        if subgraph is None or len(subgraph.nodes) == 0:
-            return
-        _render_dag_table(subgraph, f"DAG — ancestors of '{label}'")
     except Exception as exc:
         _logger.debug("Skipping DAG plan rendering for %r: %s", label, exc)
 
