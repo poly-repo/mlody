@@ -1,4 +1,11 @@
-# gazelle:ignore
+# gazelle:resolve py mlody.teams.framera.pose_estimation //mlody/teams/framera/pose_estimation:framera_lib
+# gazelle:resolve py mlody.teams.framera.pose_estimation.calibration //mlody/teams/framera/pose_estimation:framera_lib
+# gazelle:resolve py mlody.teams.framera.pose_estimation.camera_calibrate //mlody/teams/framera/pose_estimation:framera_lib
+# gazelle:resolve py mlody.teams.framera.pose_estimation.geometry //mlody/teams/framera/pose_estimation:framera_lib
+# gazelle:resolve py mlody.teams.framera.pose_estimation.mediapipe_adapter //mlody/teams/framera/pose_estimation:framera_lib
+# gazelle:resolve py mlody.teams.framera.pose_estimation.pose_estimator //mlody/teams/framera/pose_estimation:framera_lib
+# gazelle:resolve py mlody.teams.framera.pose_estimation.runtime //mlody/teams/framera/pose_estimation:framera_lib
+# gazelle:resolve py mlody.teams.framera.pose_estimation.schema //mlody/teams/framera/pose_estimation:framera_lib
 load("//build/bzl:python.bzl", "o_py_binary", "o_py_library", "o_py_test")
 
 o_py_library(
@@ -29,7 +36,7 @@ o_py_binary(
     main = "pose-estimator.py",
     package_collisions = "warning",
     visibility = ["//visibility:public"],
-    deps = ["//mlody:mlody_lib"],
+    deps = [":framera_lib"],
 )
 
 o_py_binary(
@@ -39,7 +46,7 @@ o_py_binary(
     main = "calibrate-camera.py",
     package_collisions = "warning",
     visibility = ["//visibility:public"],
-    deps = ["//mlody:mlody_lib"],
+    deps = [":framera_lib"],
 )
 
 o_py_test(
@@ -96,6 +103,7 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":framera_lib",
         "@pip//click",
         "@pip//mediapipe",
         "@pip//numpy",

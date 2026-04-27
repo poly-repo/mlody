@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from mlody.core.optimiser import QueryOptimiser, SequentialOptimiser
-from mlody.core.tabular.derived_source import (
+from mlody.core.tabular import (
     DerivedSource,
     DerivedValueShapeError,
+    DerivedLocationSpec,
     validate_shape,
 )
-from mlody.core.tabular.location_specs import DerivedLocationSpec
 
 _DEFAULT_OPTIMISER = SequentialOptimiser()
 

@@ -10,7 +10,7 @@ o_py_test(
     name = "anchor_test",
     srcs = ["anchor_test.py"],
     deps = [
-        ":anchor",
+        ":core_lib",
         "@pip//pytest",
     ],
 )
@@ -85,8 +85,7 @@ o_py_test(
     name = "workspace_loader_test",
     srcs = ["workspace_loader_test.py"],
     deps = [
-        ":workspace_loader",
-        ":workspace_models",
+        ":core_lib",
         "@pip//pyfakefs",
         "@pip//pytest",
     ],
@@ -96,7 +95,7 @@ o_py_test(
     name = "import_paths_test",
     srcs = ["import_paths_test.py"],
     deps = [
-        "//mlody/common:common_lib",  # keep — test uses importlib.import_module("mlody.common")
+        "//mlody/common:common_lib",
         "@pip//pytest",
     ],
 )
@@ -170,7 +169,6 @@ o_py_test(
     deps = [
         ":core_lib",
         "//mlody/common:common_lib",
-        "@pip//pytest",
     ],
 )
 
@@ -239,6 +237,9 @@ o_py_test(
     srcs = ["derived_test.py"],
     deps = [
         ":core_lib",
+        "//mlody/core/sql:sql_query_lib",
+        "//mlody/core/tabular:interfaces_lib",
+        "//mlody/core/tabular:location_specs_lib",
         "@pip//pyarrow",
         "@pip//pytest",
     ],
@@ -396,9 +397,8 @@ o_py_library(
         "//mlody/common:common_lib",
         "//mlody/common:context_lib",  # keep
         "//mlody/core/label:label_pkg",  # keep
-        "//mlody/core/tabular:tabular_lib",
+        "//mlody/core/tabular",
         "@pip//networkx",  # keep — workspace DAG builder
-        "@pip//pyarrow",
         "@pip//rich",
         "@pip//tree_sitter",
         "@pip//tree_sitter_starlark",

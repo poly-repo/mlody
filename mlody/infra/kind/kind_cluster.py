@@ -25,7 +25,7 @@ import click
 import yaml
 from rich.console import Console
 
-from mlody.infra.kind.runner import DryRunRunner, RunnerProtocol, SubprocessRunner
+from .runner import DryRunRunner, RunnerProtocol, SubprocessRunner
 
 # The kind Docker network name is hard-coded per Decision 5 in design.md.
 # TODO(future): make this configurable if multi-network topologies are needed.

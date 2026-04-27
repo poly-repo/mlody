@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import mlody
+
 from mlody.common.image_builder.phases.tags import derive_tag, derive_tags
+
+assert mlody.__name__ == "mlody"
 
 
 _SHA40 = "abcdef1234567890abcdef1234567890abcdef12"

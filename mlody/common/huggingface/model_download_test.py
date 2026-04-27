@@ -1,5 +1,3 @@
-import importlib.util
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,16 +7,6 @@ from mlody.common.huggingface import download as download_module
 from mlody.common.huggingface import repo_client as repo_client_module
 from mlody.common.huggingface import repo_types as repo_types_module
 from mlody.common.huggingface import resume_state as resume_state_module
-
-
-def _load_entrypoint_module():
-    module_path = Path(__file__).with_name("model-download.py")
-    spec = importlib.util.spec_from_file_location("model_download", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 class _FakeResponse:
@@ -343,7 +331,6 @@ def test_repo_type_dataset_uses_dataset_cache_root():
 def test_entrypoint_main_download_dataset_uses_dataset_cache_root(
     monkeypatch, tmp_path
 ):
-    entrypoint = _load_entrypoint_module()
     captured = {}
     fake_info = SimpleNamespace(
         sha="dataset-sha",
@@ -391,7 +378,7 @@ def test_entrypoint_main_download_dataset_uses_dataset_cache_root(
         ],
     )
 
-    entrypoint.main()
+    cli_module.main()
 
     expected_dir = (
         tmp_path
@@ -418,7 +405,6 @@ def test_entrypoint_main_download_dataset_uses_dataset_cache_root(
 def test_entrypoint_main_backward_compatibility_defaults_to_model_repo(
     monkeypatch, tmp_path
 ):
-    entrypoint = _load_entrypoint_module()
     captured = {}
     fake_info = SimpleNamespace(
         sha="model-sha",
@@ -464,7 +450,7 @@ def test_entrypoint_main_backward_compatibility_defaults_to_model_repo(
         ],
     )
 
-    entrypoint.main()
+    cli_module.main()
 
     expected_dir = (
         tmp_path

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import mlody
+
 from mlody.common.image_builder.errors import (
     BazelBuildError,
     BuilderError,
@@ -9,6 +11,8 @@ from mlody.common.image_builder.errors import (
     ExitCode,
     PushError,
 )
+
+assert mlody.__name__ == "mlody"
 
 
 def test_clone_error_has_clone_failure_exit_code() -> None:

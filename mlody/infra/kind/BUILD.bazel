@@ -1,4 +1,5 @@
-# gazelle:ignore
+# gazelle:resolve py mlody.infra.kind.kind_cluster //mlody/infra/kind:kind_cluster_lib
+# gazelle:resolve py mlody.infra.kind.runner //mlody/infra/kind:runner_lib
 load("//build/bzl:python.bzl", "o_py_binary", "o_py_library", "o_py_test")
 
 o_py_library(
@@ -29,7 +30,6 @@ o_py_binary(
     package_collisions = "warning",
     visibility = ["//visibility:public"],
     deps = [
-        "//mlody/infra:infra_lib",
         "@pip//click",
         "@pip//pyyaml",
         "@pip//rich",
@@ -40,7 +40,8 @@ o_py_test(
     name = "kind_cluster_test",
     srcs = ["kind_cluster_test.py"],
     deps = [
-        ":kind_cluster_lib",  # keep — test imports from mlody.infra.kind.kind_cluster and runner
+        ":kind_cluster_lib",
+        ":runner_lib",
         "@pip//pytest",
     ],
 )

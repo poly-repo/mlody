@@ -1,4 +1,3 @@
-# gazelle:ignore
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
@@ -17,7 +16,6 @@ o_py_test(
     srcs = ["local_diff_test.py"],
     deps = [
         ":db_lib",
-        "@pip//pyfakefs",  # keep — tests use the fs fixture
         "@pip//pytest",
     ],
 )

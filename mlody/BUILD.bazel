@@ -1,5 +1,15 @@
 load("//build/bzl:python.bzl", "o_py_library")
 
+# gazelle:resolve py mlody.core.tabular //mlody/core/tabular:tabular
+# gazelle:resolve py mlody.core.tabular.derived_source //mlody/core/tabular:derived_source_lib
+# gazelle:resolve py mlody.core.tabular.interfaces //mlody/core/tabular:interfaces_lib
+# gazelle:resolve py mlody.core.tabular.location_specs //mlody/core/tabular:location_specs_lib
+# gazelle:resolve py mlody.core.tabular.parquet_source //mlody/core/tabular:parquet_source_lib
+# gazelle:resolve py mlody.core.sql //mlody/core/sql:sql
+# gazelle:resolve py mlody.core.sql.sql_query //mlody/core/sql:sql_query_lib
+# gazelle:resolve py mlody.core.parquet //mlody/core/parquet:parquet
+# gazelle:resolve py mlody.core.parquet.deserializer //mlody/core/parquet:deserializer_lib
+
 
 o_py_library(
     name = "mlody_lib",

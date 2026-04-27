@@ -2,27 +2,17 @@
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-
 import pytest
 
-_SPEC = importlib.util.spec_from_file_location(
-    "mlody_struct_under_test",
-    Path(__file__).with_name("struct.py"),
-)
-assert _SPEC is not None
-assert _SPEC.loader is not None
-_MODULE = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(_MODULE)
-Struct = _MODULE.Struct
-struct = _MODULE.struct
+import mlody
+from mlody.common.struct import Struct, struct
 
 
 class TestStructCompatibilityLayer:
     """Requirement: mlody.common.struct extends the shared Struct API in place."""
 
     def test_struct_aliases_starlarkish_struct(self) -> None:
+        assert mlody.__name__ == "mlody"
         assert Struct.__module__ == "common.python.starlarkish.core.struct"
 
     def test_get_returns_existing_field_value(self) -> None:

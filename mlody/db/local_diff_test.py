@@ -57,9 +57,7 @@ def test_get_repo_root_git_not_found(caplog: pytest.LogCaptureFixture) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_compute_none_repo_root(
-    fs: object, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_compute_none_repo_root(caplog: pytest.LogCaptureFixture) -> None:
     """compute_local_diff_sha returns None and warns when repo_root is None."""
     result = compute_local_diff_sha(None)
 
@@ -67,14 +65,14 @@ def test_compute_none_repo_root(
     assert any("warn" in r.levelname.lower() for r in caplog.records)
 
 
-def test_compute_both_subtrees_absent(fs: object) -> None:
+def test_compute_both_subtrees_absent(tmp_path: Path) -> None:
     """Returns SHA-256 of a newline when neither subtree exists.
 
     Per spec §2.1: both subtrees absent -> zero files -> hash of the combined
     string (which is "\n" after joining zero parts and appending the trailing
     newline), not None.
     """
-    repo_root = Path("/repo")
+    repo_root = tmp_path / "repo"
 
     result = compute_local_diff_sha(repo_root)
 
@@ -84,12 +82,12 @@ def test_compute_both_subtrees_absent(fs: object) -> None:
     assert result is not None
 
 
-def test_compute_one_subtree_absent(fs: object) -> None:
+def test_compute_one_subtree_absent(tmp_path: Path) -> None:
     """Returns a non-null digest when only mlody/ exists.
 
     The digest must differ from the empty-tree hash because files are present.
     """
-    repo_root = Path("/repo")
+    repo_root = tmp_path / "repo"
     mlody_dir = repo_root / "mlody"
     mlody_dir.mkdir(parents=True)
     (mlody_dir / "file.py").write_text("print('hello')")
@@ -102,9 +100,9 @@ def test_compute_one_subtree_absent(fs: object) -> None:
     assert result != empty_hash
 
 
-def test_compute_deterministic(fs: object) -> None:
+def test_compute_deterministic(tmp_path: Path) -> None:
     """Same files and content produce identical digests on two calls."""
-    repo_root = Path("/repo")
+    repo_root = tmp_path / "repo"
     mlody_dir = repo_root / "mlody"
     mlody_dir.mkdir(parents=True)
     (mlody_dir / "a.py").write_text("x = 1")
@@ -117,9 +115,9 @@ def test_compute_deterministic(fs: object) -> None:
     assert first == second
 
 
-def test_compute_untracked_file_changes_hash(fs: object) -> None:
+def test_compute_untracked_file_changes_hash(tmp_path: Path) -> None:
     """Adding a new file under mlody/ changes the digest."""
-    repo_root = Path("/repo")
+    repo_root = tmp_path / "repo"
     mlody_dir = repo_root / "mlody"
     mlody_dir.mkdir(parents=True)
     (mlody_dir / "existing.py").write_text("# existing")
@@ -131,9 +129,9 @@ def test_compute_untracked_file_changes_hash(fs: object) -> None:
     assert before != after
 
 
-def test_compute_modified_file_changes_hash(fs: object) -> None:
+def test_compute_modified_file_changes_hash(tmp_path: Path) -> None:
     """Modifying an existing file under mlody/ changes the digest."""
-    repo_root = Path("/repo")
+    repo_root = tmp_path / "repo"
     mlody_dir = repo_root / "mlody"
     mlody_dir.mkdir(parents=True)
     target = mlody_dir / "module.py"
@@ -146,14 +144,14 @@ def test_compute_modified_file_changes_hash(fs: object) -> None:
     assert before != after
 
 
-def test_compute_sort_order_independent(fs: object) -> None:
+def test_compute_sort_order_independent(tmp_path: Path) -> None:
     """Digest is the same regardless of filesystem enumeration order.
 
     We create two files whose names would sort differently depending on
     traversal order, then verify both calls return the same hash. The
     implementation must sort by repo-relative path before hashing.
     """
-    repo_root = Path("/repo")
+    repo_root = tmp_path / "repo"
     mlody_dir = repo_root / "mlody"
     mlody_dir.mkdir(parents=True)
     (mlody_dir / "zzz.py").write_text("# zzz")

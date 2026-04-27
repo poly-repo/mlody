@@ -1,4 +1,3 @@
-# gazelle:ignore
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
@@ -23,7 +22,8 @@ o_py_test(
     name = "parquet_test",
     srcs = ["parquet_test.py"],
     deps = [
-        ":parquet_lib",
+        ":deserializer_lib",
+        ":parquet",
         "@pip//pyarrow",
         "@pip//pytest",
     ],
@@ -36,5 +36,8 @@ o_py_library(
         "deserializer.py",
     ],
     visibility = ["//:__subpackages__"],
-    deps = ["@pip//pyarrow"],
+    deps = [
+        ":deserializer_lib",
+        "@pip//pyarrow",
+    ],
 )

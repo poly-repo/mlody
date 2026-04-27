@@ -1,4 +1,3 @@
-# gazelle:ignore
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
@@ -66,8 +65,12 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":derived_source_lib",
+        ":interfaces_lib",
+        ":location_specs_lib",
+        ":parquet_source_lib",
         "//mlody/common:common_lib",
-        "//mlody/core:optimiser",
+        "//mlody/core:core_lib",
         "//mlody/core/sql:sql_query_lib",
         "@pip//pyarrow",
     ],
@@ -79,7 +82,6 @@ o_py_test(
     deps = [
         ":tabular",
         "//mlody/common:common_lib",
-        "@pip//pytest",
     ],
 )
 
@@ -89,7 +91,6 @@ o_py_test(
     deps = [
         ":parquet_source_lib",
         "@pip//pyarrow",
-        "@pip//pytest",
     ],
 )
 

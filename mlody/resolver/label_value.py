@@ -36,7 +36,12 @@ from common.python.console import RichDomNode, SyntaxNode, StackNode, text, frag
 
 if TYPE_CHECKING:
     import pyarrow as pa
+    import pyarrow.parquet as _pyarrow_parquet
+    from mlody.core.derived import materialise_derived
+    from mlody.core.parquet import ParquetDeserializer, read_file_as_rows
     from mlody.core.label.label import Label
+    from mlody.core.sql.sql_query import MlodyQueryError, mlody_query
+    from mlody.core.tabular.location_specs import DerivedLocationSpec
     from mlody.core.workspace import Workspace
 
 

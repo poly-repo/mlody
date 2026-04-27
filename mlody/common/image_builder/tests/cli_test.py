@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import mlody
 import pytest
 from click.testing import CliRunner
 
 from mlody.common.image_builder.__main__ import main
 from mlody.common.image_builder.errors import BazelBuildError, ExitCode
 from mlody.common.image_builder.output import SuccessResult
+
+assert mlody.__name__ == "mlody"
 
 _VALID_SHA = "a" * 40
 _REGISTRY = "registry.example.com/mlody"

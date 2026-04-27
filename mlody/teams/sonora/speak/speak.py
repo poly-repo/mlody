@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from mlody.teams.sonora.speak.runtime import (
+from .runtime import (
     DEFAULT_MODEL_DIR,
     SpeakConfig,
     run_once,

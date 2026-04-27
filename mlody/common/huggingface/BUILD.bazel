@@ -1,4 +1,3 @@
-# gazelle:ignore
 load("//build/bzl:python.bzl", "o_py_binary", "o_py_library", "o_py_test")
 
 o_py_binary(
@@ -14,6 +13,7 @@ o_py_library(
         "__init__.py",
         "cli.py",
         "download.py",
+        "model-download.py",
         "repo_client.py",
         "repo_types.py",
         "resume_state.py",
@@ -28,7 +28,6 @@ o_py_library(
 o_py_test(
     name = "model_download_test",
     srcs = ["model_download_test.py"],
-    data = ["model-download.py"],
     deps = [
         ":huggingface_lib",
         "@pip//pytest",

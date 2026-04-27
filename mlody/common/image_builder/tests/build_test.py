@@ -5,11 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import mlody
 import pytest
+from pyfakefs import fake_filesystem as _fake_filesystem
 
 from mlody.common.image_builder.errors import BazelBuildError
 from mlody.common.image_builder.phases.build import BazelResult, _DYN_PKG, run_bazel_build
 from mlody.common.image_builder.phases.clone import CloneResult
+
+assert mlody.__name__ == "mlody"
+assert _fake_filesystem.__name__ == "pyfakefs.fake_filesystem"
 
 _SHA = "a" * 40
 _CLONE_DIR = Path("/fake/clone/dir")

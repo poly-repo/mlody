@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import mlody
 import pytest
+from pyfakefs import fake_filesystem as _fake_filesystem
 
 from mlody.common.image_builder.errors import CloneError
 from mlody.common.image_builder.phases.clone import (
@@ -15,6 +17,9 @@ from mlody.common.image_builder.phases.clone import (
     _lock_path,
     ensure_clone,
 )
+
+assert mlody.__name__ == "mlody"
+assert _fake_filesystem.__name__ == "pyfakefs.fake_filesystem"
 
 _SHA = "a" * 40
 _REMOTE = "https://example.com/repo.git"

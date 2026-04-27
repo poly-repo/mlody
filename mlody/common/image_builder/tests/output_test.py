@@ -6,9 +6,12 @@ import io
 import json
 import sys
 
+import mlody
 import pytest
 
 from mlody.common.image_builder.output import SuccessResult, emit_error, emit_success
+
+assert mlody.__name__ == "mlody"
 
 
 def _capture_stdout(fn: object, *args: object) -> str:

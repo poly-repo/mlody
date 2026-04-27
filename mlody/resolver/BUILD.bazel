@@ -1,4 +1,3 @@
-# gazelle:ignore
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
@@ -17,8 +16,9 @@ o_py_library(
         "//common/python/starlarkish/core:core_lib",
         "//mlody/core:core_lib",
         "//mlody/core/label:label_lib",
-        "//mlody/core/parquet:parquet_lib",  # keep — label_value.py inline-imports ParquetDeserializer and read_file_as_rows
-        "//mlody/core/tabular:tabular",
+        "//mlody/core/parquet",
+        "//mlody/core/sql:sql_query_lib",
+        "//mlody/core/tabular:location_specs_lib",
         "//mlody/db:db_lib",  # keep — resolver.py imports open_db, write_evaluation, compute_local_diff_sha
         "@pip//pyarrow",  # keep — label_value.py inline-imports pyarrow.parquet
         "@pip//rich",
