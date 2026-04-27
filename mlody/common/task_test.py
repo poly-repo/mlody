@@ -395,6 +395,23 @@ def test_task_output_value_accepts_group_and_scoped_value_preserves_it() -> None
     assert scoped_value._context_attr_policies == {"group": ("task.outputs",)}
 
 
+def test_task_output_value_preserves_unit_on_scoped_clone() -> None:
+    ev = _eval(
+        'task(\n'
+        '  name="train",\n'
+        '  inputs=[],\n'
+        '  outputs=[value(name="distance", type=float(), location=inline(), unit="km")],\n'
+        '  action=action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy")),\n'
+        ')\n'
+    )
+    task_value = ev._tasks_by_name["train"].outputs[0]
+    scoped_value = ev._values_by_name["train.distance"]
+    assert task_value.unit is not None
+    assert task_value.unit.to_string() == "km"
+    assert scoped_value.unit is not None
+    assert scoped_value.unit.to_string() == "km"
+
+
 def test_task_input_value_with_group_raises_context_validation_error() -> None:
     with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
         _eval(

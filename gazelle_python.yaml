@@ -157,6 +157,8 @@ manifest:
     annotated_types: annotated_types
     anyio: anyio
     appdirs: appdirs
+    astropy: astropy
+    astropy_iers_data: astropy_iers_data
     attr: attrs
     attrs: attrs
     babel: babel
@@ -188,6 +190,7 @@ manifest:
     docs.source.conf: phonemizer
     duckdb: duckdb
     dunamai: dunamai
+    erfa: pyerfa
     filelock: filelock
     flatbuffers: flatbuffers
     fontTools: fonttools

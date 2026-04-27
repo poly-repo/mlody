@@ -100,6 +100,10 @@ dependencies = [
   # See: https://arrow.apache.org/docs/python/
   "pyarrow",
 
+  # physical units parsing for numeric mlody value metadata.
+  # See: https://docs.astropy.org/en/stable/units/
+  "astropy",
+
   # in-memory analytical query engine for Parquet-backed mlody SQL queries.
   # See: https://duckdb.org/docs/api/python/overview
   "duckdb",

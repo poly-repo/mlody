@@ -125,11 +125,19 @@ def _sandbox_type(obj: object) -> str:
     return "unknown"
 
 
+def _parse_astropy_unit(text: str) -> object:
+    """Parse an Astropy unit string into a unit object."""
+    from astropy import units as u
+
+    return u.Unit(text)
+
+
 # Python-specific builtins that are not part of the Starlark standard.
 # These will be exposed under a `python` object.
 PYTHON_SPECIFIC_BUILTINS = struct(
     hasattr=builtins.hasattr,
     getattr=builtins.getattr,
+    parse_astropy_unit=_parse_astropy_unit,
     round=builtins.round,
     sum=builtins.sum,
     Any=Any,

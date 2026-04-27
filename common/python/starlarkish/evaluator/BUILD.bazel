@@ -8,7 +8,10 @@ o_py_library(
         "testing.py",
     ],
     visibility = ["//:__subpackages__"],
-    deps = ["//common/python/starlarkish/core:core_lib"],
+    deps = [
+        "//common/python/starlarkish/core:core_lib",
+        "@pip//astropy",
+    ],
 )
 
 o_py_library(

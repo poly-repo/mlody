@@ -686,6 +686,29 @@ def test_value_stores_constraint_and_context_policy() -> None:
     }
 
 
+def test_value_without_unit_defaults_to_none() -> None:
+    ev = _eval('value(name="distance", type=float(), location=inline())')
+    value = ev._values_by_name["distance"]
+    assert value.unit is None
+
+
+def test_value_parses_unit_for_numeric_type() -> None:
+    ev = _eval('value(name="distance", type=float(), location=inline(), unit="m / s")')
+    value = ev._values_by_name["distance"]
+    assert value.unit is not None
+    assert value.unit.to_string() == "m / s"
+
+
+def test_value_parses_unit_for_numeric_typedef() -> None:
+    ev = _eval(
+        'typedef(name="distance", base=float(min=0.0))\n'
+        'value(name="run", type=distance(), location=inline(), unit="km")'
+    )
+    value = ev._values_by_name["run"]
+    assert value.unit is not None
+    assert value.unit.to_string() == "km"
+
+
 def test_value_group_rejects_non_string() -> None:
     with pytest.raises(TypeError):
         _eval("value(name='artifact', type=string(), location=s3(), group=1)")
@@ -694,6 +717,21 @@ def test_value_group_rejects_non_string() -> None:
 def test_value_constraint_rejects_non_string() -> None:
     with pytest.raises(TypeError):
         _eval("value(name='cfg', type=string(), location=inline(), constraint=1)")
+
+
+def test_value_unit_rejects_non_string() -> None:
+    with pytest.raises(TypeError):
+        _eval("value(name='distance', type=float(), location=inline(), unit=1)")
+
+
+def test_value_unit_rejects_non_numeric_type() -> None:
+    with pytest.raises(TypeError, match="numeric value types"):
+        _eval("value(name='label', type=string(), location=inline(), unit='m')")
+
+
+def test_value_unit_rejects_invalid_unit_string() -> None:
+    with pytest.raises(ValueError, match="Invalid unit"):
+        _eval("value(name='distance', type=float(), location=inline(), unit='not-a-unit')")
 
 
 def test_value_with_contextual_attr_requires_materialized_context() -> None:
