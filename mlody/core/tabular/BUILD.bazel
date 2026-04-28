@@ -17,6 +17,7 @@ o_py_library(
         ":parquet_source_lib",
         ":remote_staging_lib",
         "//mlody/common:common_lib",
+        "//mlody/core/sql:sql_query_lib",
     ],
 )
 

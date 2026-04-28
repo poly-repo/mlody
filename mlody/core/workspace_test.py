@@ -634,7 +634,7 @@ class TestStdoutSafety:
         self, project: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         # The LSP server always supplies a no-op print_fn and a null console so
-        # that neither sandbox print() calls nor the post-load registry dump
+        # that neither sandbox print() calls nor any framework-level verbose
         # reach stdout.
         ws = Workspace(
             monorepo_root=project,
@@ -648,6 +648,15 @@ class TestStdoutSafety:
             "workspace.load() must not write to stdout — "
             "stdout is the LSP transport and stray output corrupts the protocol"
         )
+
+    def test_verbose_load_does_not_dump_registry_to_stdout(
+        self, project: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        ws = Workspace(monorepo_root=project)
+        ws.load(verbose=True)
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
 
 
 # ---------------------------------------------------------------------------

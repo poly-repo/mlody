@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+_logger = logging.getLogger(__name__)
 
 
 class RemoteFetchError(ValueError):
@@ -33,6 +36,7 @@ class RemoteStagingManager:
     def stage(self, uri: str) -> StagedRemoteFile:
         """Stage *uri* locally and return the cached local artifact."""
         if uri in self._staged:
+            _logger.debug("Remote staging cache hit for %s", uri)
             return self._staged[uri]
 
         parsed = urlparse(uri)
@@ -46,6 +50,8 @@ class RemoteStagingManager:
         dest = Path(self._tmpdir.name) / f"{name_digest}{suffix}"
         request = Request(uri, headers={"User-Agent": "mlody/remote"})
         content_hash = hashlib.sha256()
+        total_bytes = 0
+        _logger.info("Fetching remote URI %s to %s", uri, dest)
         try:
             with urlopen(request) as response, dest.open("wb") as handle:  # noqa: S310
                 while True:
@@ -54,7 +60,9 @@ class RemoteStagingManager:
                         break
                     handle.write(chunk)
                     content_hash.update(chunk)
+                    total_bytes += len(chunk)
         except Exception as exc:  # noqa: BLE001
+            _logger.error("Failed to fetch remote URI %s: %s", uri, exc)
             raise RemoteFetchError(f"Failed to fetch remote URI {uri!r}: {exc}") from exc
 
         staged = StagedRemoteFile(
@@ -63,6 +71,12 @@ class RemoteStagingManager:
             content_hash=content_hash.hexdigest(),
         )
         self._staged[uri] = staged
+        _logger.info(
+            "Staged remote URI %s at %s (%d bytes)",
+            uri,
+            dest,
+            total_bytes,
+        )
         return staged
 
 

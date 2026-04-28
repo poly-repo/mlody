@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Callable, cast
 
 from rich.console import Console
-from rich.syntax import Syntax
 
 from mlody.common.struct import Struct
 from common.python.starlarkish.evaluator.evaluator import Evaluator
@@ -25,7 +23,7 @@ from mlody.core.registry_view import RegistryView
 from mlody.core.source_parser import extract_entity_ranges
 from mlody.core.targets import TargetAddress, parse_target, resolve_target_value
 from mlody.core.traversal_runtime import step_named_child
-from mlody.core.traversal_grammar import IndexSegment, KeySegment, WildcardSegment
+from mlody.core.traversal_grammar import IndexSegment, KeySegment, SqlSegment, WildcardSegment
 from mlody.core.traversal_parser import TraversalParseError, parse_traversal_expression
 from mlody.core.virtual_value import force_virtual_value, make_virtual_value, traverse_virtual_value
 from mlody.core.workspace_loader import WorkspaceLoader
@@ -164,6 +162,7 @@ class Workspace:
         registry_anchor = self._registry.match_registry_entity_label(
             target,
             entity=lbl.entity,
+            entity_query=lbl.entity_query,
             attribute_path=lbl.attribute_path,
             root_infos=self._root_infos,
         )
@@ -336,6 +335,10 @@ class Workspace:
 
     def load(self, verbose: bool = False) -> None:
         """Execute two-phase loading of pipeline definitions."""
+        # Keep the verbose parameter for API compatibility. The CLI's
+        # --verbose flag now controls logging level only; RegistryView.debug_dump()
+        # remains available for a future explicit dump attribute.
+        _ = verbose
         loader = WorkspaceLoader(
             monorepo_root=self._monorepo_root,
             roots_file=self._roots_file,
@@ -351,10 +354,6 @@ class Workspace:
             convert_ports_to_structs=self._convert_ports_to_structs,
         )
         loader.load()
-
-        if verbose:
-            data = self._registry.debug_dump()
-            self._console.print(Syntax(json.dumps(data, indent=2, default=repr), "json"))
 
     def resolve(self, target: str | TargetAddress) -> object:
         """Parse (if string) and resolve a target to a value.
@@ -417,6 +416,16 @@ class Workspace:
                     anchor = self.resolve_label_anchor(target)
                     obj = anchor.root_value
                     field_parts = anchor.field_parts
+                    eq = anchor.entity_query
+                    expr2 = None
+                    seg2 = None
+                    if eq is not None:
+                        try:
+                            expr2 = parse_traversal_expression(f"[{eq}]")
+                        except TraversalParseError:
+                            expr2 = None
+                        if expr2 is not None and expr2.segments:
+                            seg2 = expr2.segments[0]
 
                     if (
                         anchor.exposes_collection_view()
@@ -448,34 +457,31 @@ class Workspace:
                         return _RESOLVER_TRAVERSE(
                             obj, field_parts, anchor.entity_query, lbl
                         )
+                    if isinstance(seg2, SqlSegment) and _RESOLVER_TRAVERSE is not None:
+                        return _RESOLVER_TRAVERSE(
+                            obj, field_parts, anchor.entity_query, lbl
+                        )
 
                     for field in field_parts:
                         obj = self._step_resolved_object(obj, field)
 
-                    eq = anchor.entity_query
-                    if eq is not None:
-                        try:
-                            expr2 = parse_traversal_expression(f"[{eq}]")
-                        except TraversalParseError:
-                            expr2 = None
-                        if expr2 is not None and expr2.segments:
-                            seg2 = expr2.segments[0]
-                            if isinstance(seg2, IndexSegment) and isinstance(
-                                obj,
-                                (list, tuple),
-                            ):
-                                obj = obj[seg2.index]
-                            elif isinstance(seg2, KeySegment) and isinstance(obj, dict):
-                                obj = obj[seg2.key]
-                            elif isinstance(seg2, WildcardSegment) and isinstance(
-                                obj,
-                                (list, tuple, dict),
-                            ):
-                                obj = (
-                                    list(obj.values())
-                                    if isinstance(obj, dict)
-                                    else list(obj)
-                                )
+                    if seg2 is not None:
+                        if isinstance(seg2, IndexSegment) and isinstance(
+                            obj,
+                            (list, tuple),
+                        ):
+                            obj = obj[seg2.index]
+                        elif isinstance(seg2, KeySegment) and isinstance(obj, dict):
+                            obj = obj[seg2.key]
+                        elif isinstance(seg2, WildcardSegment) and isinstance(
+                            obj,
+                            (list, tuple, dict),
+                        ):
+                            obj = (
+                                list(obj.values())
+                                if isinstance(obj, dict)
+                                else list(obj)
+                            )
                     return obj
 
         address = parse_target(target) if isinstance(target, str) else target

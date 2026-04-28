@@ -13,6 +13,8 @@ Covers:
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -75,6 +77,36 @@ builtins.register("value", struct(
 ))
 """
 
+_REMOTE_CSV_VALUE_MLODY_TEMPLATE = """\
+builtins.register("value", struct(
+    kind="value",
+    name="remote_dataset",
+    type=None,
+    location=struct(
+        kind="location",
+        type="remote",
+        name="remote_loc",
+        uri="{uri}",
+        attributes={{"uri": "{uri}"}},
+    ),
+    representation=struct(
+        kind="representation",
+        name="csv",
+        separator=",",
+        header_required=True,
+        multifile=False,
+        attributes={{
+            "separator": ",",
+            "header_required": True,
+            "multifile": False,
+        }},
+    ),
+    default=None,
+    source=None,
+    _lineage=[],
+))
+"""
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -122,6 +154,24 @@ def _make_workspace_with_plain_value(root: Path) -> Workspace:
     (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
     (root / "mlody" / "common" / "types.mlody").write_text("")
     (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(_PLAIN_VALUE_MLODY)
+
+    ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
+    ws.load()
+    return ws
+
+
+def _make_remote_csv_workspace(root: Path, uri: str) -> Workspace:
+    """Create a minimal workspace with one remote CSV-backed value entity."""
+    (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
+    (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
+    (root / "teams" / "data" / "pkg").mkdir(parents=True, exist_ok=True)
+
+    (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
+    (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
+    (root / "mlody" / "common" / "types.mlody").write_text("")
+    (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(
+        _REMOTE_CSV_VALUE_MLODY_TEMPLATE.format(uri=uri)
+    )
 
     ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
     ws.load()
@@ -178,6 +228,74 @@ class TestParquetIndexAccess:
 
         # No traversal path → struct is wrapped as-is
         assert isinstance(result, MlodyValueValue)
+
+    def test_end_to_end_sql_entity_query_returns_filtered_rows(
+        self, tmp_path: Path
+    ) -> None:
+        """SQL entity-query suffix filters rows through the tabular helper."""
+        parquet_file = tmp_path / "train.parquet"
+        _make_parquet_file(parquet_file)
+        ws = _make_workspace(tmp_path, parquet_file)
+
+        label = parse_label("@data//pkg/dataset:my_dataset[@sql WHERE score > 0.3]")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue, got {result!r}"
+        rows = result.value
+        assert isinstance(rows, list)
+        assert [row["id"] for row in rows] == [3, 4]
+        assert [row["label"] for row in rows] == ["fish", "hamster"]
+
+    def test_sql_entity_query_on_non_tabular_value_returns_unresolved(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-tabular SQL suffixes fail softly with a descriptive reason."""
+        ws = _make_workspace_with_plain_value(tmp_path)
+
+        label = parse_label("@data//pkg/dataset:plain_value[@sql WHERE score > 0.3]")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyUnresolvedValue)
+        assert "tabular value" in result.reason
+        assert "plain_value" in result.reason
+
+    def test_remote_csv_sql_entity_query_returns_filtered_rows(
+        self, tmp_path: Path
+    ) -> None:
+        """Remote CSV values execute SQL queries through staged tabular input."""
+        csv_path = tmp_path / "employees.csv"
+        csv_path.write_text("id,label,score\n0,cat,0.1\n1,dog,0.4\n2,bird,0.6\n")
+        ws = _make_remote_csv_workspace(tmp_path, "https://example.com/employees.csv")
+
+        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+            mock_stage.return_value = SimpleNamespace(
+                uri="https://example.com/employees.csv",
+                path=csv_path,
+                content_hash="abc123",
+            )
+            label = parse_label(
+                "@data//pkg/dataset:remote_dataset[@sql WHERE score > 0.3]"
+            )
+            result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue, got {result!r}"
+        rows = result.value
+        assert isinstance(rows, list)
+        assert [row["id"] for row in rows] == [1, 2]
+        mock_stage.assert_called_once_with("https://example.com/employees.csv")
+
+    def test_workspace_resolve_sql_entity_query_returns_filtered_rows(
+        self, tmp_path: Path
+    ) -> None:
+        """Workspace.resolve uses the resolver hook for SQL entity-query suffixes."""
+        parquet_file = tmp_path / "train.parquet"
+        _make_parquet_file(parquet_file)
+        ws = _make_workspace(tmp_path, parquet_file)
+
+        result = ws.resolve("@data//pkg/dataset:my_dataset[@sql WHERE score > 0.3]")
+
+        assert isinstance(result, list)
+        assert [row["id"] for row in result] == [3, 4]
 
 
 # ---------------------------------------------------------------------------

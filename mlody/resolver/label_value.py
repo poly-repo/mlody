@@ -733,6 +733,37 @@ def _is_parquet_backed(value: object) -> bool:
     )
 
 
+def _run_sql_entity_query(
+    value: object,
+    sql: str,
+    label: "Label",
+) -> "_RawAttrValue | MlodyUnresolvedValue":
+    """Execute a terminal ``[@sql ...]`` entity query against a value target."""
+    from mlody.core.tabular.location_specs import query_rows_from_value  # noqa: PLC0415
+
+    if isinstance(value, MlodyValueValue):
+        value_struct = value.struct
+    elif getattr(value, "kind", None) == "value":
+        value_struct = value
+    else:
+        return MlodyUnresolvedValue(
+            label=label,
+            reason=(
+                "SQL entity queries require a value(...) target; "
+                f"got {type(value).__name__!r} (label: {label!r})"
+            ),
+        )
+
+    try:
+        rows = query_rows_from_value(value_struct, sql)
+    except ValueError as exc:
+        return MlodyUnresolvedValue(
+            label=label,
+            reason=f"{exc} (label: {label!r})",
+        )
+    return _RawAttrValue(value=rows, label=label)
+
+
 def _traverse_json_backed_value(
     value: object,
     path: tuple[str, ...],
@@ -2491,6 +2522,7 @@ def resolve_label_to_value(
                 TraversalParseError,
                 parse_traversal_expression,
             )
+            from mlody.core.traversal_grammar import SqlSegment  # noqa: PLC0415
 
             try:
                 eq_expr = parse_traversal_expression(f"[{label.entity_query}]")
@@ -2498,6 +2530,8 @@ def resolve_label_to_value(
                 eq_expr = None
             if eq_expr is not None and eq_expr.segments:
                 seg = eq_expr.segments[0]
+                if isinstance(seg, SqlSegment):
+                    return _run_sql_entity_query(result, seg.query, label)
                 # For Parquet-backed entities the entity_query bracket expression
                 # (e.g. [0]) must be forwarded through ParquetTraversalStrategy
                 # rather than the generic _traverse_one_step, because the strategy
@@ -2600,6 +2634,13 @@ def _workspace_traverse_record(
             expr = None
         if expr is not None and expr.segments:
             seg = expr.segments[0]
+            from mlody.core.traversal_grammar import SqlSegment  # noqa: PLC0415
+
+            if isinstance(seg, SqlSegment):
+                sql_result = _run_sql_entity_query(current, seg.query, lbl)
+                if isinstance(sql_result, MlodyUnresolvedValue):
+                    return sql_result
+                return sql_result.value
             q_result = _traverse_one_step(
                 current, seg, field_parts, lbl, TraversalErrorPolicy.RAISE
             )

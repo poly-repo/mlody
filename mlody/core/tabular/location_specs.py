@@ -426,3 +426,30 @@ def source_from_value(value_struct: object) -> TabularSource | None:
         return ParquetSource(paths=posix_spec.paths)
 
     return None
+
+
+def query_rows_from_value(value_struct: object, sql: str) -> list[dict[str, object]]:
+    """Run *sql* against a tabular value struct and return row dicts."""
+    from mlody.core.sql.sql_query import mlody_query
+
+    value_name = str(getattr(value_struct, "name", "<unknown>"))
+    try:
+        tabular_source = source_from_value(value_struct)
+    except ValueError as exc:
+        raise ValueError(
+            f"Failed to prepare tabular value {value_name!r} for SQL query: {exc}"
+        ) from exc
+
+    if tabular_source is None:
+        raise ValueError(
+            f"SQL entity queries require a tabular value; {value_name!r} is not tabular in v1"
+        )
+
+    try:
+        table = mlody_query(tabular_source.query_input(), sql)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(
+            f"SQL query failed for value {value_name!r}: {exc}"
+        ) from exc
+
+    return table.to_pylist()

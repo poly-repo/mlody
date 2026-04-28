@@ -127,6 +127,7 @@ class RegistryView:
         target: str,
         *,
         entity: object,
+        entity_query: str | None,
         attribute_path: tuple[str, ...] | None,
         root_infos: Mapping[str, RootInfo],
     ) -> RegistryEntityAnchor | None:
@@ -135,7 +136,6 @@ class RegistryView:
         entity_path = getattr(entity, "path", None)
         entity_name = getattr(entity, "name", None)
         entity_field_path = getattr(entity, "field_path", ()) or ()
-        entity_query = getattr(entity, "entity_query", None)
 
         if entity_name is None:
             return None

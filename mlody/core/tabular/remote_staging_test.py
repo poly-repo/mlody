@@ -64,3 +64,27 @@ def test_stage_remote_file_content_hash_is_stable(http_server: tuple[str, Path])
 def test_stage_remote_file_rejects_unsupported_scheme() -> None:
     with pytest.raises(RemoteFetchError, match="http/https"):
         stage_remote_file("file:///tmp/data.csv")
+
+
+def test_stage_remote_file_logs_uri_access(
+    http_server: tuple[str, Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    base_url, root = http_server
+    source_path = root / "employees.csv"
+    source_path.write_text("name,age\nAlice,30\nBob,40\n")
+
+    manager = RemoteStagingManager()
+    uri = f"{base_url}/employees.csv"
+
+    with caplog.at_level("INFO", logger="mlody.core.tabular.remote_staging"):
+        manager.stage(uri)
+
+    assert any(
+        "Fetching remote URI" in record.message and uri in record.message
+        for record in caplog.records
+    )
+    assert any(
+        "Staged remote URI" in record.message and uri in record.message
+        for record in caplog.records
+    )
