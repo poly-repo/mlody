@@ -736,6 +736,31 @@ def test_value_remote_csv_query_source_stashes_hidden_source_value() -> None:
     assert value._source_value.location.type == "remote"
 
 
+def test_value_plain_source_stashes_hidden_source_value_when_resolvable() -> None:
+    ev = _eval(
+        'value(name="raw_employees", type=integer(), location=s3())\n'
+        'value(name="raw_employees_local", type=integer(), '
+        'location=posix(path="data/raw_employees.csv"), source=":raw_employees")\n'
+    )
+
+    value = ev._values_by_name["raw_employees_local"]
+    assert value.source == ":raw_employees"
+    assert value._source_value.name == "raw_employees"
+    assert value._source_value.location.type == "s3"
+
+
+def test_value_plain_forward_source_does_not_require_lookup_success() -> None:
+    ev = _eval(
+        'value(name="raw_employees_local", type=integer(), '
+        'location=posix(path="data/raw_employees.csv"), source=":raw_employees")\n'
+        'value(name="raw_employees", type=integer(), location=s3())\n'
+    )
+
+    value = ev._values_by_name["raw_employees_local"]
+    assert value.source == ":raw_employees"
+    assert not hasattr(value, "_source_value")
+
+
 def test_value_stores_group_and_context_policy() -> None:
     ev = _eval('value(name="artifact", type=string(), location=s3(), group="train")')
     value = ev._values_by_name["artifact"]

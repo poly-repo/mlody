@@ -78,6 +78,19 @@ def _resolve_source_ref(value):
     )
 
 
+def _lookup_value_if_registered(value):
+    if value == None:
+        return None
+    if type(value) == "struct":
+        return value
+    if isinstance(value, str):
+        try:
+            return builtins.lookup("value", value)
+        except:
+            return None
+    return None
+
+
 def _lineage_event(author, timestamp, reason):
     """Create a single lineage event struct.
 
@@ -270,6 +283,7 @@ def _value_impl(ctx):
         )
     else:
         source_ref = _resolve_source_ref(source_raw) if source_raw != None else None
+        source_value = _lookup_value_if_registered(source_ref)
         loc_ref = _resolve_location_ref(loc_raw) if loc_raw != None else None
         if loc_ref == None:
             loc_ref = builtins.lookup("location", "inline")
@@ -286,7 +300,7 @@ def _value_impl(ctx):
     # should have the same type and layout as their source).
     if type_ref == None and source_ref != None:
         if source_value == None:
-            source_value = builtins.lookup("value", source_ref) if isinstance(source_ref, str) else source_ref
+            source_value = _lookup_value_if_registered(source_ref)
         type_ref = python.getattr(source_value, "type", None) if source_value != None else None
     if type_ref == None:
         type_ref = builtins.lookup("type", "nothing")
@@ -308,7 +322,7 @@ def _value_impl(ctx):
         "representation": rep_ref,
         "_lineage": [],          # managed by MLody, not the user
     }
-    if sql_fragment != None and source_value != None:
+    if source_value != None:
         value_fields["_source_value"] = source_value
     for field_name, field_value in _contextual_value_fields(ctx.attr).items():
         value_fields[field_name] = field_value

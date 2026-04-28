@@ -777,6 +777,37 @@ def _make_value_with_remote_location(
     return MlodyValueValue(struct=value_struct)
 
 
+def _make_value_with_source_backed_local_location(
+    destination_path: str,
+    *,
+    source_uri: str,
+    name: str = "local_table",
+) -> MlodyValueValue:
+    """Return a local CSV value backed by a remote CSV source value."""
+    source_struct = _make_value_with_remote_location(
+        source_uri,
+        representation_name="csv",
+        representation_attributes={
+            "separator": ",",
+            "header_required": True,
+            "multifile": False,
+        },
+        name="raw_employees",
+    ).struct
+    value_struct = Struct(
+        kind="value",
+        name=name,
+        type=None,
+        location=Struct(kind="location", type="posix", path=destination_path),
+        default=None,
+        source=":raw_employees",
+        _source_value=source_struct,
+        representation=source_struct.representation,
+        _lineage=[],
+    )
+    return MlodyValueValue(struct=value_struct)
+
+
 def _invoke_show_with_derived(
     tmp_path: Path,
     resolved_value: object,
@@ -907,6 +938,44 @@ class TestShowRemoteTabularValue:
 
         assert result.exit_code == 0  # type: ignore[union-attr]
         assert "remote_meta" in result.output  # type: ignore[union-attr]
+
+    def test_show_source_backed_local_csv_value_materializes_once_and_reuses_cache(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        staged_path = tmp_path / "employees.csv"
+        staged_path.write_text("name,salary\nAlice,120000\nBob,90000\n")
+        destination_path = tmp_path / "artifacts" / "employees.csv"
+        value = _make_value_with_source_backed_local_location(
+            str(destination_path),
+            source_uri="https://example.com/employees.csv",
+            name="raw_employees_local",
+        )
+
+        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+            mock_stage.return_value = Struct(
+                uri="https://example.com/employees.csv",
+                path=staged_path,
+                content_hash="abc123",
+            )
+            first = _make_show_runner(
+                tmp_path,
+                value,
+                target="@bert//models:raw_employees_local",
+            )
+            second = _make_show_runner(
+                tmp_path,
+                value,
+                target="@bert//models:raw_employees_local",
+            )
+
+        assert first.exit_code == 0  # type: ignore[union-attr]
+        assert second.exit_code == 0  # type: ignore[union-attr]
+        assert "Alice" in first.output  # type: ignore[union-attr]
+        assert "salary" in second.output  # type: ignore[union-attr]
+        assert destination_path.exists()
+        assert destination_path.read_text() == staged_path.read_text()
+        assert mock_stage.call_count == 1
 
 
 class TestShowDerivedValue:

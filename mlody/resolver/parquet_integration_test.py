@@ -107,6 +107,65 @@ builtins.register("value", struct(
 ))
 """
 
+_SOURCE_BACKED_LOCAL_CSV_VALUE_MLODY_TEMPLATE = """\
+builtins.register("value", struct(
+    kind="value",
+    name="remote_dataset",
+    type=None,
+    location=struct(
+        kind="location",
+        type="remote",
+        name="remote_loc",
+        uri="{uri}",
+        attributes={{"uri": "{uri}"}},
+    ),
+    representation=struct(
+        kind="representation",
+        name="csv",
+        separator=",",
+        header_required=True,
+        multifile=False,
+        attributes={{
+            "separator": ",",
+            "header_required": True,
+            "multifile": False,
+        }},
+    ),
+    default=None,
+    source=None,
+    _lineage=[],
+))
+
+builtins.register("value", struct(
+    kind="value",
+    name="local_dataset",
+    type=None,
+    location=struct(
+        kind="location",
+        type="posix",
+        name="local_loc",
+        path="{local_path}",
+        attributes={{"path": ["{local_path}"]}},
+    ),
+    representation=struct(
+        kind="representation",
+        name="csv",
+        separator=",",
+        header_required=True,
+        multifile=False,
+        attributes={{
+            "separator": ",",
+            "header_required": True,
+            "multifile": False,
+        }},
+    ),
+    default=None,
+    source=":remote_dataset",
+    _source_value=builtins.lookup("value", "remote_dataset"),
+    _lineage=[],
+))
+"""
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -171,6 +230,31 @@ def _make_remote_csv_workspace(root: Path, uri: str) -> Workspace:
     (root / "mlody" / "common" / "types.mlody").write_text("")
     (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(
         _REMOTE_CSV_VALUE_MLODY_TEMPLATE.format(uri=uri)
+    )
+
+    ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
+    ws.load()
+    return ws
+
+
+def _make_source_backed_local_csv_workspace(
+    root: Path,
+    uri: str,
+    local_path: Path,
+) -> Workspace:
+    """Create a workspace with a local CSV value backed by a remote CSV source."""
+    (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
+    (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
+    (root / "teams" / "data" / "pkg").mkdir(parents=True, exist_ok=True)
+
+    (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
+    (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
+    (root / "mlody" / "common" / "types.mlody").write_text("")
+    (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(
+        _SOURCE_BACKED_LOCAL_CSV_VALUE_MLODY_TEMPLATE.format(
+            uri=uri,
+            local_path=str(local_path),
+        )
     )
 
     ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
@@ -282,6 +366,38 @@ class TestParquetIndexAccess:
         rows = result.value
         assert isinstance(rows, list)
         assert [row["id"] for row in rows] == [1, 2]
+        mock_stage.assert_called_once_with("https://example.com/employees.csv")
+
+    def test_source_backed_local_csv_sql_entity_query_materializes_cache(
+        self, tmp_path: Path
+    ) -> None:
+        """Source-backed local CSV values materialize locally before SQL filtering."""
+        csv_path = tmp_path / "employees.csv"
+        csv_path.write_text("id,label,score\n0,cat,0.1\n1,dog,0.4\n2,bird,0.6\n")
+        local_path = tmp_path / "artifacts" / "employees.csv"
+        ws = _make_source_backed_local_csv_workspace(
+            tmp_path,
+            "https://example.com/employees.csv",
+            local_path,
+        )
+
+        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+            mock_stage.return_value = SimpleNamespace(
+                uri="https://example.com/employees.csv",
+                path=csv_path,
+                content_hash="abc123",
+            )
+            label = parse_label(
+                "@data//pkg/dataset:local_dataset[@sql WHERE score > 0.3]"
+            )
+            result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue, got {result!r}"
+        rows = result.value
+        assert isinstance(rows, list)
+        assert [row["id"] for row in rows] == [1, 2]
+        assert local_path.exists()
+        assert local_path.read_text() == csv_path.read_text()
         mock_stage.assert_called_once_with("https://example.com/employees.csv")
 
     def test_workspace_resolve_sql_entity_query_returns_filtered_rows(

@@ -46,6 +46,17 @@ def _paths_from_location(location: object) -> tuple[str, ...]:
     return ()
 
 
+def _source_value_struct(value_struct: object) -> object | None:
+    """Return the embedded source value struct when available."""
+    source_value = getattr(value_struct, "_source_value", None)
+    if source_value is not None:
+        return source_value
+    source_attr = getattr(value_struct, "source", None)
+    if getattr(source_attr, "kind", None) == "value":
+        return source_attr
+    return None
+
+
 def _representation_name(value_struct: object) -> str | None:
     """Return the representation discriminator for a value struct, if present."""
     representation = getattr(value_struct, "representation", None)
@@ -326,6 +337,65 @@ def _csv_source_from_paths(
     )
 
 
+def _source_backed_local_source_from_value(
+    value_struct: object,
+    posix_spec: PosixLocationSpec,
+) -> TabularSource:
+    """Construct a lazy local source backed by another tabular source."""
+    from mlody.core.tabular.materialized_local_source import MaterializedLocalSource
+
+    value_name = str(getattr(value_struct, "name", "<unknown>"))
+    if len(posix_spec.paths) != 1:
+        raise ValueError(
+            f"Source-backed local value {value_name!r} requires exactly one "
+            "destination path in v1"
+        )
+
+    representation_name = _representation_name(value_struct)
+    if representation_name not in {"csv", "parquet"}:
+        raise ValueError(
+            f"Source-backed local value {value_name!r} requires representation=csv() "
+            "or representation=parquet() in v1"
+        )
+
+    source_attr = getattr(value_struct, "source", None)
+    source_value = _source_value_struct(value_struct)
+    source_label = source_attr if isinstance(source_attr, str) else getattr(
+        source_attr,
+        "name",
+        None,
+    )
+
+    upstream_factory = None
+    if source_value is not None:
+        source_name = str(getattr(source_value, "name", source_label or "<unknown>"))
+
+        def _make_upstream(
+            source_struct: object = source_value,
+            source_name: str = source_name,
+            value_name: str = value_name,
+        ) -> TabularSource:
+            upstream = source_from_value(source_struct)
+            if upstream is None:
+                raise ValueError(
+                    f"Source-backed local value {value_name!r} depends on non-tabular "
+                    f"source {source_name!r} in v1"
+                )
+            return upstream
+
+        upstream_factory = _make_upstream
+
+    return MaterializedLocalSource(
+        value_name=value_name,
+        destination_path=posix_spec.paths[0],
+        representation_name=representation_name,
+        upstream_factory=upstream_factory,
+        source_label=str(source_label) if source_label is not None else None,
+        separator=_representation_string(value_struct, "separator", ","),
+        header_required=_representation_bool(value_struct, "header_required", True),
+    )
+
+
 def _remote_tabular_source(
     value_struct: object,
     remote_spec: RemoteLocationSpec,
@@ -359,7 +429,7 @@ def _derived_source_from_value(
     """Construct a derived source with the best available upstream query input."""
     from mlody.core.tabular.derived_source import DerivedSource
 
-    source_value = getattr(value_struct, "_source_value", None)
+    source_value = _source_value_struct(value_struct)
     if source_value is None:
         source_value = getattr(value_struct, "source", None)
     if source_value is None:
@@ -420,6 +490,8 @@ def source_from_value(value_struct: object) -> TabularSource | None:
 
     posix_spec = PosixLocationSpec.from_location(location)
     if posix_spec is not None:
+        if getattr(value_struct, "source", None) is not None:
+            return _source_backed_local_source_from_value(value_struct, posix_spec)
         representation_name = _representation_name(value_struct)
         if representation_name == "csv":
             return _csv_source_from_paths(posix_spec.paths, value_struct=value_struct)

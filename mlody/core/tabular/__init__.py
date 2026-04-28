@@ -10,6 +10,7 @@ __all__ = [
     "DerivedLocationSpec",
     "DerivedSource",
     "DerivedValueShapeError",
+    "MaterializedLocalSource",
     "ParquetSource",
     "PosixLocationSpec",
     "PreviewResult",
@@ -33,6 +34,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DerivedValueShapeError": (
         "mlody.core.tabular.derived_source",
         "DerivedValueShapeError",
+    ),
+    "MaterializedLocalSource": (
+        "mlody.core.tabular.materialized_local_source",
+        "MaterializedLocalSource",
     ),
     "ParquetSource": ("mlody.core.tabular.parquet_source", "ParquetSource"),
     "PosixLocationSpec": ("mlody.core.tabular.location_specs", "PosixLocationSpec"),
@@ -80,6 +85,9 @@ if TYPE_CHECKING:
         PreviewResult as PreviewResult,
         QuerySpec as QuerySpec,
         TabularSource as TabularSource,
+    )
+    from mlody.core.tabular.materialized_local_source import (
+        MaterializedLocalSource as MaterializedLocalSource,
     )
     from mlody.core.tabular.location_specs import (
         DerivedLocationSpec as DerivedLocationSpec,

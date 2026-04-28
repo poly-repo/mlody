@@ -30,6 +30,7 @@ from mlody.core.sql.sql_query import MlodyQueryError
 from mlody.core.tabular import (
     CsvSource,
     DerivedSource,
+    MaterializedLocalSource,
     ParquetSource,
     PreviewResult,
     source_from_value,
@@ -516,6 +517,20 @@ def _(
 @_print_tabular_source.register
 def _(
     source: CsvSource,
+    *,
+    _has_error: list[bool] | None = None,
+) -> bool:
+    _ = _has_error
+    try:
+        _emit_tabular_preview(source.preview(50))
+        return True
+    except Exception:
+        return False
+
+
+@_print_tabular_source.register
+def _(
+    source: MaterializedLocalSource,
     *,
     _has_error: list[bool] | None = None,
 ) -> bool:
