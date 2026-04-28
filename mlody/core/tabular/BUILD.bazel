@@ -12,14 +12,34 @@ o_py_library(
     srcs = ["location_specs.py"],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":csv_source_lib",
         ":interfaces_lib",
+        ":parquet_source_lib",
+        ":remote_staging_lib",
         "//mlody/common:common_lib",
     ],
 )
 
 o_py_library(
+    name = "remote_staging_lib",
+    srcs = ["remote_staging.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_library(
     name = "parquet_source_lib",
     srcs = ["parquet_source.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":interfaces_lib",
+        "//mlody/core/sql:sql_query_lib",
+        "@pip//pyarrow",
+    ],
+)
+
+o_py_library(
+    name = "csv_source_lib",
+    srcs = ["csv_source.py"],
     visibility = ["//:__subpackages__"],
     deps = [
         ":interfaces_lib",
@@ -47,10 +67,12 @@ o_py_library(
     srcs = ["__init__.py"],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":csv_source_lib",
         ":derived_source_lib",
         ":interfaces_lib",
         ":location_specs_lib",
         ":parquet_source_lib",
+        ":remote_staging_lib",
     ],
 )
 
@@ -58,10 +80,12 @@ o_py_library(
     name = "tabular_lib",
     srcs = [
         "__init__.py",
+        "csv_source.py",
         "derived_source.py",
         "interfaces.py",
         "location_specs.py",
         "parquet_source.py",
+        "remote_staging.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [
@@ -82,6 +106,7 @@ o_py_test(
     deps = [
         ":tabular",
         "//mlody/common:common_lib",
+        "@pip//pyarrow",
     ],
 )
 
@@ -95,6 +120,15 @@ o_py_test(
 )
 
 o_py_test(
+    name = "csv_source_test",
+    srcs = ["csv_source_test.py"],
+    deps = [
+        ":tabular",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
     name = "derived_source_test",
     srcs = ["derived_source_test.py"],
     deps = [
@@ -102,6 +136,15 @@ o_py_test(
         ":interfaces_lib",
         ":location_specs_lib",
         "@pip//pyarrow",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "remote_staging_test",
+    srcs = ["remote_staging_test.py"],
+    deps = [
+        ":tabular",
         "@pip//pytest",
     ],
 )

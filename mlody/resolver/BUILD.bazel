@@ -18,6 +18,7 @@ o_py_library(
         "//mlody/core/label:label_lib",
         "//mlody/core/parquet",
         "//mlody/core/sql:sql_query_lib",
+        "//mlody/core/tabular",
         "//mlody/core/tabular:location_specs_lib",
         "//mlody/db:db_lib",  # keep — resolver.py imports open_db, write_evaluation, compute_local_diff_sha
         "@pip//pyarrow",  # keep — label_value.py inline-imports pyarrow.parquet

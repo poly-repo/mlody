@@ -5,6 +5,7 @@ o_py_library(
     srcs = ["sql_query.py"],
     visibility = ["//:__subpackages__"],
     deps = [
+        "//mlody/core/tabular:interfaces_lib",
         "@pip//duckdb",
         "@pip//pyarrow",  # keep — consumed by core/tabular parquet and derived sources
         "@pip//sqlglot",
@@ -40,6 +41,7 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":sql_query_lib",
+        "//mlody/core/tabular:interfaces_lib",
         "@pip//duckdb",
         "@pip//pyarrow",
         "@pip//sqlglot",

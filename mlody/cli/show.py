@@ -28,6 +28,7 @@ from mlody.core.dag import build_dag
 from mlody.core.derived import DerivedValueShapeError
 from mlody.core.sql.sql_query import MlodyQueryError
 from mlody.core.tabular import (
+    CsvSource,
     DerivedSource,
     ParquetSource,
     PreviewResult,
@@ -512,6 +513,20 @@ def _(
         return False
 
 
+@_print_tabular_source.register
+def _(
+    source: CsvSource,
+    *,
+    _has_error: list[bool] | None = None,
+) -> bool:
+    _ = _has_error
+    try:
+        _emit_tabular_preview(source.preview(50))
+        return True
+    except Exception:
+        return False
+
+
 def _print_mlody_value(
     value: MlodyValue, *, _has_error: list[bool] | None = None
 ) -> None:
@@ -528,7 +543,13 @@ def _print_mlody_value(
         return
 
     if isinstance(value, MlodyValueValue):
-        tabular_source = source_from_value(value.struct)
+        try:
+            tabular_source = source_from_value(value.struct)
+        except ValueError as exc:
+            click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
+            if _has_error is not None:
+                _has_error.append(True)
+            return
         if tabular_source is not None and _print_tabular_source(
             tabular_source,
             _has_error=_has_error,

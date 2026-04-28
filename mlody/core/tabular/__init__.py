@@ -6,6 +6,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 __all__ = [
+    "CsvSource",
     "DerivedLocationSpec",
     "DerivedSource",
     "DerivedValueShapeError",
@@ -13,14 +14,17 @@ __all__ = [
     "PosixLocationSpec",
     "PreviewResult",
     "QuerySpec",
+    "RemoteLocationSpec",
     "TabularSource",
     "derived_location_spec_from_value",
     "source_from_location",
     "source_from_value",
+    "stage_remote_file",
     "validate_shape",
 ]
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "CsvSource": ("mlody.core.tabular.csv_source", "CsvSource"),
     "DerivedLocationSpec": (
         "mlody.core.tabular.location_specs",
         "DerivedLocationSpec",
@@ -34,6 +38,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "PosixLocationSpec": ("mlody.core.tabular.location_specs", "PosixLocationSpec"),
     "PreviewResult": ("mlody.core.tabular.interfaces", "PreviewResult"),
     "QuerySpec": ("mlody.core.tabular.interfaces", "QuerySpec"),
+    "RemoteLocationSpec": ("mlody.core.tabular.location_specs", "RemoteLocationSpec"),
     "TabularSource": ("mlody.core.tabular.interfaces", "TabularSource"),
     "derived_location_spec_from_value": (
         "mlody.core.tabular.location_specs",
@@ -44,6 +49,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "source_from_location",
     ),
     "source_from_value": ("mlody.core.tabular.location_specs", "source_from_value"),
+    "stage_remote_file": (
+        "mlody.core.tabular.remote_staging",
+        "stage_remote_file",
+    ),
     "validate_shape": ("mlody.core.tabular.derived_source", "validate_shape"),
 }
 
@@ -61,6 +70,7 @@ def __getattr__(name: str) -> object:
 
 
 if TYPE_CHECKING:
+    from mlody.core.tabular.csv_source import CsvSource as CsvSource
     from mlody.core.tabular.derived_source import (
         DerivedSource as DerivedSource,
         DerivedValueShapeError as DerivedValueShapeError,
@@ -74,8 +84,10 @@ if TYPE_CHECKING:
     from mlody.core.tabular.location_specs import (
         DerivedLocationSpec as DerivedLocationSpec,
         PosixLocationSpec as PosixLocationSpec,
+        RemoteLocationSpec as RemoteLocationSpec,
         derived_location_spec_from_value as derived_location_spec_from_value,
         source_from_location as source_from_location,
         source_from_value as source_from_value,
     )
     from mlody.core.tabular.parquet_source import ParquetSource as ParquetSource
+    from mlody.core.tabular.remote_staging import stage_remote_file as stage_remote_file

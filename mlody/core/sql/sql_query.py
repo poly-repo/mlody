@@ -1,4 +1,4 @@
-"""mlody SQL query engine: DuckDB-backed analytical queries over Parquet files.
+"""mlody SQL query engine: DuckDB-backed analytical queries over tabular inputs.
 
 All implementation is in this single module.  Public surface:
 
@@ -18,6 +18,8 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlglot
+
+from mlody.core.tabular.interfaces import QueryInput
 
 # sqlglot.exp is an alias for sqlglot.expressions defined in sqlglot/__init__.py.
 # Import sqlglot first, then access exp through the module attribute — importing
@@ -100,26 +102,20 @@ def _normalize_paths(paths: str | Path | list[str | Path]) -> str:
     return f"'{paths}'"
 
 
+def _relation_sql_from_paths(paths: str | Path | list[str | Path]) -> str:
+    """Return the DuckDB relation SQL for path-backed parquet input."""
+    return f"read_parquet({_normalize_paths(paths)})"
+
+
 # ---------------------------------------------------------------------------
 # Schema reading for diagnostics  (tasks 4.1–4.4, D-4)
 # ---------------------------------------------------------------------------
 
 
-def _read_columns(paths: str | Path | list[str | Path]) -> list[str]:
-    """Read column names from Parquet file metadata (schema only, no row data).
-
-    For a glob string, expands the glob and reads the first match.  For a
-    list, reads the first element.  For a Path, resolves to absolute string.
-
-    All exceptions are caught and an empty list returned — schema-read failure
-    must never mask the original query error.
-
-    Args:
-        paths: Same type accepted by ``mlody_query``.
-
-    Returns:
-        List of column name strings; ``[]`` if schema cannot be read.
-    """
+def _read_columns(paths: QueryInput) -> list[str]:
+    """Read column names from either parquet metadata or an Arrow table."""
+    if isinstance(paths, pa.Table):
+        return list(paths.schema.names)
     try:
         if isinstance(paths, list):
             if not paths:
@@ -128,7 +124,6 @@ def _read_columns(paths: str | Path | list[str | Path]) -> list[str]:
         elif isinstance(paths, Path):
             target = str(paths.resolve())
         else:
-            # str: may be a glob — expand and take first match
             matches = glob_module.glob(paths)
             if not matches:
                 return []
@@ -145,7 +140,12 @@ def _read_columns(paths: str | Path | list[str | Path]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _build_query(query: str, normalized_paths: str) -> str:
+def _build_query(
+    query: str,
+    normalized_paths: str,
+    *,
+    relation_sql: str | None = None,
+) -> str:
     """Build the final SQL to execute, injecting FROM (and SELECT * if needed).
 
     Three cases, determined by sqlglot AST inspection:
@@ -161,19 +161,22 @@ def _build_query(query: str, normalized_paths: str) -> str:
 
     Args:
         query: The caller-supplied SQL string.
-        normalized_paths: The output of ``_normalize_paths``, embedded in the
-            injected FROM clause when required.
+        normalized_paths: The output of ``_normalize_paths``. Kept for
+            backward-compatible tests and used when ``relation_sql`` is not
+            supplied.
+        relation_sql: Explicit DuckDB relation SQL to inject in FROM clauses.
 
     Returns:
         The SQL string to hand to DuckDB.
     """
+    effective_relation_sql = relation_sql or f"read_parquet({normalized_paths})"
     try:
         ast = sqlglot.parse_one(query, dialect="duckdb")
     except Exception:  # noqa: BLE001
         # sqlglot could not parse the query as a complete statement (e.g. a
         # bare WHERE clause).  Prepend SELECT * FROM so DuckDB receives a
         # syntactically complete query.
-        return f"SELECT * FROM read_parquet({normalized_paths}) {query}"
+        return f"SELECT * FROM {effective_relation_sql} {query}"
 
     if isinstance(ast, _sqlglot_expressions.With):
         # CTE: the caller owns the full statement; pass through unchanged.
@@ -185,11 +188,10 @@ def _build_query(query: str, normalized_paths: str) -> str:
             return query
         # SELECT without FROM: inject FROM using sqlglot AST so column
         # positions and aliases are preserved (e.g. SELECT count(*) WHERE …).
-        from_expr = f"read_parquet({normalized_paths})"
-        return ast.from_(from_expr).sql(dialect="duckdb")
+        return ast.from_(effective_relation_sql).sql(dialect="duckdb")
 
     # Bare clause parsed successfully (unusual): inject SELECT *.
-    return f"SELECT * FROM read_parquet({normalized_paths}) {query}"
+    return f"SELECT * FROM {effective_relation_sql} {query}"
 
 
 # ---------------------------------------------------------------------------
@@ -198,10 +200,10 @@ def _build_query(query: str, normalized_paths: str) -> str:
 
 
 def mlody_query(
-    paths: str | Path | list[str | Path],
+    paths: QueryInput,
     query: str,
 ) -> pa.Table:
-    """Execute a SQL query over one or more Parquet files via in-memory DuckDB.
+    """Execute a SQL query over parquet paths or an Arrow table via DuckDB.
 
     Normalizes ``paths``, optionally injects a SELECT clause, executes the
     query, and returns the full result as a ``pyarrow.Table``.  An empty
@@ -228,14 +230,23 @@ def mlody_query(
             failure during query execution.  Never raises raw DuckDB or
             sqlglot exceptions.
     """
-    normalized = _normalize_paths(paths)
     columns = _read_columns(paths)
+    relation_sql: str
+    register_table: pa.Table | None = None
+    if isinstance(paths, pa.Table):
+        relation_sql = "input_table"
+        normalized = ""
+        register_table = paths
+    else:
+        normalized = _normalize_paths(paths)
+        relation_sql = _relation_sql_from_paths(paths)
 
-    # _build_query may raise MlodyQueryError for sqlglot parse failures.
-    expanded_sql = _build_query(query, normalized)
+    expanded_sql = _build_query(query, normalized, relation_sql=relation_sql)
 
     try:
         with duckdb.connect() as conn:
+            if register_table is not None:
+                conn.register("input_table", register_table)
             # .arrow() returns a RecordBatchReader in DuckDB 1.5+; call
             # .read_all() to materialise it into a pa.Table as required.
             result: pa.Table = conn.execute(expanded_sql).arrow().read_all()

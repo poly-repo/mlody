@@ -308,6 +308,8 @@ def _value_impl(ctx):
         "representation": rep_ref,
         "_lineage": [],          # managed by MLody, not the user
     }
+    if sql_fragment != None and source_value != None:
+        value_fields["_source_value"] = source_value
     for field_name, field_value in _contextual_value_fields(ctx.attr).items():
         value_fields[field_name] = field_value
     if source_raw != None:

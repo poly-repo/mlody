@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 
 from mlody.core.optimiser import DerivedStep, QueryOptimiser, SequentialOptimiser
 from mlody.core.sql.sql_query import mlody_query
-from mlody.core.tabular.interfaces import PreviewResult
+from mlody.core.tabular.interfaces import PreviewResult, QueryInput
 from mlody.core.tabular.location_specs import DerivedLocationSpec
 from mlody.core.tabular.parquet_source import ParquetSource
 
@@ -49,10 +49,11 @@ def validate_shape(table: pa.Table, *, sql_fragment: str = "") -> None:
 
 @dataclass(frozen=True)
 class DerivedSource:
-    """A materializable derived source backed by a query over parquet inputs."""
+    """A materializable derived source backed by a query over tabular input."""
 
     spec: DerivedLocationSpec
     optimiser: QueryOptimiser = field(default_factory=SequentialOptimiser)
+    source_input: QueryInput | None = None
 
     def preview(self, limit: int) -> PreviewResult:
         """Return a parquet preview of the materialized derived output."""
@@ -79,12 +80,13 @@ class DerivedSource:
         active_step = list(self.optimiser.optimise([step]))[0]
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        query_paths: str | list[str]
-        if len(self.spec.source_paths) == 1:
-            query_paths = self.spec.source_paths[0]
-        else:
-            query_paths = list(self.spec.source_paths)
-        result = mlody_query(query_paths, active_step.sql_fragment)
+        query_source = self.source_input
+        if query_source is None:
+            if len(self.spec.source_paths) == 1:
+                query_source = self.spec.source_paths[0]
+            else:
+                query_source = list(self.spec.source_paths)
+        result = mlody_query(query_source, active_step.sql_fragment)
         validate_shape(result, sql_fragment=active_step.sql_fragment)
 
         tmp_path = Path(str(output_path) + ".tmp")
@@ -99,3 +101,7 @@ class DerivedSource:
             raise
 
         return output_path
+
+    def query_input(self) -> QueryInput:
+        """Return the concrete parquet output path as a queryable input."""
+        return str(self.materialize())

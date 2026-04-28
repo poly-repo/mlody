@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
+
+import pyarrow.parquet as pq
 
 from mlody.common.struct import Struct
 
 from mlody.core.tabular import (
+    CsvSource,
     DerivedLocationSpec,
     DerivedSource,
     ParquetSource,
     PosixLocationSpec,
+    RemoteLocationSpec,
     derived_location_spec_from_value,
     source_from_location,
     source_from_value,
@@ -102,3 +107,209 @@ def test_source_from_value_returns_derived_source_for_derived_value() -> None:
 
     assert isinstance(source, DerivedSource)
     assert source.spec.source_paths == ("data/*.parquet",)
+
+
+def test_remote_location_spec_reads_uri_from_attributes() -> None:
+    location = Struct(
+        kind="location",
+        type="remote",
+        attributes={"uri": "https://example.com/data.csv"},
+    )
+
+    spec = RemoteLocationSpec.from_location(location)
+
+    assert spec == RemoteLocationSpec(uri="https://example.com/data.csv", name="remote")
+
+
+def test_source_from_value_returns_csv_source_for_posix_csv_value() -> None:
+    value_struct = Struct(
+        kind="value",
+        name="employees",
+        location=Struct(kind="location", type="posix", path="data.csv"),
+        representation=Struct(
+            kind="representation",
+            name="csv",
+            separator=",",
+            header_required=True,
+            multifile=False,
+            attributes={
+                "separator": ",",
+                "header_required": True,
+                "multifile": False,
+            },
+        ),
+    )
+
+    source = source_from_value(value_struct)
+
+    assert isinstance(source, CsvSource)
+    assert source.paths == ("data.csv",)
+
+
+def test_source_from_value_returns_remote_csv_source_for_remote_csv_value() -> None:
+    value_struct = Struct(
+        kind="value",
+        name="employees",
+        location=Struct(
+            kind="location",
+            type="remote",
+            attributes={"uri": "https://example.com/data.csv"},
+        ),
+        representation=Struct(
+            kind="representation",
+            name="csv",
+            separator="|",
+            header_required=False,
+            multifile=False,
+            attributes={
+                "separator": "|",
+                "header_required": False,
+                "multifile": False,
+            },
+        ),
+    )
+
+    with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+        mock_stage.return_value = Struct(
+            uri="https://example.com/data.csv",
+            path=Path("/tmp/staged.csv"),
+            content_hash="abc123",
+        )
+        source = source_from_value(value_struct)
+
+    assert isinstance(source, CsvSource)
+    assert source.paths == ("/tmp/staged.csv",)
+    assert source.separator == "|"
+    assert source.header_required is False
+    assert source.content_hash == "abc123"
+
+
+def test_source_from_value_returns_remote_parquet_source_for_remote_parquet_value() -> None:
+    value_struct = Struct(
+        kind="value",
+        name="employees",
+        location=Struct(
+            kind="location",
+            type="remote",
+            attributes={"uri": "https://example.com/data.parquet"},
+        ),
+        representation=Struct(
+            kind="representation",
+            name="parquet",
+            multifile=False,
+            attributes={"multifile": False},
+        ),
+    )
+
+    with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+        mock_stage.return_value = Struct(
+            uri="https://example.com/data.parquet",
+            path=Path("/tmp/staged.parquet"),
+            content_hash="def456",
+        )
+        source = source_from_value(value_struct)
+
+    assert isinstance(source, ParquetSource)
+    assert source.paths == ("/tmp/staged.parquet",)
+    assert source.content_hash == "def456"
+
+
+def test_source_from_value_returns_none_for_unsupported_remote_representation() -> None:
+    value_struct = Struct(
+        kind="value",
+        name="meta",
+        location=Struct(
+            kind="location",
+            type="remote",
+            attributes={"uri": "https://example.com/data.json"},
+        ),
+        representation=Struct(
+            kind="representation",
+            name="json",
+            attributes={},
+        ),
+    )
+
+    assert source_from_value(value_struct) is None
+
+
+def test_source_from_value_returns_none_for_remote_multifile_csv() -> None:
+    value_struct = Struct(
+        kind="value",
+        name="employees",
+        location=Struct(
+            kind="location",
+            type="remote",
+            attributes={"uri": "https://example.com/data.csv"},
+        ),
+        representation=Struct(
+            kind="representation",
+            name="csv",
+            separator=",",
+            header_required=True,
+            multifile=True,
+            attributes={
+                "separator": ",",
+                "header_required": True,
+                "multifile": True,
+            },
+        ),
+    )
+
+    assert source_from_value(value_struct) is None
+
+
+def test_source_from_value_builds_derived_source_for_remote_csv_source(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "employees.csv"
+    csv_path.write_text("name,salary\nAlice,120000\nBob,90000\n")
+    value_struct = Struct(
+        kind="value",
+        name="high_paid",
+        location=Struct(
+            kind="location",
+            type="derived",
+            attributes={
+                "source_ref": ":raw_employees",
+                "sql_fragment": "WHERE salary > 100000",
+                "dialect": "duckdb",
+                "output_path": str(tmp_path / "derived.parquet"),
+            },
+        ),
+        source=":raw_employees",
+        _source_value=Struct(
+            kind="value",
+            name="raw_employees",
+            location=Struct(
+                kind="location",
+                type="remote",
+                attributes={"uri": "https://example.com/employees.csv"},
+            ),
+            representation=Struct(
+                kind="representation",
+                name="csv",
+                separator=",",
+                header_required=True,
+                multifile=False,
+                attributes={
+                    "separator": ",",
+                    "header_required": True,
+                    "multifile": False,
+                },
+            ),
+        ),
+    )
+
+    with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+        mock_stage.return_value = Struct(
+            uri="https://example.com/employees.csv",
+            path=csv_path,
+            content_hash="hash123",
+        )
+        source = source_from_value(value_struct)
+
+    assert isinstance(source, DerivedSource)
+    materialized = source.materialize()
+    assert materialized.exists()
+    assert pq.read_table(materialized).column("name").to_pylist() == ["Alice"]

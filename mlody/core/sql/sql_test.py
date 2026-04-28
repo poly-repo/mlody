@@ -288,6 +288,27 @@ def test_q008_empty_result_returns_table_with_correct_schema(parquet_file: str) 
     assert set(result.schema.names) == {"loss", "epoch", "label"}
 
 
+def test_mlody_query_supports_arrow_table_input_for_where_only_query() -> None:
+    table = pa.table({"name": ["Alice", "Bob"], "age": [30, 40]})
+
+    result = mlody_query(paths=table, query="WHERE age >= 40")
+
+    assert isinstance(result, pa.Table)
+    assert result.column_names == ["name", "age"]
+    assert result.num_rows == 1
+    assert result.column("name").to_pylist() == ["Bob"]
+
+
+def test_mlody_query_supports_arrow_table_input_for_select_without_from() -> None:
+    table = pa.table({"name": ["Alice", "Bob"], "age": [30, 40]})
+
+    result = mlody_query(paths=table, query="SELECT name WHERE age >= 30")
+
+    assert isinstance(result, pa.Table)
+    assert result.column_names == ["name"]
+    assert result.num_rows == 2
+
+
 # ---------------------------------------------------------------------------
 # MlodyQueryError __str__ and attribute tests  (tasks 2.1–2.3)
 # ---------------------------------------------------------------------------

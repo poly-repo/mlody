@@ -22,6 +22,8 @@ def _normalize_location_kwargs(loc_struct, kwargs):
 
 def _make_location_factory(loc_struct):
     allowed = python.getattr(loc_struct, "_allowed_attrs", {})
+    mandatory = python.getattr(loc_struct, "_attrs_mandatory", set())
+    current_attrs = python.getattr(loc_struct, "attributes", {})
 
     def factory(**kwargs):
         normalized_kwargs = _normalize_location_kwargs(loc_struct, kwargs)
@@ -34,6 +36,12 @@ def _make_location_factory(loc_struct):
                 )
         for k, v in normalized_kwargs.items():
             validate_attr_value(k, v, allowed[k])
+
+        for k in mandatory:
+            if k not in current_attrs and k not in normalized_kwargs:
+                raise ValueError(
+                    loc_struct.name + "() Missing mandatory argument " + repr(k)
+                )
 
         if not kwargs:
             return loc_struct
@@ -83,6 +91,7 @@ def _location_impl(ctx):
 
     extra_attrs_spec = None
     default_attributes = None
+    attrs_mandatory = set()
     if python.hasattr(ctx.attr, 'attrs') and ctx.attr.attrs != None:
         for attr_name, attr_def in ctx.attr.attrs.as_mapping().items():
             declared_type = python.getattr(attr_def, "type", None)
@@ -94,11 +103,16 @@ def _location_impl(ctx):
                 extra_attrs_spec = {}
             extra_attrs_spec[attr_name] = declared_type
             metadata = python.getattr(attr_def, "metadata", None)
+            mandatory = python.getattr(metadata, "mandatory", None) if metadata != None else None
+            if mandatory == True:
+                attrs_mandatory.add(attr_name)
             default_value = python.getattr(metadata, "default", None) if metadata != None else None
             if default_value != None:
                 if default_attributes == None:
                     default_attributes = {}
                 default_attributes[attr_name] = default_value
+    if attrs_mandatory:
+        other_fields["_attrs_mandatory"] = attrs_mandatory
 
     # Always set abstract explicitly (prevents inheriting True from an abstract base).
     abstract = python.getattr(ctx.attr, 'abstract', None)
@@ -186,6 +200,13 @@ location(
     name = "inline",
     attrs = {
         "data": attr(type=any(), mandatory=False),
+    },
+)
+
+location(
+    name = "remote",
+    attrs = {
+        "uri": attr(type="string", mandatory=True),
     },
 )
 

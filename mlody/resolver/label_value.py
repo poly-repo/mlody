@@ -1819,15 +1819,12 @@ class ParquetTraversalStrategy:
         # Derived locations must be materialised before we can read rows from them.
         if _loc_root_kind == "derived":
             try:
-                from mlody.core.derived import materialise_derived  # noqa: PLC0415
-                from mlody.core.tabular.location_specs import (  # noqa: PLC0415
-                    derived_location_spec_from_value,
-                )
+                from mlody.core.tabular import DerivedSource, source_from_value  # noqa: PLC0415
 
-                derived_spec = derived_location_spec_from_value(value)
-                if derived_spec is None:
+                derived_source = source_from_value(value)
+                if not isinstance(derived_source, DerivedSource):
                     raise ValueError(f"Invalid derived location: {location!r}")
-                path_val: object = materialise_derived(derived_spec)
+                path_val: object = str(derived_source.materialize())
             except Exception as exc:
                 return MlodyUnresolvedValue(
                     label=label,

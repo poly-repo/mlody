@@ -177,6 +177,27 @@ def test_posix_path_accepts_explicit_list() -> None:
     assert result.attributes["path"] == ["a", "b"]
 
 
+def test_remote_requires_uri_and_stores_it() -> None:
+    """remote(uri=...) creates a location struct carrying the URI."""
+    ev = _eval('result = remote(uri="https://example.com/data.csv")')
+    result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
+    assert result.kind == "location"
+    assert result.type == "remote"
+    assert result.attributes["uri"] == "https://example.com/data.csv"
+
+
+def test_remote_missing_uri_raises_value_error() -> None:
+    """remote() requires the mandatory uri attribute."""
+    with pytest.raises(ValueError, match="Missing mandatory argument"):
+        _eval("result = remote()")
+
+
+def test_remote_rejects_non_string_uri() -> None:
+    """remote(uri=123) validates the uri type."""
+    with pytest.raises(TypeError):
+        _eval("result = remote(uri=123)")
+
+
 # ---------------------------------------------------------------------------
 # TC-006: user-defined location with base registers and injects factory
 # ---------------------------------------------------------------------------

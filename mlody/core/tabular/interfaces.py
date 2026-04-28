@@ -25,6 +25,9 @@ class PreviewResult:
     total_rows: int
 
 
+QueryInput = str | Path | list[str | Path] | pa.Table
+
+
 class TabularSource(Protocol):
     """Protocol shared by concrete queryable tabular sources."""
 
@@ -33,3 +36,5 @@ class TabularSource(Protocol):
     def count(self) -> int: ...
 
     def materialize(self) -> Path: ...
+
+    def query_input(self) -> QueryInput: ...

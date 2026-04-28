@@ -704,6 +704,38 @@ def test_value_query_source_is_valid_when_standalone() -> None:
     assert ev._values_by_name["derived"].location.type == "derived"
 
 
+def test_value_remote_csv_source_with_sql_suffix_produces_derived_location() -> None:
+    ev = _eval(
+        'typedef(name="employee", base=record(fields=[\n'
+        '  field(name="name", type=string()),\n'
+        '  field(name="salary", type=integer()),\n'
+        ']))\n'
+        'value(name="raw_employees", type=vector(element_type=":employee"), '
+        'location=remote(uri="https://example.com/employees.csv"), representation=csv())\n'
+        'value(name="high_paid", source=":raw_employees[@sql WHERE salary > 100000]")\n'
+    )
+
+    _resolve_and_validate(ev)
+    assert ev._values_by_name["high_paid"].location.type == "derived"
+
+
+def test_value_remote_csv_query_source_stashes_hidden_source_value() -> None:
+    ev = _eval(
+        'typedef(name="employee", base=record(fields=[\n'
+        '  field(name="name", type=string()),\n'
+        '  field(name="salary", type=integer()),\n'
+        ']))\n'
+        'value(name="raw_employees", type=vector(element_type=":employee"), '
+        'location=remote(uri="https://example.com/employees.csv"), representation=csv())\n'
+        'value(name="high_paid", source=":raw_employees[@sql WHERE salary > 100000]")\n'
+    )
+
+    value = ev._values_by_name["high_paid"]
+    assert value.source == ":raw_employees"
+    assert value._source_value.name == "raw_employees"
+    assert value._source_value.location.type == "remote"
+
+
 def test_value_stores_group_and_context_policy() -> None:
     ev = _eval('value(name="artifact", type=string(), location=s3(), group="train")')
     value = ev._values_by_name["artifact"]

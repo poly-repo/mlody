@@ -72,3 +72,15 @@ def test_preview_uses_materialized_output_for_preview_and_count(tmp_path: Path) 
 
     assert preview.total_rows == 3
     assert preview.table.num_rows == 2
+
+
+def test_materialize_accepts_arrow_table_source_input(tmp_path: Path) -> None:
+    source = DerivedSource(
+        spec=_spec(tmp_path, sql="WHERE age >= 40"),
+        source_input=pa.table({"name": ["Alice", "Bob"], "age": [30, 40]}),
+    )
+
+    output_path = source.materialize()
+
+    assert output_path.exists()
+    assert pq.read_table(output_path).column("name").to_pylist() == ["Bob"]

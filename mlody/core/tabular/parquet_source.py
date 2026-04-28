@@ -10,7 +10,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from mlody.core.sql.sql_query import mlody_query
-from mlody.core.tabular.interfaces import PreviewResult
+from mlody.core.tabular.interfaces import PreviewResult, QueryInput
 
 
 def _normalize_query_path(path: str | Path) -> str:
@@ -26,10 +26,17 @@ class ParquetSource:
     """A queryable parquet source backed by one or more path patterns."""
 
     paths: tuple[str, ...]
+    content_hash: str | None = None
 
-    def __init__(self, paths: tuple[str, ...] | list[str] | tuple[Path, ...] | list[Path]) -> None:
+    def __init__(
+        self,
+        paths: tuple[str, ...] | list[str] | tuple[Path, ...] | list[Path],
+        *,
+        content_hash: str | None = None,
+    ) -> None:
         normalized = tuple(_normalize_query_path(path) for path in paths)
         object.__setattr__(self, "paths", normalized)
+        object.__setattr__(self, "content_hash", content_hash)
 
     def query_paths(self) -> str | list[str]:
         """Return the path payload shape expected by ``mlody_query``."""
@@ -69,3 +76,7 @@ class ParquetSource:
         raise FileNotFoundError(
             f"No parquet files found for source paths: {list(self.paths)!r}"
         )
+
+    def query_input(self) -> QueryInput:
+        """Return the query input shape expected by ``mlody_query``."""
+        return self.query_paths()

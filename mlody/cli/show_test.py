@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import functools
+import http.server
 import logging
 from pathlib import Path
+import threading
 from unittest.mock import MagicMock, patch
 
 import networkx
@@ -27,6 +30,26 @@ from mlody.resolver.label_value import (
     MlodyUnresolvedValue,
     MlodyValueValue,
 )
+
+
+@pytest.fixture()
+def http_server(tmp_path: Path) -> tuple[str, Path]:
+    """Serve *tmp_path* over HTTP and return ``(base_url, root)``."""
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+            return
+
+    handler = functools.partial(QuietHandler, directory=str(tmp_path))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        yield (f"http://{host}:{port}", tmp_path)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
 
 
 def _make_type_struct(
@@ -722,6 +745,38 @@ def _make_value_with_plain_location(path: str) -> MlodyValueValue:
     return MlodyValueValue(struct=value_struct)
 
 
+def _make_value_with_remote_location(
+    uri: str,
+    *,
+    representation_name: str,
+    representation_attributes: dict[str, object],
+    name: str = "remote_table",
+) -> MlodyValueValue:
+    """Return a MlodyValueValue whose location points at a remote URI."""
+    representation_fields = {
+        "kind": "representation",
+        "name": representation_name,
+        "attributes": representation_attributes,
+    }
+    representation_fields.update(representation_attributes)
+    value_struct = Struct(
+        kind="value",
+        name=name,
+        type=None,
+        location=Struct(
+            kind="location",
+            type="remote",
+            name="remote",
+            attributes={"uri": uri},
+        ),
+        default=None,
+        source=None,
+        representation=Struct(**representation_fields),
+        _lineage=[],
+    )
+    return MlodyValueValue(struct=value_struct)
+
+
 def _invoke_show_with_derived(
     tmp_path: Path,
     resolved_value: object,
@@ -775,6 +830,83 @@ class TestShowPlainParquetValue:
 
         assert result.exit_code == 0  # type: ignore[union-attr]
         assert "plain_table" in result.output  # type: ignore[union-attr]
+
+
+class TestShowRemoteTabularValue:
+    """Requirements: remote csv/parquet values preview through the tabular path."""
+
+    def test_show_remote_csv_value_displays_preview(
+        self,
+        tmp_path: Path,
+        http_server: tuple[str, Path],
+    ) -> None:
+        base_url, root = http_server
+        (root / "employees.csv").write_text("name,salary\nAlice,120000\nBob,90000\n")
+        value = _make_value_with_remote_location(
+            f"{base_url}/employees.csv",
+            representation_name="csv",
+            representation_attributes={
+                "separator": ",",
+                "header_required": True,
+                "multifile": False,
+            },
+            name="raw_employees",
+        )
+
+        result = _make_show_runner(
+            tmp_path,
+            value,
+            target="@bert//models:raw_employees",
+        )
+
+        assert result.exit_code == 0  # type: ignore[union-attr]
+        assert "Alice" in result.output  # type: ignore[union-attr]
+        assert "salary" in result.output  # type: ignore[union-attr]
+
+    def test_show_remote_parquet_value_displays_preview(
+        self,
+        tmp_path: Path,
+        http_server: tuple[str, Path],
+    ) -> None:
+        base_url, root = http_server
+        parquet_path = root / "employees.parquet"
+        pq.write_table(pa.table({"name": ["Alice", "Bob"], "salary": [120000, 90000]}), parquet_path)
+        value = _make_value_with_remote_location(
+            f"{base_url}/employees.parquet",
+            representation_name="parquet",
+            representation_attributes={"multifile": False},
+            name="raw_employees",
+        )
+
+        result = _make_show_runner(
+            tmp_path,
+            value,
+            target="@bert//models:raw_employees",
+        )
+
+        assert result.exit_code == 0  # type: ignore[union-attr]
+        assert "Alice" in result.output  # type: ignore[union-attr]
+        assert "salary" in result.output  # type: ignore[union-attr]
+
+    def test_show_remote_unsupported_representation_falls_back(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        value = _make_value_with_remote_location(
+            "https://example.com/data.json",
+            representation_name="json",
+            representation_attributes={},
+            name="remote_meta",
+        )
+
+        result = _make_show_runner(
+            tmp_path,
+            value,
+            target="@bert//models:remote_meta",
+        )
+
+        assert result.exit_code == 0  # type: ignore[union-attr]
+        assert "remote_meta" in result.output  # type: ignore[union-attr]
 
 
 class TestShowDerivedValue:
