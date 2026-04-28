@@ -519,6 +519,30 @@ def test_value_source_defaults_to_none() -> None:
     assert ev._values_by_name["v"].source is None
 
 
+def test_value_source_stores_context_policy() -> None:
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", type=string(), location=s3(), source=":upstream")\n'
+    )
+    value = ev._values_by_name["v"]
+    assert value._context_attr_policies["source"] == (
+        "standalone",
+        "task.inputs",
+        "task.config",
+        "task.action.inputs",
+        "task.action.config",
+    )
+
+
+def test_value_source_is_valid_when_standalone() -> None:
+    ev = _eval(
+        'value(name="upstream", type=integer(), location=s3())\n'
+        'value(name="v", type=string(), location=s3(), source=":upstream")\n'
+    )
+
+    _resolve_and_validate(ev)
+
+
 # ---------------------------------------------------------------------------
 # TC-017: value() source with @sql suffix auto-produces derived location
 # Traces to openspec/changes/value-source-query/specs/derived-location/spec.md
@@ -668,6 +692,16 @@ def test_value_sql_derived_source_paths_extracted_from_source_location() -> None
     assert loc is not None
     assert loc.type == "derived"
     assert loc.attributes.get("source_paths") == ["data/*.parquet"]
+
+
+def test_value_query_source_is_valid_when_standalone() -> None:
+    ev = _eval(
+        'value(name="base", type=integer(), location=posix(path="data/*.parquet"))\n'
+        "value(name=\"derived\", source=\":base[@sql WHERE split='train']\")\n"
+    )
+
+    _resolve_and_validate(ev)
+    assert ev._values_by_name["derived"].location.type == "derived"
 
 
 def test_value_stores_group_and_context_policy() -> None:

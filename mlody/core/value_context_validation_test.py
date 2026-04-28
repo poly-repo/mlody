@@ -17,6 +17,7 @@ def _value(
     *,
     group: str | None = None,
     constraint: str | None = None,
+    source: str | None = None,
 ) -> Struct:
     fields: dict[str, object] = {
         "kind": "value",
@@ -31,6 +32,15 @@ def _value(
     if constraint is not None:
         fields["constraint"] = constraint
         policies["constraint"] = ("task.config", "task.action.config")
+    if source is not None:
+        fields["source"] = source
+        policies["source"] = (
+            "standalone",
+            "task.inputs",
+            "task.config",
+            "task.action.inputs",
+            "task.action.config",
+        )
     if policies:
         fields["_context_attr_policies"] = policies
     return Struct(**fields)
@@ -111,6 +121,96 @@ def test_task_input_context_rejects_group() -> None:
     assert violation.actual_context == "task.inputs"
     assert violation.task_name == "train"
     assert violation.slot_path == "task.inputs[0]"
+
+
+def test_standalone_source_value_is_allowed() -> None:
+    value = _value("artifact", source=":upstream")
+
+    validate_context_restricted_values_registry_items(_items(value))
+
+
+def test_task_input_context_accepts_source() -> None:
+    value = _value("artifact", source=":upstream")
+    task = _task("train", inputs=[value], action=_action("act"))
+
+    validate_context_restricted_values_registry_items(_items(value, task))
+
+
+def test_task_output_context_rejects_source() -> None:
+    value = _value("artifact", source=":upstream")
+    task = _task("train", outputs=[value], action=_action("act"))
+
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        validate_context_restricted_values_registry_items(_items(value, task))
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "task.outputs"
+    assert violation.attr_name == "source"
+
+
+def test_direct_action_input_rejects_source() -> None:
+    value = _value("artifact", source=":upstream")
+    action = _action("templated", inputs=[value])
+
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        validate_context_restricted_values_registry_items(_items(value, action))
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "action.inputs"
+    assert violation.attr_name == "source"
+
+
+def test_direct_action_config_rejects_source() -> None:
+    value = _value("cfg", source=":upstream")
+    action = _action("templated", config=[value])
+
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        validate_context_restricted_values_registry_items(_items(value, action))
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "action.config"
+    assert violation.attr_name == "source"
+
+
+def test_direct_action_output_rejects_source() -> None:
+    value = _value("artifact", source=":upstream")
+    action = _action("templated", outputs=[value])
+
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        validate_context_restricted_values_registry_items(_items(value, action))
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "action.outputs"
+    assert violation.attr_name == "source"
+
+
+def test_task_action_input_accepts_source_from_top_level_action() -> None:
+    value = _value("artifact", source=":upstream")
+    action = _action("templated", inputs=[value])
+    task = _task("train", action=action)
+
+    validate_context_restricted_values_registry_items(_items(value, action, task))
+
+
+def test_task_action_config_accepts_source_from_top_level_action() -> None:
+    value = _value("cfg", source=":upstream")
+    action = _action("templated", config=[value])
+    task = _task("train", action=action)
+
+    validate_context_restricted_values_registry_items(_items(value, action, task))
+
+
+def test_task_action_output_rejects_source_from_top_level_action() -> None:
+    value = _value("artifact", source=":upstream")
+    action = _action("templated", outputs=[value])
+    task = _task("train", action=action)
+
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        validate_context_restricted_values_registry_items(_items(value, action, task))
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "task.action.outputs"
+    assert violation.attr_name == "source"
 
 
 def test_top_level_action_template_is_allowed_without_task_materialization() -> None:

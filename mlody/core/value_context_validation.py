@@ -127,17 +127,33 @@ def collect_context_restricted_value_violations_from_entities(
 
     observed_by_value_key: dict[ValueKey, list[_ObservedBinding]] = defaultdict(list)
     policy_values: dict[ValueKey, Struct] = {}
-    template_value_keys: set[ValueKey] = set()
 
     for action in action_values:
-        for field_name in ("inputs", "outputs", "config"):
-            for value in _iter_slot_values(action, field_name):
-                policies = _context_policies(value)
-                if not policies:
-                    continue
-                value_key = _value_key(value, policies)
-                template_value_keys.add(value_key)
-                policy_values[value_key] = value
+        action_name = _entity_name(action)
+        _record_bindings(
+            observed_by_value_key,
+            policy_values,
+            task_name=action_name,
+            context_name="action.inputs",
+            slot_field="inputs",
+            container=action,
+        )
+        _record_bindings(
+            observed_by_value_key,
+            policy_values,
+            task_name=action_name,
+            context_name="action.outputs",
+            slot_field="outputs",
+            container=action,
+        )
+        _record_bindings(
+            observed_by_value_key,
+            policy_values,
+            task_name=action_name,
+            context_name="action.config",
+            slot_field="config",
+            container=action,
+        )
 
     for task in task_values:
         task_name = _entity_name(task)
@@ -205,8 +221,15 @@ def collect_context_restricted_value_violations_from_entities(
         policies = _context_policies(value)
         observed = observed_by_value_key.get(value_key, [])
         if observed:
+            observed_contexts = tuple(binding.actual_context for binding in observed)
             for binding in observed:
                 for attr_name, allowed_contexts in policies.items():
+                    if _skip_direct_action_binding(
+                        binding.actual_context,
+                        allowed_contexts,
+                        observed_contexts,
+                    ):
+                        continue
                     if binding.actual_context in allowed_contexts:
                         continue
                     violations.append(
@@ -221,10 +244,9 @@ def collect_context_restricted_value_violations_from_entities(
                     )
             continue
 
-        if value_key in template_value_keys:
-            continue
-
         for attr_name, allowed_contexts in policies.items():
+            if "standalone" in allowed_contexts:
+                continue
             violations.append(
                 ContextRestrictedValueViolation(
                     value_name=_entity_name(value),
@@ -298,6 +320,20 @@ def _context_policies(value: Struct) -> dict[str, tuple[str, ...]]:
             if allowed_contexts:
                 policies[attr_name] = allowed_contexts
     return policies
+
+
+def _skip_direct_action_binding(
+    actual_context: str,
+    allowed_contexts: tuple[str, ...],
+    observed_contexts: tuple[str, ...],
+) -> bool:
+    if not actual_context.startswith("action."):
+        return False
+    if any(context.startswith("task.action.") for context in observed_contexts):
+        return True
+    return "standalone" not in allowed_contexts and not any(
+        context.startswith("action.") for context in allowed_contexts
+    )
 
 
 def _is_scoped_clone(value: Struct) -> bool:

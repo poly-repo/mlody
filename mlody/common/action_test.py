@@ -10,6 +10,7 @@ from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 import mlody
 from mlody.core.value_context_validation import (
+    ContextRestrictedValueValidationError,
     validate_context_restricted_values_evaluator,
 )
 
@@ -315,3 +316,55 @@ def test_unused_top_level_action_with_contextual_constraint_is_allowed() -> None
         ')\n'
     )
     assert ev._actions_by_name["templated"].config[0].constraint == "x > 0"
+
+
+def test_direct_top_level_action_input_with_source_is_rejected() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'value(name="upstream", type=string(), location=s3())\n'
+            'action(\n'
+            '  name="templated",\n'
+            '  inputs=[value(name="inp", type=string(), location=s3(), source=":upstream")],\n'
+            '  outputs=[],\n'
+            '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
+            ')\n'
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "action.inputs"
+    assert violation.attr_name == "source"
+
+
+def test_direct_top_level_action_config_with_source_is_rejected() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'value(name="upstream", type=string(), location=s3())\n'
+            'action(\n'
+            '  name="templated",\n'
+            '  inputs=[],\n'
+            '  outputs=[],\n'
+            '  config=[value(name="cfg", type=string(), location=inline(), source=":upstream")],\n'
+            '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
+            ')\n'
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "action.config"
+    assert violation.attr_name == "source"
+
+
+def test_direct_top_level_action_output_with_source_is_rejected() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'value(name="upstream", type=string(), location=s3())\n'
+            'action(\n'
+            '  name="templated",\n'
+            '  inputs=[],\n'
+            '  outputs=[value(name="out", type=string(), location=s3(), source=":upstream")],\n'
+            '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
+            ')\n'
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "action.outputs"
+    assert violation.attr_name == "source"

@@ -458,6 +458,109 @@ def test_task_output_value_with_constraint_raises_context_validation_error() -> 
     assert violation.attr_name == "constraint"
 
 
+def test_task_input_value_accepts_source() -> None:
+    ev = _eval(
+        'value(name="upstream", type=string(), location=s3())\n'
+        'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+        'task(name="train", inputs=[value(name="artifact", type=string(), location=s3(), source=":upstream")], outputs=[], action="act")\n'
+    )
+    assert ev._tasks_by_name["train"].inputs[0].source == ":upstream"
+
+
+def test_task_config_value_accepts_source() -> None:
+    ev = _eval(
+        'value(name="upstream", type=string(), location=s3())\n'
+        'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+        'task(name="train", inputs=[], outputs=[], config=[value(name="cfg", type=string(), location=inline(), source=":upstream")], action="act")\n'
+    )
+    assert ev._tasks_by_name["train"].config[0].source == ":upstream"
+
+
+def test_task_output_value_with_source_raises_context_validation_error() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'value(name="upstream", type=string(), location=s3())\n'
+            'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+            'task(name="train", inputs=[], outputs=[value(name="artifact", type=string(), location=s3(), source=":upstream")], action="act")\n'
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "task.outputs"
+    assert violation.attr_name == "source"
+
+
+def test_shared_source_value_is_valid_when_used_only_in_task_inputs_and_config() -> None:
+    ev = _eval(
+        'value(name="upstream", type=string(), location=s3())\n'
+        'value(name="artifact", type=string(), location=s3(), source=":upstream")\n'
+        'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+        'task(name="train", inputs=["artifact"], outputs=[], config=["artifact"], action="act")\n'
+    )
+    assert ev._tasks_by_name["train"].inputs[0].source == ":upstream"
+    assert ev._tasks_by_name["train"].config[0].source == ":upstream"
+
+
+def test_shared_source_value_fails_when_reused_in_task_outputs() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'value(name="upstream", type=string(), location=s3())\n'
+            'value(name="artifact", type=string(), location=s3(), source=":upstream")\n'
+            'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+            'task(name="train", inputs=[], outputs=["artifact"], action="act")\n'
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "task.outputs"
+    assert violation.attr_name == "source"
+
+
+def test_task_action_input_value_accepts_source() -> None:
+    ev = _eval(
+        'value(name="upstream", type=string(), location=s3())\n'
+        'action(\n'
+        '  name="act",\n'
+        '  inputs=[value(name="artifact", type=string(), location=s3(), source=":upstream")],\n'
+        '  outputs=[],\n'
+        '  implementation=shell_script(content="dummy")\n'
+        ')\n'
+        'task(name="train", inputs=[], outputs=[], action="act")\n'
+    )
+    assert ev._tasks_by_name["train"].action.inputs[0].source == ":upstream"
+
+
+def test_task_action_config_value_accepts_source() -> None:
+    ev = _eval(
+        'value(name="upstream", type=string(), location=s3())\n'
+        'action(\n'
+        '  name="act",\n'
+        '  inputs=[],\n'
+        '  outputs=[],\n'
+        '  config=[value(name="cfg", type=string(), location=inline(), source=":upstream")],\n'
+        '  implementation=shell_script(content="dummy")\n'
+        ')\n'
+        'task(name="train", inputs=[], outputs=[], action="act")\n'
+    )
+    assert ev._tasks_by_name["train"].action.config[0].source == ":upstream"
+
+
+def test_task_action_output_value_with_source_raises_context_validation_error() -> None:
+    with pytest.raises(ContextRestrictedValueValidationError) as exc_info:
+        _eval(
+            'value(name="upstream", type=string(), location=s3())\n'
+            'action(\n'
+            '  name="act",\n'
+            '  inputs=[],\n'
+            '  outputs=[value(name="artifact", type=string(), location=s3(), source=":upstream")],\n'
+            '  implementation=shell_script(content="dummy")\n'
+            ')\n'
+            'task(name="train", inputs=[], outputs=[], action="act")\n'
+        )
+
+    violation = exc_info.value.violations[0]
+    assert violation.actual_context == "task.action.outputs"
+    assert violation.attr_name == "source"
+
+
 def test_shared_group_value_is_valid_when_used_only_in_task_outputs() -> None:
     ev = _eval(
         'value(name="artifact", type=string(), location=s3(), group="bundle")\n'

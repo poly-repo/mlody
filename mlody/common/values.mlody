@@ -15,6 +15,19 @@ _CONTEXTUAL_VALUE_ATTRS = {
     ),
 }
 
+_SOURCE_ALLOWED_IN = [
+    "standalone",
+    "task.inputs",
+    "task.config",
+    "task.action.inputs",
+    "task.action.config",
+]
+
+_SOURCE_ATTR = attr(
+    type="value_ref",
+    mandatory=False,
+    allowed_in=_SOURCE_ALLOWED_IN,
+)
 
 _NUMERIC_VALUE_TYPE_ROOTS = ("integer", "float")
 
@@ -162,12 +175,23 @@ def _contextual_value_fields(ctx_attr):
             continue
         validate_attr_value(attr_name, attr_value, attr_def.get("type"))
         fields[attr_name] = attr_value
-        metadata = attr_def.get("metadata", {})
-        allowed_in = metadata.get("allowed_in", [])
-        policies[attr_name] = tuple(allowed_in)
+        policies[attr_name] = _policy_tuple(attr_def)
     if policies:
         fields["_context_attr_policies"] = policies
     return fields
+
+
+def _policy_tuple(attr_def):
+    metadata = attr_def.get("metadata", {})
+    allowed_in = metadata.get("allowed_in", [])
+    return tuple(allowed_in)
+
+
+def _merge_context_policy(value_fields, attr_name, attr_def):
+    existing = value_fields.get("_context_attr_policies", {})
+    merged = dict(existing)
+    merged[attr_name] = _policy_tuple(attr_def)
+    value_fields["_context_attr_policies"] = merged
 
 
 def _value_rule_attrs():
@@ -176,7 +200,7 @@ def _value_rule_attrs():
         "location":       attr(type="location_ref", mandatory=False),
         "unit":           attr(type="string", mandatory=False),
         "default":        attr(mandatory=False),
-        "source":         attr(type="value_ref", mandatory=False),
+        "source":         _SOURCE_ATTR,
         "representation": attr(type="representation_ref", mandatory=False),
     }
     for attr_name, attr_def in _CONTEXTUAL_VALUE_ATTRS.items():
@@ -286,6 +310,8 @@ def _value_impl(ctx):
     }
     for field_name, field_value in _contextual_value_fields(ctx.attr).items():
         value_fields[field_name] = field_value
+    if source_raw != None:
+        _merge_context_policy(value_fields, "source", _SOURCE_ATTR)
 
     value_struct = Struct(**value_fields)
     builtins.register(ctx.kind, value_struct)
