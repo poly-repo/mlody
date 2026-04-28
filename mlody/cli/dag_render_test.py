@@ -18,8 +18,22 @@ from mlody.cli.dag_render import (
 from mlody.core.dag import Edge, TaskNode
 
 
-def _make_port(name: str, type_name: str = "integer") -> SimpleNamespace:
-    return SimpleNamespace(name=name, type=SimpleNamespace(name=type_name))
+def _make_type(
+    name: str,
+    *,
+    root_kind: str | None = None,
+    attributes: dict[str, object] | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=name,
+        type=name,
+        _root_kind=root_kind or name,
+        attributes=attributes or {},
+    )
+
+
+def _make_port(name: str, type_obj: object | None = None) -> SimpleNamespace:
+    return SimpleNamespace(name=name, type=type_obj or _make_type("integer"))
 
 
 def _make_action(
@@ -119,6 +133,18 @@ def test_short_type_name_prefers_nested_type_name() -> None:
     assert short_type_name(value) == "dataset"
 
 
+def test_short_type_name_renders_aggregate_alias_with_detail() -> None:
+    value = SimpleNamespace(
+        type=_make_type(
+            "dataset",
+            root_kind="vector",
+            attributes={"element_type": _make_type("row", root_kind="record")},
+        )
+    )
+
+    assert short_type_name(value) == "dataset (vector[row])"
+
+
 def test_format_action_cell_renders_short_port_summaries() -> None:
     action = _make_action(
         "train_action",
@@ -135,6 +161,34 @@ def test_format_action_cell_renders_short_port_summaries() -> None:
     assert "ACfg: epochs:integer" in rendered
 
 
+def test_format_action_cell_renders_aggregate_type_labels() -> None:
+    point_type = _make_type(
+        "point",
+        root_kind="tuple",
+        attributes={"_element_types": [_make_type("float"), _make_type("float")]},
+    )
+    action = SimpleNamespace(
+        name="train_action",
+        inputs=[
+            _make_port(
+                "dataset",
+                _make_type(
+                    "dataset",
+                    root_kind="vector",
+                    attributes={"element_type": _make_type("row", root_kind="record")},
+                ),
+            )
+        ],
+        outputs=[],
+        config=[_make_port("point", point_type)],
+    )
+
+    rendered = format_action_cell(action, "fallback")
+
+    assert "dataset:dataset (vector[row])" in rendered
+    assert "point:point (tuple[float, float])" in rendered
+
+
 def test_build_dag_table_renders_dependency_rows() -> None:
     dag = _make_graph()
     table = build_dag_table(dag, "Workspace DAG")
@@ -149,6 +203,48 @@ def test_build_dag_table_renders_dependency_rows() -> None:
     assert "task/test:downstream" in rendered
     assert "weights → weights" in rendered
     assert "Cfg: epochs:integer" in rendered
+
+
+def test_build_dag_table_renders_aggregate_type_labels() -> None:
+    dag = networkx.MultiDiGraph()
+    dataset_type = _make_type(
+        "dataset",
+        root_kind="vector",
+        attributes={"element_type": _make_type("row", root_kind="record")},
+    )
+    point_type = _make_type(
+        "point",
+        root_kind="tuple",
+        attributes={"_element_types": [_make_type("float"), _make_type("float")]},
+    )
+    task_struct = SimpleNamespace(
+        kind="task",
+        name="downstream",
+        action=SimpleNamespace(name="export_action", inputs=[], outputs=[], config=[]),
+        inputs=[_make_port("dataset", dataset_type)],
+        outputs=[],
+        config=[_make_port("point", point_type)],
+    )
+    dag.add_node(
+        "task/test:downstream",
+        task=TaskNode(
+            node_id="task/test:downstream",
+            name="downstream",
+            action="export_action",
+            input_ports=("dataset",),
+            output_ports=(),
+        ),
+        task_struct=task_struct,
+    )
+
+    table = build_dag_table(dag, "Workspace DAG")
+    buffer = StringIO()
+    console = Console(file=buffer, record=True, width=140)
+    console.print(table)
+    rendered = console.export_text()
+
+    assert "dataset:dataset (vector[row])" in rendered
+    assert "point:point (tuple[float, float])" in rendered
 
 
 def test_resolve_dag_selection_accepts_task_and_output_labels() -> None:

@@ -7,9 +7,11 @@ from dataclasses import dataclass
 import networkx
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from mlody.core.dag import Edge, TaskNode, ancestors_subgraph
 from mlody.core.targets import TargetAddress, parse_target
+from mlody.core.type_display import format_value_type_label
 
 
 @dataclass(frozen=True)
@@ -23,16 +25,7 @@ class DagSelectionResult:
 
 def short_type_name(value: object) -> str:
     """Return a concise type label for a value-like object."""
-    value_type = getattr(value, "type", None)
-    if value_type is None:
-        return "?"
-
-    type_name = getattr(value_type, "name", None)
-    if isinstance(type_name, str) and type_name:
-        return type_name
-    if isinstance(value_type, str) and value_type:
-        return value_type
-    return "?"
+    return format_value_type_label(value)
 
 
 def format_value_list(values: object) -> str:
@@ -97,9 +90,9 @@ def build_dag_table(display_graph: networkx.MultiDiGraph, title: str) -> Table:
             f"Cfg: {config_str}"
         )
         table.add_row(
-            task_cell,
-            format_action_cell(getattr(task_struct, "action", None), task_node.action),
-            "\n\n".join(dependencies) if dependencies else "—",
+            Text(task_cell),
+            Text(format_action_cell(getattr(task_struct, "action", None), task_node.action)),
+            Text("\n\n".join(dependencies) if dependencies else "—"),
         )
 
     return table

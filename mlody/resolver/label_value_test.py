@@ -15,7 +15,9 @@ from typing import Any
 
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
+from rich.console import Console
 
+from common.python.console import RichDomExecutor
 from mlody.core.label import parse_label
 from mlody.core.virtual_value import force_virtual_value
 from mlody.core.workspace import Workspace
@@ -30,6 +32,7 @@ from mlody.resolver.label_value import (
     MlodyValueValue,
     _RawAttrValue,
     _traverse_one_step,
+    _value_rows,
     resolve_label_to_value,
 )
 
@@ -879,6 +882,106 @@ def _make_loc(path: str | list[str]) -> Any:
     """Construct a minimal posix location Struct."""
     paths = [path] if isinstance(path, str) else list(path)
     return _make_struct(kind="posix", type="posix", name="loc", path=paths)
+
+
+class TestAggregateTypeRendering:
+    """Requirement: task/action table rendering includes aggregate type detail."""
+
+    def test_value_rows_render_aggregate_type_labels(self) -> None:
+        string_type = _make_struct(
+            kind="type",
+            type="string",
+            name="string",
+            _root_kind="string",
+            attributes={},
+            _allowed_attrs={},
+        )
+        vector_type = _make_struct(
+            kind="type",
+            type="vector",
+            name="vector",
+            _root_kind="vector",
+            attributes={"element_type": string_type},
+            _allowed_attrs={},
+        )
+        float_type = _make_struct(
+            kind="type",
+            type="float",
+            name="float",
+            _root_kind="float",
+            attributes={},
+            _allowed_attrs={},
+        )
+        point_type = _make_struct(
+            kind="type",
+            type="point",
+            name="point",
+            _root_kind="tuple",
+            attributes={"_element_types": [float_type, float_type]},
+            _allowed_attrs={},
+        )
+        outputs = _make_struct(
+            releases=_make_struct(
+                name="releases",
+                type=vector_type,
+                source=_make_struct(type="inline"),
+                default=None,
+            ),
+            point=_make_struct(
+                name="point",
+                type=point_type,
+                source=_make_struct(type="inline"),
+                default=None,
+            ),
+        )
+
+        rows = _value_rows(outputs)
+
+        assert [getattr(row[1], "value", None) for row in rows] == [
+            "vector[string]",
+            "point (tuple[float, float])",
+        ]
+
+    def test_task_console_representation_includes_aggregate_type_labels(self) -> None:
+        string_type = _make_struct(
+            kind="type",
+            type="string",
+            name="string",
+            _root_kind="string",
+            attributes={},
+            _allowed_attrs={},
+        )
+        vector_type = _make_struct(
+            kind="type",
+            type="vector",
+            name="vector",
+            _root_kind="vector",
+            attributes={"element_type": string_type},
+            _allowed_attrs={},
+        )
+        task_value = MlodyTaskValue(
+            struct=_make_struct(
+                kind="task",
+                name="downloader",
+                inputs=_make_struct(),
+                config=_make_struct(),
+                outputs=_make_struct(
+                    releases=_make_struct(
+                        name="releases",
+                        type=vector_type,
+                        source=_make_struct(type="inline"),
+                        default=None,
+                    )
+                ),
+            )
+        )
+
+        buffer = Console(record=True, width=120)
+        RichDomExecutor(console=buffer).render(task_value.to_console_representation())
+        rendered = buffer.export_text()
+
+        assert "releases" in rendered
+        assert "vector[string]" in rendered
 
 
 # ---------------------------------------------------------------------------

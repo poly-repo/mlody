@@ -44,6 +44,8 @@ if TYPE_CHECKING:
     from mlody.core.tabular.location_specs import DerivedLocationSpec
     from mlody.core.workspace import Workspace
 
+from mlody.core.type_display import format_type_label
+
 
 # ---------------------------------------------------------------------------
 # Arrow → mlody type mapping  (FR-002, spec §4)
@@ -365,10 +367,7 @@ def _to_display_dict(obj: object) -> object:
 
 
 def _fmt_type(t: object) -> str:
-    if t is None:
-        return "-"
-    name = getattr(t, "name", None)
-    return name if isinstance(name, str) and name else str(getattr(t, "type", "-"))
+    return format_type_label(t)
 
 
 def _fmt_location(loc: object) -> str:

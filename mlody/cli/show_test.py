@@ -29,6 +29,22 @@ from mlody.resolver.label_value import (
 )
 
 
+def _make_type_struct(
+    name: str,
+    *,
+    root_kind: str | None = None,
+    attributes: dict[str, object] | None = None,
+) -> Struct:
+    return Struct(
+        kind="type",
+        type=name,
+        name=name,
+        _root_kind=root_kind or name,
+        attributes=attributes or {},
+        _allowed_attrs={},
+    )
+
+
 # ---------------------------------------------------------------------------
 # show_fn — functional form
 # ---------------------------------------------------------------------------
@@ -539,6 +555,51 @@ class TestShowMlodyValueRendering:
 
         assert result.exit_code == 0  # type: ignore[union-attr]
         assert "task" in result.output  # type: ignore[union-attr]
+
+    def test_show_renders_aggregate_output_types_for_downloader(self, tmp_path: Path) -> None:
+        """Aggregate outputs include element-type detail in the rendered task table."""
+        string_type = _make_type_struct("string", root_kind="string")
+        vector_string = _make_type_struct(
+            "vector",
+            root_kind="vector",
+            attributes={"element_type": string_type},
+        )
+        task_struct = Struct(
+            kind="task",
+            name="downloader",
+            inputs=Struct(),
+            config=Struct(),
+            outputs=Struct(
+                model=Struct(
+                    name="model",
+                    type=_make_type_struct("nothing", root_kind="nothing"),
+                    source=Struct(type="inline"),
+                    default=None,
+                ),
+                committoid=Struct(
+                    name="committoid",
+                    type=_make_type_struct("nothing", root_kind="nothing"),
+                    source=Struct(type="inline"),
+                    default=None,
+                ),
+                releases=Struct(
+                    name="releases",
+                    type=vector_string,
+                    source=Struct(type="inline"),
+                    default=None,
+                ),
+            ),
+        )
+        value = MlodyTaskValue(struct=task_struct)
+        result = _make_show_runner(
+            tmp_path,
+            value,
+            target="@common//huggingface/downloader:downloader",
+        )
+
+        assert result.exit_code == 0  # type: ignore[union-attr]
+        assert "releases" in result.output  # type: ignore[union-attr]
+        assert "vector[string]" in result.output  # type: ignore[union-attr]
 
     def test_show_renders_action_value_exits_0(self, tmp_path: Path) -> None:
         """Task 7.4 — Scenario: show renders MlodyActionValue."""

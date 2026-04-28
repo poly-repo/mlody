@@ -1,5 +1,5 @@
 load("//mlody/common/task.mlody")
-load("@common//:types.mlody", "opaque", "typedef", "string", "integer", "record")
+load("@common//:types.mlody", "opaque", "typedef", "string", "integer", "record", "vector")
 load("//mlody/common/values.mlody")
 load("//mlody/common/locations.mlody")
 load("//mlody/common/implementation.mlody")
@@ -64,7 +64,9 @@ value(
 task(
     name = "downloader",
     outputs = [
-	    value(name = "model"),
+            value(name="model", group="model"),
+            value(name="committoid", group="model"),
+            value(name="releases", type = vector(element_type=string()), representation=json(), location= inline(), group="info"),
     ],
     executor = kubernetes(),
     action = action(
@@ -73,6 +75,8 @@ task(
             # present code add the sha in the code
 	    # NOTE: depending on what we decide, the type might end up be a run-time quantity
             value(name="model", type=":hf-model", location = posix(path="{vendor}/{model}/{sha}")),
+            value(name="committoid", location = inline()),
+            value(name="releases", type = vector(element_type=string()), representation=json(), location= inline()),
         ],
         # NOTE: we don't have them here, but we need a way to specify positional args and their order
         # actually, we could use that as an example for accepting "vendor/model" as a single argument as that is what you copy from hugginface

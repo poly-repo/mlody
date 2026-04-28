@@ -67,11 +67,13 @@ o_py_test(
     srcs = ["label_value_test.py"],
     deps = [
         ":resolver_lib",
+        "//common/python/console:console_lib",
         "//common/python/starlarkish/core:core_lib",
         "//mlody/core:core_lib",
         "@pip//pyarrow",
         "@pip//pyfakefs",  # keep — pyfakefs provides the `fs` fixture via pytest plugin
         "@pip//pytest",
+        "@pip//rich",
     ],
 )
 

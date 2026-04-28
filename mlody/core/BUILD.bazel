@@ -106,6 +106,15 @@ o_py_test(
 )
 
 o_py_test(
+    name = "type_display_test",
+    srcs = ["type_display_test.py"],
+    deps = [
+        ":core_lib",
+        "//common/python/starlarkish/core:core_lib",
+    ],
+)
+
+o_py_test(
     name = "value_context_validation_test",
     srcs = ["value_context_validation_test.py"],
     deps = [
@@ -409,6 +418,7 @@ o_py_library(
         "traversal_grammar.py",
         "traversal_parser.py",
         "traversal_runtime.py",
+        "type_display.py",
         "value_context_validation.py",
         "virtual_value.py",
         "workspace.py",
