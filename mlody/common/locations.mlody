@@ -82,6 +82,7 @@ def _location_impl(ctx):
     predicate = python.getattr(ctx.attr, 'predicate', None)
 
     extra_attrs_spec = None
+    default_attributes = None
     if python.hasattr(ctx.attr, 'attrs') and ctx.attr.attrs != None:
         for attr_name, attr_def in ctx.attr.attrs.as_mapping().items():
             declared_type = python.getattr(attr_def, "type", None)
@@ -92,6 +93,12 @@ def _location_impl(ctx):
             if extra_attrs_spec == None:
                 extra_attrs_spec = {}
             extra_attrs_spec[attr_name] = declared_type
+            metadata = python.getattr(attr_def, "metadata", None)
+            default_value = python.getattr(metadata, "default", None) if metadata != None else None
+            if default_value != None:
+                if default_attributes == None:
+                    default_attributes = {}
+                default_attributes[attr_name] = default_value
 
     # Always set abstract explicitly (prevents inheriting True from an abstract base).
     abstract = python.getattr(ctx.attr, 'abstract', None)
@@ -103,6 +110,7 @@ def _location_impl(ctx):
     new_loc_struct = extend_attrs(
         base=base_type,
         type_name=ctx.attr.name,
+        extra_attributes=default_attributes,
         extra_attrs_spec=extra_attrs_spec,
         extra_validator=predicate,
         **other_fields
@@ -181,6 +189,33 @@ location(
     },
 )
 
+location(
+    name = "rds",
+    abstract = True,
+    attrs = {
+        "db_type": attr(type="string", mandatory=False),
+    },
+)
+
+location(
+    name = "postgres",
+    base = rds(db_type="postgres"),
+    attrs = {
+        "connection_id": attr(type="string", mandatory=False),
+        "host": attr(type="string", mandatory=False),
+        "database": attr(type="string", mandatory=False),
+        "login": attr(type="string", mandatory=False),
+        "password": attr(type="string", mandatory=False),
+        "port": attr(type="integer", mandatory=False, default=5432),
+    },
+)
+
+# derived is basically an internal “computed dataset” location, not a real storage backend like posix, s3, or your new postgres.
+# It exists to represent: “this value should be materialized as a cached parquet file by running a SQL fragment over another value.”
+# At runtime, that derived location is used for three things:
+#    Materialization: derived_source.py (line 67) runs the SQL over the source parquet files and writes a cached parquet output.
+#    Traversal: label_value.py (line 1819) detects location.type == "derived" and materializes it before reading rows/fields.
+#    Path composition: location_composition.py (line 164) knows how to compose a derived dataset with nested field paths, and location_specs.py (line 131) is the typed adapter for that metadata.
 location(
     name = "derived",
     injectable = False,

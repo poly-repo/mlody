@@ -256,3 +256,56 @@ def test_s3_factory_rejects_unknown_kwarg() -> None:
     """TC-012: s3(nonexistent='x') raises TypeError."""
     with pytest.raises(TypeError):
         _eval("result = s3(nonexistent='x')")
+
+
+# ---------------------------------------------------------------------------
+# RDS / Postgres hierarchy
+# ---------------------------------------------------------------------------
+
+
+def test_rds_is_abstract() -> None:
+    """rds() participates in the location hierarchy as an abstract base."""
+    ev = _eval("result = rds()")
+    result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
+    assert result.kind == "location"
+    assert result.type == "rds"
+    assert result.abstract is True
+    assert result._allowed_attrs == {"db_type": "string"}
+
+
+def test_postgres_inherits_rds_attrs_and_default_port() -> None:
+    """postgres() fixes db_type and owns the concrete connection attrs."""
+    ev = _eval("""\
+        result = postgres(
+            connection_id="tutorial_pg_conn",
+            host="postgres",
+            database="airflow",
+            login="airflow",
+            password="airflow",
+        )
+    """)
+    result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
+    assert result.kind == "location"
+    assert result.type == "postgres"
+    assert result.abstract is False
+    assert result.attributes["db_type"] == "postgres"
+    assert result.attributes["connection_id"] == "tutorial_pg_conn"
+    assert result.attributes["host"] == "postgres"
+    assert result.attributes["database"] == "airflow"
+    assert result.attributes["login"] == "airflow"
+    assert result.attributes["password"] == "airflow"
+    assert result.attributes["port"] == 5432
+
+
+def test_postgres_port_can_be_overridden() -> None:
+    """postgres(port=...) can override the concrete default port."""
+    ev = _eval("result = postgres(port=15432)")
+    result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
+    assert result.attributes["db_type"] == "postgres"
+    assert result.attributes["port"] == 15432
+
+
+def test_postgres_rejects_non_integer_port() -> None:
+    """postgres(port='5432') validates concrete attr types."""
+    with pytest.raises(TypeError):
+        _eval("result = postgres(port='5432')")
