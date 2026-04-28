@@ -29,6 +29,7 @@ from mlody.resolver.label_value import (
     MlodyTaskValue,
     MlodyUnresolvedValue,
     MlodyValueValue,
+    _RawAttrValue,
 )
 
 
@@ -358,6 +359,37 @@ class TestShowCommandOutput:
         lr_pos = result.output.index("0.001")
         opt_pos = result.output.index("adam")
         assert lr_pos < opt_pos
+
+
+    def test_sql_row_list_is_rendered_as_tabular_preview(self, tmp_path: Path) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@bert//models:rows"]
+        resolved_value = _RawAttrValue(
+            value=[
+                {"name": "Alice", "salary": 120000},
+                {"name": "Bob", "salary": 90000},
+            ],
+            label=_parse_label("@bert//models:rows[@sql WHERE salary > 0]"),
+        )
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "@bert//models:rows[@sql WHERE salary > 0]"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "pyarrow.Table" in result.output
+        assert "Alice" in result.output
+        assert "salary" in result.output
+        assert "[0]" not in result.output
+        assert "name: Alice" not in result.output
 
 
 class TestShowCommandDagPlan:

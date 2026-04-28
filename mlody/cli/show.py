@@ -443,7 +443,16 @@ def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
     return repr(obj)
 
 def _print_row_list(rows: list, *, image_encoder=None) -> None:
-    """Display a list of row dicts from parquet traversal with inline image support."""
+    """Display row-list results using the same table preview as tabular sources."""
+    if rows and all(isinstance(row, dict) for row in rows):
+        try:
+            table = pa.Table.from_pylist(rows)
+        except (pa.ArrowInvalid, pa.ArrowTypeError, TypeError, ValueError):
+            table = None
+        if table is not None:
+            click.echo(_format_value(table, image_encoder=image_encoder))
+            return
+
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
             click.echo(repr(row))
