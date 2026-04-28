@@ -19,6 +19,10 @@ def test_preview_returns_limited_rows_and_total_count(tmp_path: Path) -> None:
     assert preview.total_rows == 3
     assert preview.table.num_rows == 2
     assert preview.table.column_names == ["name", "age"]
+    assert preview.table.to_pylist() == [
+        {"name": "Alice", "age": 30},
+        {"name": "Bob", "age": 40},
+    ]
 
 
 def test_count_unions_multiple_csv_files(tmp_path: Path) -> None:

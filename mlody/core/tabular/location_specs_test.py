@@ -22,6 +22,7 @@ from mlody.core.tabular import (
     source_from_location,
     source_from_value,
 )
+from mlody.core.tabular.location_specs import query_rows_from_value
 
 
 def test_posix_location_spec_reads_direct_path_field() -> None:
@@ -146,6 +147,37 @@ def test_source_from_value_returns_csv_source_for_posix_csv_value() -> None:
 
     assert isinstance(source, CsvSource)
     assert source.paths == ("data.csv",)
+
+
+def test_query_rows_from_value_omits_header_row_for_csv_with_header(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "employees.csv"
+    csv_path.write_text("name,salary\nAlice,120000\nBob,90000\n")
+    value_struct = Struct(
+        kind="value",
+        name="employees",
+        location=Struct(kind="location", type="posix", path=str(csv_path)),
+        representation=Struct(
+            kind="representation",
+            name="csv",
+            separator=",",
+            header_required=True,
+            multifile=False,
+            attributes={
+                "separator": ",",
+                "header_required": True,
+                "multifile": False,
+            },
+        ),
+    )
+
+    rows = query_rows_from_value(value_struct, "WHERE TRUE")
+
+    assert rows == [
+        {"name": "Alice", "salary": 120000},
+        {"name": "Bob", "salary": 90000},
+    ]
 
 
 def test_source_from_value_returns_materialized_local_source_for_source_backed_csv_value(

@@ -19,6 +19,7 @@ import networkx
 import pyarrow as pa
 from rich.console import Console
 from rich.pretty import pretty_repr
+from rich.table import Table
 
 from common.python.console import RichDomNode, RichDomExecutor
 
@@ -371,32 +372,34 @@ def _image_encoder_for_terminal():
 def _format_value(
     value: object, *, total_rows: int | None = None, image_encoder=None
 ) -> str:
-    try:
-        import pyarrow as pa  # noqa: PLC0415
+    if isinstance(value, pa.Table):
+        rows = value.num_rows
+        display_total = total_rows if total_rows is not None else rows
+        cols = value.num_columns
+        preview = value.slice(0, 50)
+        header = f"pyarrow.Table  {display_total} rows × {cols} columns"
+        if not preview.column_names:
+            return header
 
-        if isinstance(value, pa.Table):
-            rows = value.num_rows
-            display_total = total_rows if total_rows is not None else rows
-            cols = value.num_columns
-            header = f"pyarrow.Table  {display_total} rows × {cols} columns"
-            # Truncate to first 50 rows so the terminal doesn't flood.
-            preview = value.slice(0, 50)
-            col_names = preview.column_names
-            data_rows = preview.to_pydict()
-            lines: list[str] = [", ".join(col_names)]
-            for i in range(preview.num_rows):
-                lines.append(
-                    ", ".join(
-                        _cell_label(data_rows[c][i], image_encoder=image_encoder)
-                        for c in col_names
-                    )
-                )
-            body = "\n".join(lines)
-            if display_total > rows:
-                body += f"\n… ({display_total - rows} more rows not shown)"
-            return f"{header}\n{body}"
-    except ImportError:
-        pass
+        table = Table(title=header)
+        for column_name in preview.column_names:
+            table.add_column(column_name, overflow="fold")
+
+        data_rows = preview.to_pydict()
+        for i in range(preview.num_rows):
+            table.add_row(
+                *[
+                    _cell_label(data_rows[column_name][i], image_encoder=image_encoder)
+                    for column_name in preview.column_names
+                ]
+            )
+
+        if display_total > rows:
+            table.caption = f"… ({display_total - rows} more rows not shown)"
+
+        with _console.capture() as capture:
+            _console.print(table)
+        return capture.get().rstrip()
     if _is_primitive(value):
         return str(value)
     return pretty_repr(value)

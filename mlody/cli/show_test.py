@@ -891,8 +891,10 @@ class TestShowRemoteTabularValue:
         )
 
         assert result.exit_code == 0  # type: ignore[union-attr]
+        assert "pyarrow.Table" in result.output  # type: ignore[union-attr]
         assert "Alice" in result.output  # type: ignore[union-attr]
         assert "salary" in result.output  # type: ignore[union-attr]
+        assert "name, salary" not in result.output  # type: ignore[union-attr]
 
     def test_show_remote_parquet_value_displays_preview(
         self,
@@ -916,8 +918,10 @@ class TestShowRemoteTabularValue:
         )
 
         assert result.exit_code == 0  # type: ignore[union-attr]
+        assert "pyarrow.Table" in result.output  # type: ignore[union-attr]
         assert "Alice" in result.output  # type: ignore[union-attr]
         assert "salary" in result.output  # type: ignore[union-attr]
+        assert "name, salary" not in result.output  # type: ignore[union-attr]
 
     def test_show_remote_unsupported_representation_falls_back(
         self,
