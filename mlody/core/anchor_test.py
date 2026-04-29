@@ -24,6 +24,7 @@ class _FakeRegistryWriter:
     )
     root_writes: list[tuple[str, object]] = field(default_factory=list)
     module_global_writes: list[tuple[Path, str, object]] = field(default_factory=list)
+    workspace_attribute_writes: list[tuple[str, object]] = field(default_factory=list)
 
     def set_registry_entity(
         self,
@@ -42,6 +43,9 @@ class _FakeRegistryWriter:
         value: object,
     ) -> None:
         self.module_global_writes.append((file_path, symbol_name, value))
+
+    def set_workspace_attribute(self, attribute_name: str, value: object) -> None:
+        self.workspace_attribute_writes.append((attribute_name, value))
 
 
 def test_registry_entity_anchor_writes_back_to_registry() -> None:
@@ -92,15 +96,18 @@ def test_module_global_anchor_writes_back_to_module_globals() -> None:
     ]
 
 
-def test_workspace_attribute_anchor_is_explicitly_read_only() -> None:
+def test_workspace_attribute_anchor_writes_back_to_workspace_attributes() -> None:
+    registry = _FakeRegistryWriter()
     anchor = WorkspaceAttributeAnchor(
         root_value=object(),
         root_attribute="info",
         field_parts=("branch",),
     )
 
-    with pytest.raises(NotImplementedError, match="workspace attribute selectors"):
-        anchor.ensure_writable()
+    anchor.ensure_writable()
+    anchor.write_back(registry, "release")
+
+    assert registry.workspace_attribute_writes == [("info", "release")]
 
 
 def test_module_aggregate_anchor_reports_collection_view_and_rejects_writes() -> None:

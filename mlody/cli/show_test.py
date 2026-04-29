@@ -21,6 +21,7 @@ from mlody.cli.dag_render import DagSelectionResult
 from mlody.cli.main import cli
 from mlody.cli.show import show_fn
 from mlody.core.label import parse_label as _parse_label
+from mlody.core.virtual_value import make_virtual_value
 from mlody.resolver.errors import UnknownRefError
 from mlody.resolver.label_value import (
     MlodyActionValue,
@@ -344,6 +345,45 @@ class TestShowCommandOutput:
         assert result.exit_code == 0
         assert "bert" in result.output
         assert "0.001" in result.output
+
+    def test_virtual_value_is_materialized_before_display(self, tmp_path: Path) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["'info"]
+        info_type = _make_type_struct(
+            "mlody_workspace_info",
+            root_kind="record",
+            attributes={
+                "fields": [
+                    struct(name="branch", type=_make_type_struct("string")),
+                    struct(name="sha", type=_make_type_struct("string")),
+                ]
+            },
+        )
+        resolved_value = MlodyValueValue(
+            struct=make_virtual_value(
+                value_type=info_type,
+                label="'info",
+                materializer=lambda _value: struct(branch="release", sha="abc123"),
+                name="info",
+            )
+        )
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "'info"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "release" in result.output
+        assert "abc123" in result.output
+        assert "materializer" not in result.output
 
     def test_multiple_targets_displayed_in_order(self) -> None:
         ws = MagicMock()

@@ -8,7 +8,7 @@ such as ``_roots_by_name``, ``_module_globals``, ``_types_by_name``, and
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 from mlody.common.struct import Struct
 from mlody.core.anchor import RegistryEntityAnchor
@@ -19,8 +19,14 @@ from common.python.starlarkish.evaluator.evaluator import Evaluator
 class RegistryView:
     """Small facade over the evaluator's registry state."""
 
-    def __init__(self, evaluator: Evaluator) -> None:
+    def __init__(
+        self,
+        evaluator: Evaluator,
+        *,
+        workspace_attribute_writer: Callable[[str, object], None] | None = None,
+    ) -> None:
         self._evaluator = evaluator
+        self._workspace_attribute_writer = workspace_attribute_writer
 
     def eval_file(self, file_path: Path) -> None:
         self._evaluator.eval_file(file_path)
@@ -46,10 +52,14 @@ class RegistryView:
         *,
         description: str = "injected",
     ) -> None:
-        self._evaluator._roots_by_name[root_name] = Struct(
+        placeholder = Struct(
             name=root_name,
             path=root_path,
             description=description,
+        )
+        self._evaluator._roots_by_name[root_name] = self._evaluator.decorate_registered_value(
+            "root",
+            placeholder,
         )
 
     def has_root(self, root_name: str) -> bool:
@@ -77,7 +87,10 @@ class RegistryView:
         return dict(self._evaluator._values_by_name)
 
     def set_root_value(self, root_name: str, value: object) -> None:
-        self._evaluator._roots_by_name[root_name] = value
+        self._evaluator._roots_by_name[root_name] = self._evaluator.decorate_registered_value(
+            "root",
+            value,
+        )
 
     def type_by_name(self, type_name: str) -> object | None:
         return self._evaluator._types_by_name.get(type_name)
@@ -95,6 +108,9 @@ class RegistryView:
         symbol_name: str,
         value: object,
     ) -> None:
+        inferred_kind = getattr(value, "kind", None)
+        if isinstance(inferred_kind, str):
+            value = self._evaluator.decorate_registered_value(inferred_kind, value)
         self._evaluator._module_globals[file_path][symbol_name] = value
 
     def iter_registry_items(
@@ -111,7 +127,15 @@ class RegistryView:
         key: tuple[object, object, object],
         value: object,
     ) -> None:
+        inferred_kind = key[0] if isinstance(key[0], str) else None
+        if inferred_kind is not None:
+            value = self._evaluator.decorate_registered_value(inferred_kind, value)
         self._evaluator.all[key] = value
+
+    def set_workspace_attribute(self, attribute_name: str, value: object) -> None:
+        if self._workspace_attribute_writer is None:
+            raise NotImplementedError("workspace attribute writes are not configured")
+        self._workspace_attribute_writer(attribute_name, value)
 
     def resolve_all(self) -> None:
         self._evaluator.resolve()

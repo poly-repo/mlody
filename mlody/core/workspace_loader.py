@@ -29,6 +29,7 @@ class WorkspaceLoader:
         lazy_roots: Mapping[str, str],
         should_skip_mlody_file: Callable[[Path], bool],
         convert_ports_to_structs: Callable[[], None],
+        after_root_discovery: Callable[[], None] | None = None,
     ) -> None:
         self._monorepo_root = monorepo_root
         self._roots_file = roots_file
@@ -38,9 +39,12 @@ class WorkspaceLoader:
         self._lazy_roots = lazy_roots
         self._should_skip_mlody_file = should_skip_mlody_file
         self._convert_ports_to_structs = convert_ports_to_structs
+        self._after_root_discovery = after_root_discovery
 
     def load(self) -> None:
         self._phase1_root_discovery()
+        if self._after_root_discovery is not None:
+            self._after_root_discovery()
         load_errors = self._phase2_full_evaluation()
         if load_errors:
             raise WorkspaceLoadError(load_errors)

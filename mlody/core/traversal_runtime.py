@@ -37,6 +37,12 @@ def _is_virtual_value(value: object) -> bool:
     return bool(is_virtual_value(value))
 
 
+def _synthesized_runtime_child(value: object, name: str) -> object | None:
+    from mlody.core.virtual_value import synthesize_runtime_child  # noqa: PLC0415
+
+    return synthesize_runtime_child(value, name)
+
+
 class _VirtualValueAdapter:
     """Traversal behavior for declared virtual children on typed value Structs."""
 
@@ -86,6 +92,9 @@ class _StructAdapter:
         assert isinstance(value, Struct)
         mapping = value.as_mapping()
         if name not in mapping:
+            synthesized = _synthesized_runtime_child(value, name)
+            if synthesized is not None:
+                return synthesized
             raise AttributeError(name)
         return mapping[name]
 
@@ -99,9 +108,26 @@ class _StructAdapter:
 
     def iter_children(self, value: object) -> tuple[tuple[object, object], ...]:
         assert isinstance(value, Struct)
-        return tuple(
-            (FieldSegment(name), child) for name, child in value.as_mapping().items()
-        )
+        children = [(FieldSegment(name), child) for name, child in value.as_mapping().items()]
+        seen = {name for name, _child in value.as_mapping().items()}
+        from mlody.core.virtual_value import iter_declared_attributes  # noqa: PLC0415
+
+        for attr_spec in iter_declared_attributes(getattr(value, "type", None)):
+            name = getattr(attr_spec, "name", None)
+            if isinstance(name, str) and name not in seen:
+                synthesized = _synthesized_runtime_child(value, name)
+                if synthesized is not None:
+                    children.append((FieldSegment(name), synthesized))
+                    seen.add(name)
+        entity_type = getattr(value, "_entity_type", None)
+        for attr_spec in iter_declared_attributes(entity_type):
+            name = getattr(attr_spec, "name", None)
+            if isinstance(name, str) and name not in seen:
+                synthesized = _synthesized_runtime_child(value, name)
+                if synthesized is not None:
+                    children.append((FieldSegment(name), synthesized))
+                    seen.add(name)
+        return tuple(children)
 
     def replace_child(self, value: object, segment: object, new_child: object) -> object:
         assert isinstance(value, Struct)
@@ -113,7 +139,7 @@ class _StructAdapter:
 
     def has_named_child(self, value: object, name: str) -> bool:
         assert isinstance(value, Struct)
-        return name in value.as_mapping()
+        return name in value.as_mapping() or _synthesized_runtime_child(value, name) is not None
 
 
 class _SequenceAdapter:
@@ -202,14 +228,20 @@ class _ObjectAdapter:
     """Fallback traversal behavior for plain Python objects."""
 
     def step_named_child(self, value: object, name: str) -> object:
-        return getattr(value, name)
+        try:
+            return getattr(value, name)
+        except AttributeError:
+            synthesized = _synthesized_runtime_child(value, name)
+            if synthesized is not None:
+                return synthesized
+            raise
 
     def step_segment(self, value: object, segment: object) -> object:
         if not isinstance(segment, FieldSegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
             )
-        return getattr(value, segment.name)
+        return self.step_named_child(value, segment.name)
 
     def iter_children(self, value: object) -> tuple[tuple[object, object], ...]:
         _ = value
@@ -222,7 +254,7 @@ class _ObjectAdapter:
         )
 
     def has_named_child(self, value: object, name: str) -> bool:
-        return hasattr(value, name)
+        return hasattr(value, name) or _synthesized_runtime_child(value, name) is not None
 
 
 _VIRTUAL_VALUE_ADAPTER = _VirtualValueAdapter()

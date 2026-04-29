@@ -52,9 +52,41 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+import uuid_utils
+
 from common.python.starlarkish.core.struct import Struct, struct
 
 _log = logging.getLogger(__name__)
+_ENTITY_DESCRIPTOR_TYPE_NAMES = {
+    "root": "mlody-root",
+    "value": "mlody-value",
+    "task": "mlody-task",
+    "action": "mlody-action",
+}
+_MISSING = object()
+
+
+def _declared_child_specs(value_type: object) -> tuple[object, ...]:
+    """Return merged declared child specs for a type, including legacy aliases."""
+    attrs = getattr(value_type, "attributes", None)
+    direct_fields = getattr(value_type, "fields", None)
+    attrs_fields = attrs.get("fields") if isinstance(attrs, dict) else None
+    direct_virtual = getattr(value_type, "virtual_attributes", None)
+    attrs_virtual = attrs.get("virtual_attributes") if isinstance(attrs, dict) else None
+
+    specs: list[object] = []
+    seen: set[str] = set()
+    for spec in list(direct_fields or attrs_fields or []):
+        name = getattr(spec, "name", None)
+        if isinstance(name, str) and name not in seen:
+            specs.append(spec)
+            seen.add(name)
+    for spec in list(direct_virtual or attrs_virtual or []):
+        name = getattr(spec, "name", None)
+        if isinstance(name, str) and name not in seen:
+            specs.append(spec)
+            seen.add(name)
+    return tuple(specs)
 
 
 def _validate_loads_at_top(script_content: str, file_path: Path) -> None:
@@ -132,12 +164,18 @@ def _parse_astropy_unit(text: str) -> object:
     return u.Unit(text)
 
 
+def _uuid7_string() -> str:
+    """Return a random UUID v7 string for Starlark-side materializers."""
+    return str(uuid_utils.uuid7())
+
+
 # Python-specific builtins that are not part of the Starlark standard.
 # These will be exposed under a `python` object.
 PYTHON_SPECIFIC_BUILTINS = struct(
     hasattr=builtins.hasattr,
     getattr=builtins.getattr,
     parse_astropy_unit=_parse_astropy_unit,
+    uuid7=_uuid7_string,
     round=builtins.round,
     sum=builtins.sum,
     Any=Any,
@@ -158,6 +196,7 @@ SAFE_BUILTINS: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
     "all": builtins.all,
     "any": builtins.any,
     "bool": builtins.bool,
+    "callable": builtins.callable,
     "dict": builtins.dict,
     "enumerate": builtins.enumerate,
     "float": builtins.float,
@@ -212,6 +251,9 @@ class Evaluator:
             [Path, str], dict[tuple[str, str], tuple[int, int]]
         ]
         | None = None,
+        resolve_hook: Callable[[str], Any] | None = None,
+        force_hook: Callable[[object], Any] | None = None,
+        setf_hook: Callable[..., Any] | None = None,
     ) -> None:
         self.loaded_files: set[Path] = set()
         self._eval_stack: list[Path] = []
@@ -254,12 +296,172 @@ class Evaluator:
         # Optional hook: maps (kind, name) -> (start_line, end_line) per file.
         self._line_range_extractor = line_range_extractor
         self._file_ranges: dict[Path, dict[tuple[str, str], tuple[int, int]]] = {}
+        self._resolve_hook = resolve_hook
+        self._force_hook = force_hook
+        self._setf_hook = setf_hook
         if init_files:
             for init_file in init_files:
                 path_to_load = init_file
                 if not path_to_load.is_absolute():
                     path_to_load = self.root_path / path_to_load
                 self._execute_file(path_to_load)
+
+    def _decorate_source_range(self, value: Struct) -> Struct:
+        source_range_type = self._types_by_name.get("mlody-source-range")
+        if source_range_type is None or getattr(value, "_entity_type", None) is source_range_type:
+            return value
+        return Struct(**value.as_mapping(), _entity_type=source_range_type)
+
+    def _materialized_child_specs(
+        self,
+        kind: str,
+        fields: dict[str, Any],
+    ) -> tuple[tuple[str, object], ...]:
+        specs: list[tuple[str, object]] = []
+        seen: set[str] = set()
+
+        if kind == "value":
+            for spec in _declared_child_specs(fields.get("type")):
+                name = getattr(spec, "name", None)
+                if isinstance(name, str) and callable(getattr(spec, "materializer", None)):
+                    specs.append((name, spec))
+                    seen.add(name)
+
+        descriptor_name = _ENTITY_DESCRIPTOR_TYPE_NAMES.get(kind)
+        descriptor = self._types_by_name.get(descriptor_name) if descriptor_name is not None else None
+        for spec in _declared_child_specs(descriptor):
+            name = getattr(spec, "name", None)
+            if (
+                isinstance(name, str)
+                and name not in seen
+                and callable(getattr(spec, "materializer", None))
+            ):
+                specs.append((name, spec))
+                seen.add(name)
+
+        return tuple(specs)
+
+    def _make_materialized_child_value(
+        self,
+        *,
+        field_name: str,
+        field_spec: object,
+        owner_provider: Callable[[], Struct | None],
+        label_prefix: str,
+    ) -> Struct:
+        cached_value: dict[str, object] = {"value": _MISSING}
+        child_type = getattr(field_spec, "type", None)
+        materializer = getattr(field_spec, "materializer", None)
+        assert callable(materializer)
+
+        def _materialize(_value: object) -> object:
+            existing = cached_value["value"]
+            if existing is not _MISSING:
+                return existing
+            owner = owner_provider()
+            if owner is None:
+                raise RuntimeError(f"materialized field {field_name!r} owner not initialised")
+            cached_value["value"] = materializer(owner)
+            return cached_value["value"]
+
+        return Struct(
+            kind="value",
+            type=child_type,
+            location=Struct(
+                kind="location",
+                type="virtual",
+                name="virtual",
+                materializer=_materialize,
+            ),
+            label=f"{label_prefix}.{field_name}" if label_prefix else field_name,
+            _lineage=[],
+            name=field_name,
+        )
+
+    def decorate_registered_value(self, kind: str, value: Any) -> Any:  # pyright: ignore[reportExplicitAny]
+        if not isinstance(value, Struct):
+            return value
+
+        fields = dict(value.as_mapping())
+        changed = False
+        descriptor_name = _ENTITY_DESCRIPTOR_TYPE_NAMES.get(kind)
+        if descriptor_name is not None:
+            descriptor = self._types_by_name.get(descriptor_name)
+            if descriptor is not None and fields.get("_entity_type") is not descriptor:
+                fields["_entity_type"] = descriptor
+                changed = True
+
+        source_range_value = fields.get("_source_range")
+        if isinstance(source_range_value, Struct):
+            decorated_source_range = self._decorate_source_range(source_range_value)
+            if decorated_source_range is not source_range_value:
+                fields["_source_range"] = decorated_source_range
+                changed = True
+
+        materialized_specs = self._materialized_child_specs(kind, fields)
+        owner_snapshot: Struct | None = None
+        owner_name = str(fields.get("name", ""))
+        for field_name, field_spec in materialized_specs:
+            if field_name in fields:
+                continue
+            fields[field_name] = self._make_materialized_child_value(
+                field_name=field_name,
+                field_spec=field_spec,
+                owner_provider=lambda: owner_snapshot,
+                label_prefix=owner_name,
+            )
+            changed = True
+
+        if not changed:
+            return value
+        owner_snapshot = Struct(**fields)
+        return owner_snapshot
+
+    def _make_source_range_struct(
+        self,
+        *,
+        rel_file: Path,
+        start_line: int,
+        end_line: int,
+    ) -> Struct:
+        fields: dict[str, Any] = {
+            "kind": "mlody-source-range",
+            "filepath": str(rel_file),
+            "start_line": start_line,
+            "end_line": end_line,
+        }
+        source_range_type = self._types_by_name.get("mlody-source-range")
+        if source_range_type is not None:
+            fields["_entity_type"] = source_range_type
+        return Struct(**fields)
+
+    def _refresh_declared_entity_types(self) -> None:
+        registry_mappings: tuple[tuple[dict[Any, Any], str], ...] = (
+            (self.roots, "root"),
+            (self._roots_by_name, "root"),
+            (self.values, "value"),
+            (self._values_by_name, "value"),
+            (self.tasks, "task"),
+            (self._tasks_by_name, "task"),
+            (self.actions, "action"),
+            (self._actions_by_name, "action"),
+        )
+        for mapping, kind in registry_mappings:
+            for key, value in list(mapping.items()):
+                mapping[key] = self.decorate_registered_value(kind, value)
+
+        for key, value in list(self.all.items()):
+            if not (isinstance(key, tuple) and len(key) == 3):
+                continue
+            registered_kind = key[0]
+            if isinstance(registered_kind, str) and registered_kind in _ENTITY_DESCRIPTOR_TYPE_NAMES:
+                self.all[key] = self.decorate_registered_value(registered_kind, value)
+
+        for module_globals in self._module_globals.values():
+            for name, value in list(module_globals.items()):
+                kind = getattr(value, "kind", None)
+                if isinstance(kind, str) and kind in _ENTITY_DESCRIPTOR_TYPE_NAMES:
+                    module_globals[name] = self.decorate_registered_value(kind, value)
 
     def _register(self, kind: str, thing: Named, ctx: Struct) -> None:
         try:
@@ -274,13 +476,14 @@ class Evaluator:
             if sr is not None and isinstance(thing, Struct):
                 thing = Struct(
                     **thing.as_mapping(),
-                    _source_range=Struct(  # type: ignore[assignment]
-                        kind="mlody-source-range",
-                        filepath=str(rel_file),
+                    _source_range=self._make_source_range_struct(
+                        rel_file=rel_file,
                         start_line=sr[0],
                         end_line=sr[1],
                     ),
                 )
+
+        thing = self.decorate_registered_value(kind, thing)
 
         if kind == "root":
             self.roots[key] = thing
@@ -317,6 +520,8 @@ class Evaluator:
                 f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor'."
             )
         self.all[(kind, _stem, thing.name)] = thing
+        if kind == "type":
+            self._refresh_declared_entity_types()
         _log.debug("Registered %r as %s", key, kind)
 
     def _lookup(self, kind: str, name: str) -> Any:  # pyright: ignore[reportExplicitAny]
@@ -556,6 +761,12 @@ class Evaluator:
                 inject=_inject_into_sandbox,
             )
             sandbox_globals["builtins"] = builtins_obj
+            if self._resolve_hook is not None:
+                sandbox_globals["resolve"] = self._resolve_hook
+            if self._force_hook is not None:
+                sandbox_globals["force"] = self._force_hook
+            if self._setf_hook is not None:
+                sandbox_globals["setf"] = self._setf_hook
 
             # create a load function that will inject into this sandbox's globals
             load_func = functools.partial(

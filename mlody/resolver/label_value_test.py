@@ -10,6 +10,7 @@ starlarkish internals.
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from mlody.resolver.label_value import (
     MlodyActionValue,
     MlodyFolderValue,
     MlodySourceValue,
+    MlodySourceRangeValue,
     MlodyTaskValue,
     MlodyUnresolvedValue,
     MlodyValue,  # noqa: F401 — imported for type annotations in extensibility test
@@ -44,11 +46,19 @@ ROOT = Path("/project")
 
 BUILTINS_MLODY = """\
 def root(name, path, description=""):
-    builtins.register("root", struct(
-        name=name,
-        path=path,
-        description=description,
-    ))
+    entity_type = None
+    try:
+        entity_type = builtins.lookup("type", "mlody-root")
+    except:
+        entity_type = None
+    fields = {
+        "name": name,
+        "path": path,
+        "description": description,
+    }
+    if entity_type != None:
+        fields["_entity_type"] = entity_type
+    builtins.register("root", struct(**fields))
 """
 
 ROOTS_MLODY = """\
@@ -58,6 +68,16 @@ root(name="myroot", path="//teams/myroot", description="test root")
 """
 
 TYPES_MLODY = """\
+builtins.register("type", struct(
+    kind="type", type="mlody-source-range", name="mlody-source-range",
+    fields=[
+        struct(name="filepath", type=struct(kind="type", type="string", name="string")),
+        struct(name="start_line", type=struct(kind="type", type="integer", name="integer")),
+        struct(name="end_line", type=struct(kind="type", type="integer", name="integer")),
+    ],
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
 builtins.register("type", struct(
     kind="type", type="mlody_workspace_info", name="mlody_workspace_info",
     fields=[
@@ -69,10 +89,42 @@ builtins.register("type", struct(
     attributes={}, _allowed_attrs={},
     _root_kind="record",
 ))
+_ENTITY_FIELDS = [
+    struct(name="_source_range", type=builtins.lookup("type", "mlody-source-range"), mandatory=False),
+]
+builtins.register("type", struct(
+    kind="type", type="mlody-value", name="mlody-value",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-task", name="mlody-task",
+    fields=_ENTITY_FIELDS + [
+        struct(
+            name="_hash",
+            type=struct(kind="type", type="string", name="string"),
+            materializer=lambda _task: python.uuid7(),
+        ),
+    ],
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-action", name="mlody-action",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-root", name="mlody-root",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
 builtins.register("type", struct(
     kind="type", type="mlody-workspace", name="mlody-workspace",
-    attributes={}, _allowed_attrs={},
-    virtual_attributes=[
+    fields=_ENTITY_FIELDS + [
         struct(name="info", type=struct(kind="type", type="mlody_workspace_info", name="mlody_workspace_info", _root_kind="record", fields=[
             struct(name="path", type=struct(kind="type", type="string", name="string")),
             struct(name="branch", type=struct(kind="type", type="string", name="string")),
@@ -80,6 +132,7 @@ builtins.register("type", struct(
             struct(name="roots", type=struct(kind="type", type="vector", name="vector")),
         ])),
     ],
+    attributes={}, _allowed_attrs={},
 ))
 """
 
@@ -294,6 +347,22 @@ class TestTaskValue:
         from mlody.resolver.label_value import MlodyTaskValue as _T
 
         assert isinstance(result, _T)
+
+    def test_task_hash_resolves_to_cached_uuid7_value(self, fs: FakeFilesystem) -> None:
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/foo.mlody": TASK_MLODY},
+        )
+
+        label = parse_label("@myroot//pkg/foo:my_task._hash")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyValueValue)
+        first = force_virtual_value(result.struct)
+        second = force_virtual_value(result.struct)
+
+        assert first == second
+        assert uuid.UUID(first).version == 7
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +588,56 @@ class TestWorkspaceVirtualAttributes:
 
         assert isinstance(result, MlodyUnresolvedValue)
         assert "missing" in result.reason
+
+
+class TestDeclaredEntityAttributes:
+    """Requirement: declared metadata attrs resolve uniformly across entities."""
+
+    @pytest.mark.parametrize(
+        "label_text",
+        [
+            "@myroot//entities:my_task._source_range",
+            "@myroot//entities:my_action._source_range",
+            "@myroot//entities:my_value._source_range",
+        ],
+    )
+    def test_source_range_resolves_for_entity_kinds(
+        self,
+        fs: FakeFilesystem,
+        label_text: str,
+    ) -> None:
+        ws = _make_workspace(
+            fs,
+            {
+                "teams/myroot/entities.mlody": """\
+builtins.register("task", struct(
+    kind="task",
+    name="my_task",
+    inputs=[],
+    outputs=[],
+    action=None,
+))
+builtins.register("action", struct(
+    kind="action",
+    name="my_action",
+    inputs=[],
+    outputs=[],
+    config=[],
+))
+builtins.register("value", struct(
+    kind="value",
+    name="my_value",
+    _lineage=[],
+))
+""",
+            },
+        )
+
+        result = resolve_label_to_value(parse_label(label_text), ws)
+
+        assert isinstance(result, MlodySourceRangeValue)
+        assert result.filepath.endswith("entities.mlody")
+        assert result.start_line >= 1
 
 
 # ---------------------------------------------------------------------------

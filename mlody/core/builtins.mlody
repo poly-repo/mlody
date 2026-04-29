@@ -1,7 +1,16 @@
 def root(name, path, description=""):
     """Register a named root for target addressing."""
-    builtins.register("root", struct(
-        name=name,
-        path=path,
-        description=description,
-    ))
+    entity_type = None
+    try:
+        entity_type = builtins.lookup("type", "mlody-root")
+    except:
+        entity_type = None
+
+    fields = {
+        "name": name,
+        "path": path,
+        "description": description,
+    }
+    if entity_type != None:
+        fields["_entity_type"] = entity_type
+    builtins.register("root", struct(**fields))

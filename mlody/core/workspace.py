@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -25,7 +26,12 @@ from mlody.core.targets import TargetAddress, parse_target, resolve_target_value
 from mlody.core.traversal_runtime import step_named_child
 from mlody.core.traversal_grammar import IndexSegment, KeySegment, SqlSegment, WildcardSegment
 from mlody.core.traversal_parser import TraversalParseError, parse_traversal_expression
-from mlody.core.virtual_value import force_virtual_value, make_virtual_value, traverse_virtual_value
+from mlody.core.virtual_value import (
+    force_virtual_value,
+    is_virtual_value,
+    make_virtual_value,
+    traverse_virtual_value,
+)
 from mlody.core.workspace_loader import WorkspaceLoader
 from mlody.core.workspace_models import RootInfo, WorkspaceLoadError
 
@@ -83,8 +89,14 @@ class Workspace:
             print_fn=print_fn,
             extra_ctx=build_ctx(monorepo_root),
             line_range_extractor=extract_entity_ranges,
+            resolve_hook=self._resolve_for_mlody,
+            force_hook=force,
+            setf_hook=self._setf_for_mlody,
         )
-        self._registry = RegistryView(self._evaluator)
+        self._registry = RegistryView(
+            self._evaluator,
+            workspace_attribute_writer=self._set_workspace_attribute,
+        )
         self._root_infos: dict[str, RootInfo] = {}
         # extra_roots are eagerly globbed during Phase 2 (for example, a
         # sandbox-local @workspace root).
@@ -92,6 +104,9 @@ class Workspace:
         # lazy_roots are available for on-demand resolution but are not
         # eagerly globbed (for example, @mlody for the full monorepo tree).
         self._lazy_roots: dict[str, str] = lazy_roots or {}
+        self._workspace_attributes: dict[str, object] = {
+            "info": self._build_workspace_info(),
+        }
 
     @property
     def evaluator(self) -> Evaluator:
@@ -107,33 +122,114 @@ class Workspace:
 
     @property
     def info(self) -> object:
-        """Synthesised workspace-level metadata (git state + registered roots).
+        """Workspace-level metadata backed by workspace-owned mutable state."""
+        return self.get_workspace_attribute("info")
 
-        Returned as a Struct so field access works in .mlody files and the
-        show command can traverse sub-fields (e.g. "'info.branch").
-        """
-        import subprocess
+    def _git(self, *args: str) -> str:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(self._monorepo_root), *args],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return result.stdout.strip()
+        except Exception:
+            return ""
 
-        from common.python.starlarkish.core.struct import struct
+    def _decorate_workspace_attribute(
+        self,
+        attribute_name: str,
+        value: object,
+    ) -> object:
+        if not isinstance(value, Struct):
+            return value
+        descriptor_name = {
+            "info": "mlody_workspace_info",
+        }.get(attribute_name)
+        if descriptor_name is None:
+            return value
+        descriptor = self._registry.type_by_name(descriptor_name)
+        if descriptor is None or getattr(value, "_entity_type", None) is descriptor:
+            return value
+        return value.updated(_entity_type=descriptor)
 
-        def _git(*args: str) -> str:
-            try:
-                result = subprocess.run(
-                    ["git", "-C", str(self._monorepo_root), *args],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                return result.stdout.strip()
-            except Exception:
-                return ""
-
-        return struct(
-            path=str(self._monorepo_root),
-            branch=_git("branch", "--show-current"),
-            sha=_git("rev-parse", "HEAD"),
-            roots=sorted(self._root_infos.keys()),
+    def _build_workspace_info(self) -> Struct:
+        return cast(
+            Struct,
+            self._decorate_workspace_attribute(
+                "info",
+                Struct(
+                    path=str(self._monorepo_root),
+                    branch=self._git("branch", "--show-current"),
+                    sha=self._git("rev-parse", "HEAD"),
+                    roots=sorted(self._root_infos.keys()),
+                ),
+            ),
         )
+
+    def _refresh_workspace_attributes(self) -> None:
+        current_info = self._workspace_attributes.get("info")
+        if isinstance(current_info, Struct):
+            current_info = current_info.updated(roots=sorted(self._root_infos.keys()))
+        else:
+            current_info = self._build_workspace_info()
+        self._workspace_attributes["info"] = self._decorate_workspace_attribute(
+            "info",
+            current_info,
+        )
+
+    def get_workspace_attribute(self, attribute_name: str) -> object:
+        if attribute_name not in self._workspace_attributes:
+            raise KeyError(f"workspace attribute {attribute_name!r} is not defined")
+        return self._workspace_attributes[attribute_name]
+
+    def _set_workspace_attribute(self, attribute_name: str, value: object) -> None:
+        self._workspace_attributes[attribute_name] = self._decorate_workspace_attribute(
+            attribute_name,
+            value,
+        )
+
+    @staticmethod
+    def _annotate_resolved_value(value: object, label: str) -> object:
+        if is_virtual_value(value):
+            return value
+        if isinstance(value, Struct):
+            return value.updated(_resolved_label=label)
+        return value
+
+    @staticmethod
+    def _resolved_label_for_mlody_base(base: object) -> str | None:
+        if isinstance(base, str):
+            return base
+        if is_virtual_value(base):
+            label = getattr(base, "label", None)
+            if isinstance(label, str):
+                return label
+        resolved_label = getattr(base, "_resolved_label", None)
+        if isinstance(resolved_label, str):
+            return resolved_label
+        return None
+
+    def _resolve_for_mlody(self, label: str) -> object:
+        return self._annotate_resolved_value(self.resolve(label), label)
+
+    def _setf_for_mlody(
+        self,
+        *,
+        base: object,
+        selector: object = "",
+        value: object,
+    ) -> object:
+        from mlody.core.setf import setf as setf_label, setf_root
+
+        selector_text = selector if isinstance(selector, str) else str(selector)
+        resolved_label = self._resolved_label_for_mlody_base(base)
+        if resolved_label is not None:
+            target = resolved_label if selector_text == "" else f"{resolved_label}{selector_text}"
+            setf_label(target, value, workspace=self)
+            return self._resolve_for_mlody(resolved_label)
+        return setf_root(base, selector, value)
 
     @staticmethod
     def _step_resolved_object(obj: object, segment: str) -> object:
@@ -148,7 +244,7 @@ class Workspace:
 
         if lbl.attribute_path is not None:
             root_attr = lbl.attribute_path[0]
-            root_value = self.resolve(f"'{root_attr}")
+            root_value = self.get_workspace_attribute(root_attr)
             return WorkspaceAttributeAnchor(
                 root_value=root_value,
                 root_attribute=root_attr,
@@ -352,8 +448,10 @@ class Workspace:
                 else self._is_skipped_mlody_file
             ),
             convert_ports_to_structs=self._convert_ports_to_structs,
+            after_root_discovery=self._refresh_workspace_attributes,
         )
         loader.load()
+        self._refresh_workspace_attributes()
 
     def resolve(self, target: str | TargetAddress) -> object:
         """Parse (if string) and resolve a target to a value.

@@ -31,11 +31,19 @@ _WORKSPACE_INFO_TYPE = Struct(
 _WORKSPACE_ROOT = Path("/workspace")
 _BUILTINS_MLODY = """\
 def root(name, path, description=""):
-    builtins.register("root", struct(
-        name=name,
-        path=path,
-        description=description,
-    ))
+    entity_type = None
+    try:
+        entity_type = builtins.lookup("type", "mlody-root")
+    except:
+        entity_type = None
+    fields = {
+        "name": name,
+        "path": path,
+        "description": description,
+    }
+    if entity_type != None:
+        fields["_entity_type"] = entity_type
+    builtins.register("root", struct(**fields))
 """
 _ROOTS_MLODY = """\
 load("//mlody/core/builtins.mlody", "root")
@@ -43,6 +51,26 @@ load("//mlody/core/builtins.mlody", "root")
 root(name="lexica", path="//mlody/teams/lexica", description="team root")
 """
 _TYPES_MLODY = """\
+def _validate_line_number(v):
+    if not isinstance(v, int) or isinstance(v, bool):
+        raise TypeError("expected integer line number")
+    return True
+
+builtins.register("type", struct(
+    kind="type", type="line_number", name="line_number",
+    validator=_validate_line_number,
+    attributes={}, _allowed_attrs={},
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-source-range", name="mlody-source-range",
+    fields=[
+        struct(name="filepath", type=struct(kind="type", type="string", name="string")),
+        struct(name="start_line", type=builtins.lookup("type", "line_number")),
+        struct(name="end_line", type=builtins.lookup("type", "line_number")),
+    ],
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
 builtins.register("type", struct(
     kind="type", type="mlody_workspace_info", name="mlody_workspace_info",
     fields=[
@@ -54,10 +82,42 @@ builtins.register("type", struct(
     attributes={}, _allowed_attrs={},
     _root_kind="record",
 ))
+_ENTITY_FIELDS = [
+    struct(name="_source_range", type=builtins.lookup("type", "mlody-source-range"), mandatory=False),
+]
+builtins.register("type", struct(
+    kind="type", type="mlody-value", name="mlody-value",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-task", name="mlody-task",
+    fields=_ENTITY_FIELDS + [
+        struct(
+            name="_hash",
+            type=struct(kind="type", type="string", name="string"),
+            materializer=lambda _task: python.uuid7(),
+        ),
+    ],
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-action", name="mlody-action",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-root", name="mlody-root",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
 builtins.register("type", struct(
     kind="type", type="mlody-workspace", name="mlody-workspace",
-    attributes={}, _allowed_attrs={},
-    virtual_attributes=[
+    fields=_ENTITY_FIELDS + [
         struct(name="info", type=struct(kind="type", type="mlody_workspace_info", name="mlody_workspace_info", _root_kind="record", fields=[
             struct(name="path", type=struct(kind="type", type="string", name="string")),
             struct(name="branch", type=struct(kind="type", type="string", name="string")),
@@ -65,6 +125,7 @@ builtins.register("type", struct(
             struct(name="roots", type=struct(kind="type", type="vector", name="vector")),
         ])),
     ],
+    attributes={}, _allowed_attrs={},
 ))
 """
 
@@ -87,6 +148,13 @@ builtins.register("value", Struct(
     name="image",
     config=Struct(commit_sha="{api_sha}"),
     _lineage=[],
+    _source_range=Struct(
+        kind="mlody-source-range",
+        filepath="mlody/teams/lexica/services/release/api/image.mlody",
+        start_line=10,
+        end_line=11,
+        _entity_type=builtins.lookup("type", "mlody-source-range"),
+    ),
 ))
 """,
     )
@@ -98,6 +166,13 @@ builtins.register("value", Struct(
     name="image",
     config=Struct(commit_sha="{web_sha}"),
     _lineage=[],
+    _source_range=Struct(
+        kind="mlody-source-range",
+        filepath="mlody/teams/lexica/services/release/web/image.mlody",
+        start_line=20,
+        end_line=21,
+        _entity_type=builtins.lookup("type", "mlody-source-range"),
+    ),
 ))
 """,
     )
@@ -109,6 +184,13 @@ builtins.register("value", Struct(
     name="image",
     config=Struct(version="1"),
     _lineage=[],
+    _source_range=Struct(
+        kind="mlody-source-range",
+        filepath="mlody/teams/lexica/services/broken/image.mlody",
+        start_line=30,
+        end_line=31,
+        _entity_type=builtins.lookup("type", "mlody-source-range"),
+    ),
 ))
 """,
     )
@@ -459,8 +541,36 @@ class TestWorkspaceFirstSetf:
         entity = loaded_workspace.resolve("@lexica//services/release/web/image:image")
         assert entity.config.commit_sha == "field-path-sha"
 
-    def test_setf_rejects_workspace_virtual_attributes_as_writable_targets(
+    def test_setf_updates_workspace_declared_attribute(self, loaded_workspace: Workspace) -> None:
+        from mlody.core.workspace import force
+
+        setf("'info.branch", "release", workspace=loaded_workspace)
+
+        assert loaded_workspace.info.branch == "release"
+        assert force(loaded_workspace.resolve("'info.branch")) == "release"
+
+    def test_setf_updates_entity_source_range_leaf(self, loaded_workspace: Workspace) -> None:
+        setf(
+            "@lexica//services/release/api/image:image._source_range.start_line",
+            777,
+            workspace=loaded_workspace,
+        )
+
+        entity = loaded_workspace.resolve("@lexica//services/release/api/image:image")
+        assert entity._source_range.start_line == 777  # type: ignore[attr-defined]
+        assert (
+            loaded_workspace.resolve(
+                "@lexica//services/release/api/image:image._source_range.start_line"
+            )
+            == 777
+        )
+
+    def test_setf_validates_entity_source_range_leaf_type(
         self, loaded_workspace: Workspace
     ) -> None:
-        with pytest.raises(NotImplementedError, match="workspace attribute"):
-            setf("'info.branch", "release", workspace=loaded_workspace)
+        with pytest.raises(TypeError):
+            setf(
+                "@lexica//services/release/api/image:image._source_range.start_line",
+                "oops",
+                workspace=loaded_workspace,
+            )

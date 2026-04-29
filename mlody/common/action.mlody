@@ -217,16 +217,25 @@ def _action_impl(ctx):
                 + repr(type(implementation_raw))
             )
     implementation = implementation_raw
+    entity_type = None
+    try:
+        entity_type = builtins.lookup("type", "mlody-action")
+    except:
+        entity_type = None
 
-    action_struct = Struct(
-        kind    = "action",
-        name    = ctx.attr.name,
-        inputs  = inputs,
-        outputs = outputs,
-        config  = config,
-        requirements = requirements,
-        implementation = implementation,
-    )
+    action_fields = {
+        "kind": "action",
+        "name": ctx.attr.name,
+        "inputs": inputs,
+        "outputs": outputs,
+        "config": config,
+        "requirements": requirements,
+        "implementation": implementation,
+    }
+    if entity_type != None:
+        action_fields["_entity_type"] = entity_type
+
+    action_struct = Struct(**action_fields)
     builtins.register(ctx.kind, action_struct)
     return action_struct
 
@@ -241,8 +250,4 @@ action = rule(
         "requirements": attr(mandatory=False),
         "implementation": attr(type="implementation_ref"),
     },
-)
-
-typedef(
-    name = "mlody-action",
 )

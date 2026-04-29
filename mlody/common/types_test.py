@@ -124,14 +124,15 @@ def test_integer_rejects_wrong_attr_type() -> None:
             ev.eval_file(root / "test.mlody")
 
 
-def test_typedef_stores_virtual_attributes_on_type_struct() -> None:
-    """typedef(..., virtual_attributes=[...]) preserves declared virtual attrs."""
+def test_typedef_stores_materialized_fields_on_type_struct() -> None:
+    """typedef(..., fields=[field(materializer=...)]) preserves declared child fields."""
     files = dict(_BASE_FILES)
     files["test.mlody"] = dedent("""\
         load("//mlody/common/types.mlody")
         typedef(
             name="workspace_meta",
-            virtual_attributes=[field(name="info", type=string())],
+            base=record(fields=[]),
+            fields=[field(name="info", type=string(), materializer=lambda _obj: "main")],
         )
         builtins.register("root", struct(name="r", data=builtins.lookup("type", "workspace_meta")))
     """)
@@ -140,7 +141,9 @@ def test_typedef_stores_virtual_attributes_on_type_struct() -> None:
         ev.eval_file(root / "test.mlody")
 
     data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
-    assert getattr(data.virtual_attributes[0], "name", None) == "info"  # type: ignore[attr-defined]
+    declared_fields = data.attributes["fields"]  # type: ignore[attr-defined]
+    assert declared_fields[0].name == "info"
+    assert callable(getattr(declared_fields[0], "materializer", None))
 
 
 # ---------------------------------------------------------------------------
@@ -1687,3 +1690,41 @@ def test_typedef_representations_order() -> None:
     assert t.validator(42)  # type: ignore[attr-defined]
     # Float matches second repr
     assert t.validator(3.14)  # type: ignore[attr-defined]
+
+
+def test_mlody_descriptor_types_are_registered() -> None:
+    ev = _eval("")
+
+    assert "mlody-source-range" in ev._types_by_name
+    assert "mlody-value" in ev._types_by_name
+    assert "mlody-task" in ev._types_by_name
+    assert "mlody-action" in ev._types_by_name
+    assert "mlody-root" in ev._types_by_name
+
+
+def test_mlody_descriptor_types_declare_source_range_field() -> None:
+    ev = _eval("")
+
+    source_range_type = ev._types_by_name["mlody-source-range"]
+    source_range_fields = source_range_type.attributes["fields"]  # type: ignore[attr-defined]
+    assert [field.name for field in source_range_fields] == [
+        "filepath",
+        "start_line",
+        "end_line",
+    ]
+
+    for type_name in ("mlody-value", "mlody-task", "mlody-action", "mlody-root"):
+        descriptor = ev._types_by_name[type_name]
+        fields = descriptor.attributes["fields"]  # type: ignore[attr-defined]
+        assert fields[0].name == "_source_range"
+        assert fields[0].type.name == "mlody-source-range"
+
+    task_descriptor = ev._types_by_name["mlody-task"]
+    task_fields = task_descriptor.attributes["fields"]  # type: ignore[attr-defined]
+    assert [field.name for field in task_fields] == ["_source_range", "_hash"]
+    assert task_fields[1].type.name == "string"
+    assert callable(getattr(task_fields[1], "materializer", None))
+
+    workspace_descriptor = ev._types_by_name["mlody-workspace"]
+    workspace_fields = workspace_descriptor.attributes["fields"]  # type: ignore[attr-defined]
+    assert [field.name for field in workspace_fields] == ["_source_range", "info"]

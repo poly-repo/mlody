@@ -11,6 +11,7 @@ o_py_library(
     deps = [
         "//common/python/starlarkish/core:core_lib",
         "@pip//astropy",
+        "@pip//uuid_utils",
     ],
 )
 

@@ -310,6 +310,11 @@ def _value_impl(ctx):
         unit_ref = _parse_value_unit(unit_raw, type_ref)
 
     rep_ref = _resolve_representation_ref(rep_raw) if rep_raw != None else None
+    entity_type = None
+    try:
+        entity_type = builtins.lookup("type", "mlody-value")
+    except:
+        entity_type = None
 
     value_fields = {
         "kind": "value",
@@ -322,6 +327,8 @@ def _value_impl(ctx):
         "representation": rep_ref,
         "_lineage": [],          # managed by MLody, not the user
     }
+    if entity_type != None:
+        value_fields["_entity_type"] = entity_type
     if source_value != None:
         value_fields["_source_value"] = source_value
     for field_name, field_value in _contextual_value_fields(ctx.attr).items():

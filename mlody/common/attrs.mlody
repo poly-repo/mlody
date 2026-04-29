@@ -17,9 +17,17 @@ _PRIMITIVE_VALIDATORS = {
 _PRIMITIVE_KINDS = {"integer", "string", "float", "vector", "tuple", "map", "record"}
 
 
-def field(*, name, type, mandatory=True):
-    """Declare a typed field for use in map() or typedef(fields=[...])."""
-    return Struct(kind="field", name=name, type=type, mandatory=mandatory)
+def field(*, name, type, mandatory=True, materializer=None):
+    """Declare a typed child field for use in records and declared entity attrs."""
+    if materializer != None and not callable(materializer):
+        raise TypeError("field() materializer must be callable when provided")
+    return Struct(
+        kind="field",
+        name=name,
+        type=type,
+        mandatory=mandatory,
+        materializer=materializer,
+    )
 
 
 def validate_attr_value(attr_name: str, value: python.Any, type_ref: python.Any) -> None:

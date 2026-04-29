@@ -34,7 +34,7 @@ from mlody.core.traversal_grammar import (
     WildcardSegment,
 )
 from mlody.core.traversal_parser import parse_traversal_expression
-from mlody.core.virtual_value import is_virtual_value
+from mlody.core.virtual_value import is_virtual_value, lookup_runtime_attribute
 from mlody.core.workspace import Workspace
 
 
@@ -72,6 +72,24 @@ def _children(current: object) -> list[tuple[object, object]]:
 def _has_lineage(value: object) -> bool:
     """Return True when *value* can store `_lineage`."""
     return has_named_child(value, "_lineage")
+
+
+def _declared_child_contract(
+    owner: object,
+    segment: object,
+    current_value: object,
+) -> tuple[object | None, object | None]:
+    if isinstance(segment, FieldSegment):
+        attr_spec = lookup_runtime_attribute(owner, segment.name)
+        if attr_spec is not None:
+            return (
+                getattr(attr_spec, "type", None),
+                getattr(current_value, "representation", None),
+            )
+    return (
+        getattr(current_value, "type", None),
+        getattr(current_value, "representation", None),
+    )
 
 
 def _resolve_contract(values: list[object]) -> tuple[object | None, object | None]:
@@ -155,6 +173,11 @@ def _make_direct_place(
         raise NotImplementedError(
             f"no setter strategy for {type(segment).__name__} on {type(owner).__name__}"
         )
+    declared_type, declared_representation = _declared_child_contract(
+        owner,
+        segment,
+        current_value,
+    )
 
     return _make_place(
         root=root,
@@ -163,8 +186,8 @@ def _make_direct_place(
         current_value=current_value,
         projected=False,
         strategy=strategy,
-        declared_type=getattr(current_value, "type", None),
-        declared_representation=getattr(current_value, "representation", None),
+        declared_type=declared_type,
+        declared_representation=declared_representation,
         lineage_sink=current_value if _has_lineage(current_value) else None,
         lineage_selector=selector if _has_lineage(current_value) else None,
     )

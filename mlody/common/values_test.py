@@ -836,3 +836,10 @@ def test_value_with_contextual_attr_requires_materialized_context() -> None:
     assert violation.attr_name == "group"
     assert violation.actual_context == "standalone"
     assert violation.allowed_contexts == ("task.outputs",)
+
+
+def test_value_attaches_declared_entity_type() -> None:
+    ev = _eval('value(name="artifact", type=string(), location=inline())')
+
+    value = ev._values_by_name["artifact"]
+    assert value._entity_type.name == "mlody-value"

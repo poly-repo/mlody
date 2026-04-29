@@ -25,6 +25,8 @@ class RegistryWriter(Protocol):
         value: object,
     ) -> None: ...
 
+    def set_workspace_attribute(self, attribute_name: str, value: object) -> None: ...
+
 
 class Anchor(Protocol):
     """Protocol implemented by all resolved label anchors."""
@@ -68,7 +70,10 @@ class WorkspaceAttributeAnchor(BaseAnchor):
     root_attribute: str
 
     def ensure_writable(self) -> None:
-        raise NotImplementedError("workspace attribute selectors are not writable yet")
+        return None
+
+    def write_back(self, registry: RegistryWriter, updated_root: object) -> None:
+        registry.set_workspace_attribute(self.root_attribute, updated_root)
 
 
 @dataclass(frozen=True, kw_only=True)

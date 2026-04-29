@@ -482,6 +482,8 @@ class StructTraversalStrategy:
         **kwargs: object,  # Accepts traversal_error_policy for protocol compatibility (D-4)
     ) -> MlodyValue:
         from mlody.core.traversal_grammar import FieldSegment, PathSegment  # noqa: PLC0415
+        from mlody.core.traversal_runtime import step_named_child  # noqa: PLC0415
+        from mlody.core.virtual_value import lookup_runtime_attribute  # noqa: PLC0415
 
         if not path:
             return _wrap_struct(self._kind, value)
@@ -507,8 +509,8 @@ class StructTraversalStrategy:
                     ),
                 )
             try:
-                obj = getattr(obj, field_name)
-            except AttributeError:
+                obj = step_named_child(obj, field_name)
+            except (AttributeError, KeyError):
                 traversed = "".join(str(s) for s in path[:i])
                 parent = f" on '{traversed}'" if traversed else ""
                 return MlodyUnresolvedValue(
@@ -542,6 +544,8 @@ class StructTraversalStrategy:
                 if getattr(_f, "name", None) == terminal_field_name:
                     _field_decl = _f
                     break
+            if _field_decl is None:
+                _field_decl = lookup_runtime_attribute(parent_obj, terminal_field_name)
             if _field_decl is not None:
                 _declared_type = getattr(_field_decl, "type", None)
                 if _declared_type is not None:
@@ -1625,6 +1629,10 @@ def _traverse_one_step(
         compose_location,
     )
     from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
+    from mlody.core.virtual_value import (  # noqa: PLC0415
+        lookup_runtime_attribute,
+        synthesize_runtime_child,
+    )
 
     # Normalise: wrap plain str in FieldSegment for unified dispatch.
     if isinstance(field_name, str):
@@ -1686,9 +1694,11 @@ def _traverse_one_step(
     _SENTINEL = object()
 
     # Field lookup order:
-    # 1. Search type.fields for a matching entry by name.
-    # 2. Fall back to getattr(value.type, effective_name).
-    # 3. If both miss, return MlodyUnresolvedValue.
+    # 1. Search semantic record fields on value.type.
+    # 2. Search declared framework metadata via _entity_type.
+    # 3. Fall back to raw runtime fields for backward compatibility.
+    # 4. Fall back to getattr(value.type, effective_name).
+    # 5. If all miss, return MlodyUnresolvedValue.
     _direct_fields = getattr(value_type, "fields", None)
     _attrs_dict = getattr(value_type, "attributes", None)
     _attrs_fields = _attrs_dict.get("fields") if isinstance(_attrs_dict, dict) else None
@@ -1701,6 +1711,27 @@ def _traverse_one_step(
             break
 
     if field_obj is _SENTINEL:
+        entity_field = lookup_runtime_attribute(current_struct, effective_name)
+        if entity_field is not None:
+            raw_entity_value = getattr(current_struct, effective_name, _SENTINEL)
+            if raw_entity_value is not _SENTINEL:
+                return _RawAttrValue(value=raw_entity_value, label=label)
+            synthesized_entity_value = synthesize_runtime_child(
+                current_struct,
+                effective_name,
+            )
+            if synthesized_entity_value is not None:
+                return MlodyValueValue(struct=synthesized_entity_value)
+        if not (
+            getattr(current_struct, "kind", None) == "value"
+            and (
+                getattr(value_type, "_root_kind", None) == "record"
+                or getattr(value_type, "kind", None) == "record"
+            )
+        ):
+            raw_value = getattr(current_struct, effective_name, _SENTINEL)
+            if raw_value is not _SENTINEL:
+                return _RawAttrValue(value=raw_value, label=label)
         fallback = getattr(value_type, effective_name, _SENTINEL)
         if fallback is _SENTINEL:
             available = [str(getattr(f, "name", "?")) for f in fields_list]

@@ -65,15 +65,26 @@ def _task_impl(ctx):
             resolved_action = builtins.lookup("action", action)
         except:
             resolved_action = action
+    entity_type = None
+    try:
+        entity_type = builtins.lookup("type", "mlody-task")
+    except:
+        entity_type = None
+
+    task_fields = {
+        "kind": "task",
+        "name": ctx.attr.name,
+        "inputs": inputs,
+        "outputs": outputs,
+        "action": resolved_action,
+        "config": config,
+        "executor": executor,
+    }
+    if entity_type != None:
+        task_fields["_entity_type"] = entity_type
 
     task_struct = Struct(
-        kind     = "task",
-        name     = ctx.attr.name,
-        inputs   = inputs,
-        outputs  = outputs,
-        action   = resolved_action,
-        config   = config,
-        executor = executor,
+        **task_fields,
     )
     builtins.register(ctx.kind, task_struct)
 
@@ -97,7 +108,7 @@ def _task_impl(ctx):
         for v in python.getattr(resolved_action, "inputs", []) + python.getattr(resolved_action, "outputs", []):
             _register_scoped_value(action_prefix, v)
 
-    return task_struct
+    return builtins.lookup("task", ctx.attr.name)
 
 
 task = rule(
@@ -110,8 +121,4 @@ task = rule(
         "config":   attr(type="value_ref_list", mandatory=False),
         "executor": attr(type="executor_ref",   mandatory=False, default=None),
     },
-)
-
-typedef(
-    name = "mlody-task"
 )

@@ -31,11 +31,19 @@ ROOT = Path("/project")
 
 BUILTINS_MLODY = """\
 def root(name, path, description=""):
-    builtins.register("root", struct(
-        name=name,
-        path=path,
-        description=description,
-    ))
+    entity_type = None
+    try:
+        entity_type = builtins.lookup("type", "mlody-root")
+    except:
+        entity_type = None
+    fields = {
+        "name": name,
+        "path": path,
+        "description": description,
+    }
+    if entity_type != None:
+        fields["_entity_type"] = entity_type
+    builtins.register("root", struct(**fields))
 """
 
 ROOTS_MLODY = """\
@@ -45,6 +53,16 @@ root(name="lexica", path="//mlody/teams/lexica", description="text ML team")
 """
 
 TYPES_MLODY = """\
+builtins.register("type", struct(
+    kind="type", type="mlody-source-range", name="mlody-source-range",
+    fields=[
+        struct(name="filepath", type=struct(kind="type", type="string", name="string")),
+        struct(name="start_line", type=struct(kind="type", type="integer", name="integer")),
+        struct(name="end_line", type=struct(kind="type", type="integer", name="integer")),
+    ],
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
 builtins.register("type", struct(
     kind="type", type="mlody_workspace_info", name="mlody_workspace_info",
     fields=[
@@ -56,10 +74,42 @@ builtins.register("type", struct(
     attributes={}, _allowed_attrs={},
     _root_kind="record",
 ))
+_ENTITY_FIELDS = [
+    struct(name="_source_range", type=builtins.lookup("type", "mlody-source-range"), mandatory=False),
+]
+builtins.register("type", struct(
+    kind="type", type="mlody-value", name="mlody-value",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-task", name="mlody-task",
+    fields=_ENTITY_FIELDS + [
+        struct(
+            name="_hash",
+            type=struct(kind="type", type="string", name="string"),
+            materializer=lambda _task: python.uuid7(),
+        ),
+    ],
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-action", name="mlody-action",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
+    kind="type", type="mlody-root", name="mlody-root",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
 builtins.register("type", struct(
     kind="type", type="mlody-workspace", name="mlody-workspace",
-    attributes={}, _allowed_attrs={},
-    virtual_attributes=[
+    fields=_ENTITY_FIELDS + [
         struct(name="info", type=struct(kind="type", type="mlody_workspace_info", name="mlody_workspace_info", _root_kind="record", fields=[
             struct(name="path", type=struct(kind="type", type="string", name="string")),
             struct(name="branch", type=struct(kind="type", type="string", name="string")),
@@ -67,6 +117,7 @@ builtins.register("type", struct(
             struct(name="roots", type=struct(kind="type", type="vector", name="vector")),
         ])),
     ],
+    attributes={}, _allowed_attrs={},
 ))
 """
 
@@ -146,6 +197,13 @@ class TestTwoPhaseLoading:
 
         # models.mlody registers "bert" as a root; key is path-qualified
         assert "mlody/teams/lexica/models:bert" in ws.evaluator.roots
+
+    def test_registered_roots_get_declared_entity_type(self, project: Path) -> None:
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        root_value = ws.evaluator._roots_by_name["lexica"]  # type: ignore[attr-defined]
+        assert root_value._entity_type.name == "mlody-root"  # type: ignore[attr-defined]
 
     def test_phase2_skips_already_loaded_files(self, fs: FakeFilesystem, project: Path) -> None:
         # builtins.mlody is loaded in Phase 1 via roots.mlody's load() call.
@@ -421,7 +479,7 @@ class TestResolveLabelAnchor:
         assert isinstance(anchor, WorkspaceAttributeAnchor)
         assert anchor.root_attribute == "info"
         assert anchor.field_parts == ("branch",)
-        assert getattr(anchor.root_value, "label", None) == "'info"
+        assert anchor.root_value == ws.info
 
     def test_registry_entity_anchor(self, project: Path, fs: FakeFilesystem) -> None:
         fs.create_file(
@@ -491,6 +549,61 @@ class TestResolveLabelAnchor:
         assert isinstance(anchor, RootCollectionAnchor)
         assert isinstance(anchor.root_value, dict)
         assert "bert" in anchor.root_value
+
+
+class TestMlodyBuiltins:
+    """Requirement: .mlody resolve/force/setf helpers work in workspace evaluation."""
+
+    def test_mlody_builtins_can_read_and_write_declared_attributes(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/a_entity.mlody"),
+            contents="""\
+builtins.register("value", Struct(
+    kind="value",
+    name="artifact",
+    _lineage=[],
+    _source_range=Struct(
+        kind="mlody-source-range",
+        filepath="mlody/teams/lexica/a_entity.mlody",
+        start_line=10,
+        end_line=11,
+        _entity_type=builtins.lookup("type", "mlody-source-range"),
+    ),
+))
+""",
+        )
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/zz_helpers.mlody"),
+            contents="""\
+before = force(resolve("'info")).branch
+setf(base=resolve("'info"), selector=".branch", value="release")
+setf(
+    base=resolve("@lexica//a_entity:artifact._source_range"),
+    selector=".start_line",
+    value=321,
+)
+builtins.register("root", Struct(
+    name="builtins_result",
+    before=before,
+    after=force(resolve("'info.branch")),
+    source_line=resolve("@lexica//a_entity:artifact._source_range.start_line"),
+))
+""",
+        )
+
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        result = ws.evaluator._roots_by_name["builtins_result"]  # type: ignore[attr-defined]
+        assert result.before == ""  # type: ignore[attr-defined]
+        assert result.after == "release"  # type: ignore[attr-defined]
+        assert result.source_line == 321  # type: ignore[attr-defined]
+        assert ws.info.branch == "release"
+        assert ws.resolve("@lexica//a_entity:artifact._source_range.start_line") == 321
 
 
 class TestWorkspaceStepResolvedObject:

@@ -368,3 +368,14 @@ def test_direct_top_level_action_output_with_source_is_rejected() -> None:
     violation = exc_info.value.violations[0]
     assert violation.actual_context == "action.outputs"
     assert violation.attr_name == "source"
+
+
+def test_action_attaches_declared_entity_type() -> None:
+    ev = _eval(
+        'value(name="inp", type=integer(), location=s3())\n'
+        'value(name="out", type=integer(), location=s3())\n'
+        'action(name="my_action", inputs=["inp"], outputs=["out"], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n'
+    )
+
+    action_value = ev._actions_by_name["my_action"]
+    assert action_value._entity_type.name == "mlody-action"

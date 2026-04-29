@@ -1,6 +1,7 @@
 """Integration tests for mlody/common/task.mlody."""
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from textwrap import dedent
 
@@ -9,6 +10,7 @@ import pytest
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 import mlody
+from mlody.core.workspace import force
 from mlody.core.value_context_validation import (
     ContextRestrictedValueValidationError,
     validate_context_restricted_values_evaluator,
@@ -82,6 +84,25 @@ def test_task_registers_with_kind_task() -> None:
     t = ev._tasks_by_name["my_task"]
     assert t.kind == "task"
     assert t.name == "my_task"
+
+
+def test_task_hash_is_virtual_uuid7_and_accessible_in_mlody() -> None:
+    ev = _eval(
+        'action(name="my_action", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+        'captured = task(name="my_task", inputs=[], outputs=[], action="my_action")\n'
+        'builtins.register("root", struct(name="capture", hash_value=captured._hash))\n'
+    )
+
+    task_value = ev._tasks_by_name["my_task"]
+    assert getattr(task_value._hash, "kind", None) == "value"  # type: ignore[attr-defined]
+    assert getattr(getattr(task_value._hash, "location", None), "type", None) == "virtual"  # type: ignore[attr-defined]
+
+    mlody_visible_hash = ev._roots_by_name["capture"].hash_value  # type: ignore[attr-defined]
+    first = force(mlody_visible_hash)
+    second = force(mlody_visible_hash)
+
+    assert first == second
+    assert uuid.UUID(first).version == 7
 
 
 # ---------------------------------------------------------------------------
@@ -619,3 +640,13 @@ def test_task_action_input_with_constraint_raises_context_validation_error() -> 
     violation = exc_info.value.violations[0]
     assert violation.actual_context == "task.action.inputs"
     assert violation.attr_name == "constraint"
+
+
+def test_task_attaches_declared_entity_type() -> None:
+    ev = _eval(
+        'action(name="my_action", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+        'task(name="my_task", inputs=[], outputs=[], action="my_action")\n'
+    )
+
+    task_value = ev._tasks_by_name["my_task"]
+    assert task_value._entity_type.name == "mlody-task"

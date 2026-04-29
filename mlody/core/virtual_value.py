@@ -68,51 +68,81 @@ def lookup_record_field(value_type: object, segment: str) -> object | None:
     return None
 
 
-def lookup_virtual_attribute(value_type: object, segment: str) -> object | None:
-    """Return the declared virtual attribute spec for ``segment``, if any."""
-    direct = getattr(value_type, "virtual_attributes", None)
+def _iter_legacy_virtual_attributes(value_type: object) -> tuple[object, ...]:
     attrs = getattr(value_type, "attributes", None)
+    direct = getattr(value_type, "virtual_attributes", None)
     attrs_virtual = attrs.get("virtual_attributes") if isinstance(attrs, dict) else None
-    for attr_obj in list(direct or attrs_virtual or []):
+    return tuple(direct or attrs_virtual or ())
+
+
+def lookup_virtual_attribute(value_type: object, segment: str) -> object | None:
+    """Return the legacy declared virtual attribute spec for ``segment``, if any."""
+    for attr_obj in _iter_legacy_virtual_attributes(value_type):
         if getattr(attr_obj, "name", None) == segment:
             return attr_obj
     return None
 
 
 def lookup_declared_attribute(value_type: object, segment: str) -> object | None:
-    """Return the declared virtual attr or record field spec for ``segment``."""
+    """Return the declared child spec for ``segment``."""
+    if value_type is None:
+        return None
+    record_field = lookup_record_field(value_type, segment)
+    if record_field is not None:
+        return record_field
     virtual_attr = lookup_virtual_attribute(value_type, segment)
     if virtual_attr is not None:
         return virtual_attr
-    if is_record_type(value_type):
-        return lookup_record_field(value_type, segment)
     return None
 
 
 def iter_declared_attributes(value_type: object) -> tuple[object, ...]:
-    """Return declared child attributes in deterministic traversal order."""
+    """Return declared child specs in deterministic traversal order."""
     attrs: list[object] = []
     seen: set[str] = set()
 
-    direct_virtual = getattr(value_type, "virtual_attributes", None)
+    if value_type is None:
+        return ()
+
+    direct_fields = getattr(value_type, "fields", None)
     type_attrs = getattr(value_type, "attributes", None)
-    attrs_virtual = type_attrs.get("virtual_attributes") if isinstance(type_attrs, dict) else None
-    for attr_obj in list(direct_virtual or attrs_virtual or []):
+    attrs_fields = type_attrs.get("fields") if isinstance(type_attrs, dict) else None
+    for field_obj in list(direct_fields or attrs_fields or []):
+        name = getattr(field_obj, "name", None)
+        if isinstance(name, str) and name not in seen:
+            attrs.append(field_obj)
+            seen.add(name)
+
+    for attr_obj in _iter_legacy_virtual_attributes(value_type):
         name = getattr(attr_obj, "name", None)
         if isinstance(name, str) and name not in seen:
             attrs.append(attr_obj)
             seen.add(name)
 
-    if is_record_type(value_type):
-        direct_fields = getattr(value_type, "fields", None)
-        attrs_fields = type_attrs.get("fields") if isinstance(type_attrs, dict) else None
-        for field_obj in list(direct_fields or attrs_fields or []):
-            name = getattr(field_obj, "name", None)
-            if isinstance(name, str) and name not in seen:
-                attrs.append(field_obj)
-                seen.add(name)
-
     return tuple(attrs)
+
+
+def lookup_runtime_attribute(value: object, segment: str) -> object | None:
+    """Return the declared child spec for a concrete runtime object.
+
+    ``value`` may be a semantic ``value`` entity, a metadata record carrying an
+    ``_entity_type`` descriptor, or a virtual value wrapper. Semantic payload
+    fields on ``kind="value"`` win over framework-owned metadata attributes.
+    """
+    if is_virtual_value(value):
+        return lookup_declared_attribute(getattr(value, "type", None), segment)
+
+    if getattr(value, "kind", None) == "value":
+        semantic_type = getattr(value, "type", None)
+        semantic_field = lookup_declared_attribute(semantic_type, segment)
+        if semantic_field is not None:
+            return semantic_field
+
+    entity_type = getattr(value, "_entity_type", None)
+    if entity_type is not None:
+        return lookup_declared_attribute(entity_type, segment)
+
+    return None
 
 
 def make_virtual_value(
@@ -148,6 +178,72 @@ def _child_label(value: Struct, segment: str) -> str:
     return segment
 
 
+def _runtime_child_label(value: object, segment: str, label: str | None = None) -> str:
+    if isinstance(label, str) and label != "":
+        return label
+    parent_label = getattr(value, "label", None)
+    if isinstance(parent_label, str) and parent_label != "":
+        return f"{parent_label}.{segment}"
+    resolved_label = getattr(value, "_resolved_label", None)
+    if isinstance(resolved_label, str) and resolved_label != "":
+        return f"{resolved_label}.{segment}"
+    owner_name = getattr(value, "name", None)
+    if isinstance(owner_name, str) and owner_name != "":
+        return f"{owner_name}.{segment}"
+    return segment
+
+
+def _declared_child_materializer(
+    parent: object,
+    segment: str,
+    attr_spec: object,
+) -> Callable[[object], object]:
+    declared_materializer = getattr(attr_spec, "materializer", None)
+    if callable(declared_materializer):
+        cached_value: dict[str, object] = {"value": _SENTINEL}
+
+        def _materializer(_v: object) -> object:
+            existing = cached_value["value"]
+            if existing is not _SENTINEL:
+                return existing
+            parent_value = force_virtual_value(parent)
+            cached_value["value"] = declared_materializer(parent_value)
+            return cached_value["value"]
+
+        return _materializer
+
+    def _materializer(_v: object) -> object:
+        parent_value = force_virtual_value(parent)
+        return step_object(parent_value, segment)
+
+    return _materializer
+
+
+def synthesize_runtime_child(
+    value: object,
+    segment: str,
+    *,
+    label: str | None = None,
+) -> Struct | None:
+    """Build a typed virtual child from a declared runtime field when needed."""
+    attr_spec = lookup_runtime_attribute(value, segment)
+    if attr_spec is None:
+        return None
+    declared_materializer = getattr(attr_spec, "materializer", None)
+    if not callable(declared_materializer):
+        if isinstance(value, Struct) or not hasattr(value, segment):
+            return None
+    child_type = getattr(attr_spec, "type", _SENTINEL)
+    if child_type is _SENTINEL or child_type is None:
+        return None
+    return make_virtual_value(
+        value_type=child_type,
+        label=_runtime_child_label(value, segment, label),
+        materializer=_declared_child_materializer(value, segment, attr_spec),
+        name=getattr(attr_spec, "name", segment),
+    )
+
+
 def step_virtual_value(value: Struct, segment: str) -> Struct:
     """Traverse one declared segment on a virtual value."""
     if not is_virtual_value(value):
@@ -180,16 +276,10 @@ def traverse_virtual_value(value: Struct, path: tuple[str, ...], label: str) -> 
         if child_type is _SENTINEL or child_type is None:
             raise AttributeError(segment)
 
-        parent = current
-
-        def _materializer(_v: object, *, _parent: Struct = parent, _segment: str = segment) -> object:
-            parent_value = force_virtual_value(_parent)
-            return step_object(parent_value, _segment)
-
         current = make_virtual_value(
             value_type=child_type,
             label=label,
-            materializer=_materializer,
+            materializer=_declared_child_materializer(current, segment, attr_spec),
             name=getattr(attr_spec, "name", segment),
         )
     return current

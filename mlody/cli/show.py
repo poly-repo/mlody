@@ -21,7 +21,7 @@ from rich.console import Console
 from rich.pretty import pretty_repr
 from rich.table import Table
 
-from common.python.console import RichDomNode, RichDomExecutor
+from common.python.console import RichDomNode, RichDomExecutor, SyntaxNode, panel
 
 from mlody.cli.dag_render import render_dag_table, resolve_show_output_selection
 from mlody.cli.main import cli
@@ -68,6 +68,15 @@ def _get_username() -> str:
         return os.getlogin()
     except OSError:
         return pwd.getpwuid(os.getuid()).pw_name
+
+
+def _display_payload(value: MlodyValueValue) -> object:
+    """Return the printable payload for a resolved mlody value.
+
+    Virtual values stay lazy through resolution, but the CLI should force them
+    when the user explicitly asks to display them.
+    """
+    return force(value.struct)
 
 
 def _read_meta(cache_root: Path, resolved_sha: str) -> dict[str, object]:
@@ -570,8 +579,13 @@ def _print_mlody_value(
         return
 
     if isinstance(value, MlodyValueValue):
+        display_payload = _display_payload(value)
         try:
-            tabular_source = source_from_value(value.struct)
+            tabular_source = (
+                source_from_value(display_payload)
+                if hasattr(display_payload, "as_mapping")
+                else None
+            )
         except ValueError as exc:
             click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
             if _has_error is not None:
@@ -601,6 +615,13 @@ def _print_mlody_value(
 
 
 def _render_mlody_value(value: MlodyValue) -> RichDomNode:
+    if isinstance(value, MlodyValueValue):
+        payload = _display_payload(value)
+        if hasattr(payload, "as_mapping") or isinstance(payload, (list, dict)):
+            content = _pretty_struct_str(payload)
+        else:
+            content = _format_value(payload)
+        return panel(SyntaxNode(content, language="python"), title="value")
     return value.to_console_representation()
 
 
@@ -620,7 +641,10 @@ def _describe_mlody_value(value: MlodyValue) -> str:
     if isinstance(value, MlodyActionValue):
         return f"action:\n{pretty_repr(value.struct)}"
     if isinstance(value, MlodyValueValue):
-        return f"value:\n{pretty_repr(value.struct)}"
+        payload = _display_payload(value)
+        if hasattr(payload, "as_mapping") or isinstance(payload, (list, dict)):
+            return f"value:\n{_pretty_struct_str(payload)}"
+        return f"value:\n{_format_value(payload)}"
     from mlody.resolver.label_value import _RawAttrValue
 
     if isinstance(value, _RawAttrValue):
