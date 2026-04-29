@@ -764,6 +764,61 @@ def _run_sql_entity_query(
     return _RawAttrValue(value=rows, label=label)
 
 
+def _run_tabular_entity_query_segment(
+    value: object,
+    segment: object,
+    label: "Label",
+) -> "_RawAttrValue | MlodyUnresolvedValue | None":
+    """Apply an index/slice entity-query segment to a non-parquet tabular value."""
+    from mlody.core.tabular.location_specs import source_from_value  # noqa: PLC0415
+    from mlody.core.traversal_grammar import (  # noqa: PLC0415
+        IndexSegment,
+        SliceSegment,
+    )
+
+    if isinstance(value, MlodyValueValue):
+        value_struct = value.struct
+    elif getattr(value, "kind", None) == "value":
+        value_struct = value
+    else:
+        return None
+
+    if not isinstance(segment, (IndexSegment, SliceSegment)):
+        return None
+
+    try:
+        tabular_source = source_from_value(value_struct)
+    except ValueError as exc:
+        return MlodyUnresolvedValue(
+            label=label,
+            reason=f"Failed to prepare tabular entity query: {exc} (label: {label!r})",
+        )
+
+    if tabular_source is None:
+        return None
+
+    try:
+        preview = tabular_source.preview(tabular_source.count())
+    except Exception as exc:  # noqa: BLE001
+        return MlodyUnresolvedValue(
+            label=label,
+            reason=f"Failed to read tabular value rows: {exc} (label: {label!r})",
+        )
+
+    rows = preview.table.to_pylist()
+    if isinstance(segment, IndexSegment):
+        try:
+            return _RawAttrValue(value=rows[segment.index], label=label)
+        except IndexError as exc:
+            return MlodyUnresolvedValue(
+                label=label,
+                reason=f"tabular index error: {exc} (label: {label!r})",
+            )
+
+    sliced_rows = rows[slice(segment.start, segment.stop, segment.step)]
+    return _RawAttrValue(value=sliced_rows, label=label)
+
+
 def _traverse_json_backed_value(
     value: object,
     path: tuple[str, ...],
@@ -2568,6 +2623,9 @@ def resolve_label_to_value(
                             label,
                         )
                         return pq_result
+                tabular_step = _run_tabular_entity_query_segment(result, seg, label)
+                if tabular_step is not None:
+                    return tabular_step
                 step = _traverse_one_step(
                     result, seg, resolved_path, label, traversal_error_policy
                 )

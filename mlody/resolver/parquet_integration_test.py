@@ -400,6 +400,37 @@ class TestParquetIndexAccess:
         assert local_path.read_text() == csv_path.read_text()
         mock_stage.assert_called_once_with("https://example.com/employees.csv")
 
+    def test_source_backed_local_csv_slice_entity_query_returns_rows(
+        self, tmp_path: Path
+    ) -> None:
+        """Slice entity-query suffixes work on source-backed local CSV values."""
+        csv_path = tmp_path / "employees.csv"
+        csv_path.write_text("id,label,score\n0,cat,0.1\n1,dog,0.4\n2,bird,0.6\n")
+        local_path = tmp_path / "artifacts" / "employees.csv"
+        ws = _make_source_backed_local_csv_workspace(
+            tmp_path,
+            "https://example.com/employees.csv",
+            local_path,
+        )
+
+        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+            mock_stage.return_value = SimpleNamespace(
+                uri="https://example.com/employees.csv",
+                path=csv_path,
+                content_hash="abc123",
+            )
+            label = parse_label("@data//pkg/dataset:local_dataset[:2]")
+            result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue, got {result!r}"
+        rows = result.value
+        assert isinstance(rows, list)
+        assert [row["id"] for row in rows] == [0, 1]
+        assert [row["label"] for row in rows] == ["cat", "dog"]
+        assert local_path.exists()
+        assert local_path.read_text() == csv_path.read_text()
+        mock_stage.assert_called_once_with("https://example.com/employees.csv")
+
     def test_workspace_resolve_sql_entity_query_returns_filtered_rows(
         self, tmp_path: Path
     ) -> None:
