@@ -159,6 +159,15 @@ implementation(
     predicate=_shell_script_predicate,
 )
 
+# ---------------------------------------------------------------------------
+# SQL query
+# ---------------------------------------------------------------------------
+implementation(
+    name="sql",
+    attrs={
+        "content":     attr(type="string", mandatory=True, default=None),
+    },
+)
 
 # ---------------------------------------------------------------------------
 # system_binary: invokes a pre-installed binary by its absolute path
