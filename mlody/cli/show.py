@@ -17,8 +17,11 @@ from typing import Callable
 import click
 import networkx
 import pyarrow as pa
+from rich.cells import cell_len
 from rich.console import Console
+from rich.measure import Measurement
 from rich.pretty import pretty_repr
+from rich.segment import Segment
 from rich.table import Table
 
 from common.python.console import RichDomNode, RichDomExecutor, SyntaxNode, panel
@@ -60,6 +63,51 @@ _DEFAULT_CACHE_SUFFIX = Path(".cache") / "mlody"
 _DEFAULT_DB_NAME = "mlody.sqlite"
 _DEFAULT_WORKSPACES_SUFFIX = _DEFAULT_CACHE_SUFFIX / "workspaces"
 _console = Console()
+
+
+@dataclasses.dataclass(frozen=True)
+class _TerminalImageEncoder:
+    """Encode decoded images for terminal display.
+
+    ``supports_rich_tables`` indicates that the encoded payload can be emitted
+    as a zero-width control segment while a textual label drives Rich's layout.
+    """
+
+    encode: Callable[[object], str | None]
+    supports_rich_tables: bool = False
+
+    def __call__(self, image: object) -> str | None:
+        return self.encode(image)
+
+
+@dataclasses.dataclass(frozen=True)
+class _PreparedCell:
+    """Precomputed display data for one tabular preview cell."""
+
+    label: str
+    encoded: str | None = None
+    is_image: bool = False
+
+
+@dataclasses.dataclass(frozen=True)
+class _RichTableImageCell:
+    """Rich renderable for table-safe terminal image cells."""
+
+    label: str
+    encoded: str
+
+    def __rich_measure__(self, console, options) -> Measurement:
+        width = max(1, cell_len(self.label))
+        return Measurement(width, width)
+
+    def __rich_console__(self, console, options):
+        # Treat the terminal-image payload as zero-width so Rich sizes the cell
+        # from the fallback label instead of the raw escape sequence. Render a
+        # blank spacer rather than the label itself so the cell stays visually
+        # clean in image-capable terminals.
+        width = max(1, cell_len(self.label))
+        yield Segment(self.encoded, None, (("__mlody_terminal_image__",),))
+        yield " " * width
 
 
 def _get_username() -> str:
@@ -343,39 +391,104 @@ def _sixel_encode(img, *, max_width: int = 320) -> str | None:  # img: PIL.Image
         return None
 
 
-def _cell_label(value: object, *, image_encoder=None) -> str:
-    """Return a displayable string for one table cell.
+def _image_encoder_supports_rich_tables(image_encoder) -> bool:
+    """Return True when *image_encoder* can be used safely inside Rich tables."""
+    return bool(getattr(image_encoder, "supports_rich_tables", False))
 
-    If *image_encoder* is provided and the value is image data, the encoder is
-    called with the decoded PIL Image and its return value is used directly
-    (embedding the terminal escape sequence inline).  Falls back to a compact
-    text label when no encoder is given or encoding fails.
+
+def _contains_terminal_control(text: str | None) -> bool:
+    """Return True when *text* contains terminal control sequences."""
+    return bool(text and "\x1b" in text)
+
+
+def _prepare_cell(value: object, *, image_encoder=None) -> _PreparedCell:
+    """Return display metadata for one tabular preview cell.
+
+    If *image_encoder* is provided and the value is image data, the encoded
+    terminal payload is preserved separately from the textual fallback label.
     """
-    if isinstance(value, dict) and isinstance(value.get("bytes"), bytes):
+    if _is_image_cell(value):
         img = _to_pil_image(value)
         if img is not None:
+            encoded = None
             if image_encoder is not None:
                 try:
                     encoded = image_encoder(img)
-                    if encoded:
-                        return encoded
                 except Exception:
-                    pass
-            return f"<{img.format or 'image'} {img.width}×{img.height}>"
-        nb = len(value["bytes"])
-        return f"<image {nb} bytes>"
-    if isinstance(value, bytes):
-        return f"<bytes {len(value)}>"
-    return str(value)
+                    encoded = None
+            return _PreparedCell(
+                label=f"<{img.format or 'image'} {img.width}×{img.height}>",
+                encoded=encoded or None,
+                is_image=True,
+            )
+        if isinstance(value, dict):
+            return _PreparedCell(
+                label=f"<image {len(value['bytes'])} bytes>",
+                is_image=True,
+            )
+        return _PreparedCell(label=f"<bytes {len(value)}>", is_image=True)
+    return _PreparedCell(label=str(value))
+
+
+def _prepared_cell_display(cell: _PreparedCell) -> str:
+    """Return the best printable text for a prepared cell."""
+    return cell.encoded or cell.label
+
+
+def _cell_label(value: object, *, image_encoder=None) -> str:
+    """Return a displayable string for one table cell."""
+    return _prepared_cell_display(_prepare_cell(value, image_encoder=image_encoder))
 
 
 def _image_encoder_for_terminal():
     """Return an image encoder callable for the current terminal, or None."""
     if _can_kitty():
-        return lambda img: _kitty_encode(img, max_width=160)
+        return _TerminalImageEncoder(
+            encode=lambda img: _kitty_encode(img, max_width=160),
+            supports_rich_tables=True,
+        )
     if _can_sixel():
-        return lambda img: _sixel_encode(img, max_width=80)
+        return _TerminalImageEncoder(
+            encode=lambda img: _sixel_encode(img, max_width=80),
+            supports_rich_tables=False,
+        )
     return None
+
+
+def _is_image_cell(value: object) -> bool:
+    """Return True when *value* looks like an image payload cell."""
+    return (
+        isinstance(value, dict) and isinstance(value.get("bytes"), bytes)
+    ) or isinstance(value, bytes)
+
+
+def _format_image_row_preview(
+    prepared_rows: list[dict[str, _PreparedCell]],
+    column_names: list[str],
+    header: str,
+    display_total: int,
+    rows: int,
+) -> str:
+    """Render tabular previews row-by-row.
+
+    This is used when the preview contains terminal-image payloads that cannot
+    be safely embedded inside a Rich table without corrupting layout.
+    """
+    lines = [header]
+    for i, row in enumerate(prepared_rows):
+        lines.append(f"[{i}]")
+        for column_name in column_names:
+            cell = row[column_name]
+            cell_text = _prepared_cell_display(cell)
+            if cell.is_image and cell.encoded is not None:
+                lines.append(f"  {column_name}:")
+                lines.append(cell_text)
+            else:
+                lines.append(f"  {column_name}: {cell_text}")
+
+    if display_total > rows:
+        lines.append(f"… ({display_total - rows} more rows not shown)")
+    return "\n".join(lines)
 
 
 def _format_value(
@@ -390,16 +503,43 @@ def _format_value(
         if not preview.column_names:
             return header
 
+        data_rows = preview.to_pydict()
+        prepared_rows = [
+            {
+                column_name: _prepare_cell(
+                    data_rows[column_name][i],
+                    image_encoder=image_encoder,
+                )
+                for column_name in preview.column_names
+            }
+            for i in range(preview.num_rows)
+        ]
+        if any(
+            _contains_terminal_control(cell.encoded)
+            and not _image_encoder_supports_rich_tables(image_encoder)
+            for row in prepared_rows
+            for cell in row.values()
+        ):
+            return _format_image_row_preview(
+                prepared_rows,
+                list(preview.column_names),
+                header=header,
+                display_total=display_total,
+                rows=rows,
+            )
+
         table = Table(title=header)
         for column_name in preview.column_names:
             table.add_column(column_name, overflow="fold")
 
-        data_rows = preview.to_pydict()
-        for i in range(preview.num_rows):
+        for row in prepared_rows:
             table.add_row(
                 *[
-                    _cell_label(data_rows[column_name][i], image_encoder=image_encoder)
-                    for column_name in preview.column_names
+                    _RichTableImageCell(cell.label, cell.encoded)
+                    if _contains_terminal_control(cell.encoded)
+                    and _image_encoder_supports_rich_tables(image_encoder)
+                    else _prepared_cell_display(cell)
+                    for cell in (row[column_name] for column_name in preview.column_names)
                 ]
             )
 

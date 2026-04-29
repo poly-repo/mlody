@@ -431,6 +431,142 @@ class TestShowCommandOutput:
         assert "[0]" not in result.output
         assert "name: Alice" not in result.output
 
+    def test_tabular_preview_with_textual_images_keeps_rich_table(self, tmp_path: Path) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@pixelle//datasets:celebA"]
+        resolved_value = _RawAttrValue(
+            value=pa.Table.from_pylist(
+                [
+                    {"image": {"bytes": b"fake-image"}, "Young": False},
+                    {"image": {"bytes": b"fake-image-2"}, "Young": True},
+                ]
+            ),
+            label=_parse_label("@pixelle//datasets:celebA[@sql select image,Young]"),
+        )
+
+        runner = CliRunner()
+        fake_image = type(
+            "FakeImage",
+            (),
+            {"format": "PNG", "width": 178, "height": 218},
+        )()
+        with (
+            patch("mlody.cli.show.resolve_workspace") as mock_rw,
+            patch("mlody.cli.show.resolve_label_to_value") as mock_rlv,
+            patch("mlody.cli.show._image_encoder_for_terminal", return_value=lambda _img: "<IMG>"),
+            patch("mlody.cli.show._to_pil_image", return_value=fake_image),
+        ):
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "@pixelle//datasets:celebA[@sql select image,Young]"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "pyarrow.Table" in result.output
+        assert "Young" in result.output
+        assert "False" in result.output
+        assert "True" in result.output
+        assert "<IMG>" in result.output
+        assert "[0]" not in result.output
+
+    def test_tabular_preview_with_unsafe_terminal_images_falls_back(self, tmp_path: Path) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@pixelle//datasets:celebA"]
+        resolved_value = _RawAttrValue(
+            value=pa.Table.from_pylist(
+                [
+                    {"image": {"bytes": b"fake-image"}, "Young": False},
+                    {"image": {"bytes": b"fake-image-2"}, "Young": True},
+                ]
+            ),
+            label=_parse_label("@pixelle//datasets:celebA[@sql select image,Young]"),
+        )
+
+        runner = CliRunner()
+        fake_image = type(
+            "FakeImage",
+            (),
+            {"format": "PNG", "width": 178, "height": 218},
+        )()
+        with (
+            patch("mlody.cli.show.resolve_workspace") as mock_rw,
+            patch("mlody.cli.show.resolve_label_to_value") as mock_rlv,
+            patch(
+                "mlody.cli.show._image_encoder_for_terminal",
+                return_value=mlody.cli.show._TerminalImageEncoder(
+                    encode=lambda _img: "\x1b_Gunsafe\x1b\\",
+                    supports_rich_tables=False,
+                ),
+            ),
+            patch("mlody.cli.show._to_pil_image", return_value=fake_image),
+        ):
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "@pixelle//datasets:celebA[@sql select image,Young]"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "pyarrow.Table" in result.output
+        assert "[0]" in result.output
+        assert "Young: False" in result.output
+        assert "Young: True" in result.output
+
+    def test_tabular_preview_with_kitty_style_images_keeps_rich_table(self, tmp_path: Path) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@pixelle//datasets:celebA"]
+        resolved_value = _RawAttrValue(
+            value=pa.Table.from_pylist(
+                [
+                    {"image": {"bytes": b"fake-image"}, "Young": False},
+                    {"image": {"bytes": b"fake-image-2"}, "Young": True},
+                ]
+            ),
+            label=_parse_label("@pixelle//datasets:celebA[@sql select image,Young]"),
+        )
+
+        runner = CliRunner()
+        fake_image = type(
+            "FakeImage",
+            (),
+            {"format": "PNG", "width": 178, "height": 218},
+        )()
+        with (
+            patch("mlody.cli.show.resolve_workspace") as mock_rw,
+            patch("mlody.cli.show.resolve_label_to_value") as mock_rlv,
+            patch(
+                "mlody.cli.show._image_encoder_for_terminal",
+                return_value=mlody.cli.show._TerminalImageEncoder(
+                    encode=lambda _img: "\x1b_Gkitty\x1b\\",
+                    supports_rich_tables=True,
+                ),
+            ),
+            patch("mlody.cli.show._to_pil_image", return_value=fake_image),
+        ):
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "@pixelle//datasets:celebA[@sql select image,Young]"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "pyarrow.Table" in result.output
+        assert "Young" in result.output
+        assert "False" in result.output
+        assert "True" in result.output
+        assert "[0]" not in result.output
+        assert "<PNG" not in result.output
+
 
 class TestShowCommandDagPlan:
     """Requirement: output labels render the same DAG table used by dag."""
