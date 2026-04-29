@@ -204,13 +204,6 @@ location(
 )
 
 location(
-    name = "remote",
-    attrs = {
-        "uri": attr(type="string", mandatory=True),
-    },
-)
-
-location(
     name = "rds",
     abstract = True,
     attrs = {
@@ -225,9 +218,17 @@ location(
         "connection_id": attr(type="string", mandatory=False),
         "host": attr(type="string", mandatory=False),
         "database": attr(type="string", mandatory=False),
+        "table": attr(type="string", mandatory=False),
         "login": attr(type="string", mandatory=False),
         "password": attr(type="string", mandatory=False),
         "port": attr(type="integer", mandatory=False, default=5432),
+    },
+)
+
+location(
+    name = "remote",
+    attrs = {
+        "uri": attr(type="string", mandatory=True), # we can do better than string for URIs
     },
 )
 
