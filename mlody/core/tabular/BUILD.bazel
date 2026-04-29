@@ -119,6 +119,7 @@ o_py_test(
     name = "location_specs_test",
     srcs = ["location_specs_test.py"],
     deps = [
+        ":location_specs_lib",
         ":tabular",
         "//mlody/common:common_lib",
         "@pip//pyarrow",

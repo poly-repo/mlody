@@ -723,67 +723,300 @@ def _posix_location_paths(location: object) -> list[str]:
         return [str(p) for p in path_value]
     return [str(path_value)]
 
+def _tabular_value_struct(value: object) -> object | None:
+    """Return the underlying value struct when *value* can be tabular."""
+    if isinstance(value, MlodyValueValue):
+        return value.struct
+    if getattr(value, "kind", None) == "value":
+        return value
+    return None
 
-def _is_parquet_backed(value: object) -> bool:
-    """Return True when *value* has a parquet representation."""
-    rep = getattr(value, "representation", None)
-    return (
-        getattr(rep, "name", None) == "parquet"
-        or getattr(rep, "type", None) == "parquet"
+
+def _is_explicit_tabular_value_struct(value_struct: object) -> bool:
+    """Return whether *value_struct* is explicitly declared as tabular."""
+    location = getattr(value_struct, "location", None)
+    location_type = (
+        getattr(location, "_root_kind", None)
+        or getattr(location, "type", None)
+        or getattr(location, "kind", None)
+    )
+    representation = getattr(value_struct, "representation", None)
+    representation_name = (
+        getattr(representation, "name", None)
+        or getattr(representation, "type", None)
+    )
+    has_tabular_representation = representation_name in {"csv", "parquet"}
+    has_tabular_source = (
+        getattr(value_struct, "_source_value", None) is not None
+        or getattr(value_struct, "source", None) is not None
     )
 
+    if location_type in {"derived", "remote", "parquet"}:
+        return True
+    if has_tabular_representation:
+        return True
+    if has_tabular_source and has_tabular_representation:
+        return True
+    return False
 
-def _run_sql_entity_query(
+
+def _traverse_tabular_source(
+    tabular_source: object,
     value: object,
-    sql: str,
+    path: tuple[object, ...],
     label: "Label",
-) -> "_RawAttrValue | MlodyUnresolvedValue":
-    """Execute a terminal ``[@sql ...]`` entity query against a value target."""
-    from mlody.core.tabular.location_specs import query_rows_from_value  # noqa: PLC0415
-
-    if isinstance(value, MlodyValueValue):
-        value_struct = value.struct
-    elif getattr(value, "kind", None) == "value":
-        value_struct = value
-    else:
-        return MlodyUnresolvedValue(
-            label=label,
-            reason=(
-                "SQL entity queries require a value(...) target; "
-                f"got {type(value).__name__!r} (label: {label!r})"
-            ),
-        )
-
-    try:
-        rows = query_rows_from_value(value_struct, sql)
-    except ValueError as exc:
-        return MlodyUnresolvedValue(
-            label=label,
-            reason=f"{exc} (label: {label!r})",
-        )
-    return _RawAttrValue(value=rows, label=label)
-
-
-def _run_tabular_entity_query_segment(
-    value: object,
-    segment: object,
-    label: "Label",
-) -> "_RawAttrValue | MlodyUnresolvedValue | None":
-    """Apply an index/slice entity-query segment to a non-parquet tabular value."""
-    from mlody.core.tabular.location_specs import source_from_value  # noqa: PLC0415
+) -> MlodyValue:
+    """Traverse a tabular source uniformly across parquet/csv/derived/remote."""
+    from mlody.core.sql.sql_query import MlodyQueryError, mlody_query  # noqa: PLC0415
     from mlody.core.traversal_grammar import (  # noqa: PLC0415
+        FieldSegment,
         IndexSegment,
+        KeySegment,
         SliceSegment,
+        SqlSegment,
     )
 
-    if isinstance(value, MlodyValueValue):
-        value_struct = value.struct
-    elif getattr(value, "kind", None) == "value":
-        value_struct = value
-    else:
+    active_schema = None
+    cached_rows: list[object] | None = None
+    last_field_name: str | None = None
+
+    def _load_rows() -> list[object]:
+        nonlocal active_schema, cached_rows
+        if cached_rows is None:
+            preview = tabular_source.preview(tabular_source.count())
+            active_schema = preview.table.schema
+            cached_rows = list(preview.table.to_pylist())
+        return cached_rows
+
+    def _run_sql(query: str) -> list[dict[str, object]] | MlodyUnresolvedValue:
+        nonlocal active_schema
+        try:
+            table = mlody_query(tabular_source.query_input(), query)
+        except MlodyQueryError as exc:
+            return MlodyUnresolvedValue(
+                label=label,
+                reason=f"SQL query failed: {exc} (label: {label!r})",
+            )
+        active_schema = table.schema
+        return list(table.to_pylist())
+
+    current: object = tabular_source
+    for seg in path:
+        if isinstance(seg, str):
+            seg = FieldSegment(name=seg)
+
+        if current is tabular_source:
+            if isinstance(seg, IndexSegment):
+                rows = _load_rows()
+                try:
+                    current = rows[seg.index]
+                except IndexError as exc:
+                    return MlodyUnresolvedValue(
+                        label=label,
+                        reason=f"tabular index error: {exc} (label: {label!r})",
+                    )
+            elif isinstance(seg, SliceSegment):
+                rows = _load_rows()
+                current = rows[slice(seg.start, seg.stop, seg.step)]
+            elif isinstance(seg, SqlSegment):
+                sql_rows = _run_sql(seg.query)
+                if isinstance(sql_rows, MlodyUnresolvedValue):
+                    return sql_rows
+                current = sql_rows
+            elif isinstance(seg, FieldSegment):
+                return MlodyUnresolvedValue(
+                    label=label,
+                    reason=(
+                        f"FieldSegment {seg.name!r} applied directly to tabular source "
+                        f"without a preceding row index (label: {label!r})"
+                    ),
+                )
+            else:
+                return MlodyUnresolvedValue(
+                    label=label,
+                    reason=(
+                        f"unsupported path segment {type(seg).__name__!r} "
+                        f"on tabular source (label: {label!r})"
+                    ),
+                )
+        elif isinstance(current, dict):
+            if isinstance(seg, (FieldSegment, KeySegment)):
+                key = seg.name if isinstance(seg, FieldSegment) else seg.key
+                if key not in current:
+                    available = list(current.keys())
+                    return MlodyUnresolvedValue(
+                        label=label,
+                        reason=(
+                            f"column {key!r} not found in row; "
+                            f"available columns: {available} (label: {label!r})"
+                        ),
+                    )
+                current = current[key]
+                last_field_name = key
+            else:
+                return MlodyUnresolvedValue(
+                    label=label,
+                    reason=(
+                        f"unsupported path segment {type(seg).__name__!r} "
+                        f"on row dict (label: {label!r})"
+                    ),
+                )
+        elif isinstance(current, list):
+            if isinstance(seg, (FieldSegment, KeySegment)):
+                key = seg.name if isinstance(seg, FieldSegment) else seg.key
+                try:
+                    current = [row[key] for row in current]  # type: ignore[index]
+                except KeyError:
+                    return MlodyUnresolvedValue(
+                        label=label,
+                        reason=(
+                            f"column {key!r} not found in one or more rows "
+                            f"(label: {label!r})"
+                        ),
+                    )
+                except TypeError:
+                    return MlodyUnresolvedValue(
+                        label=label,
+                        reason=(
+                            f"cannot project field {key!r} from non-record list elements "
+                            f"(label: {label!r})"
+                        ),
+                    )
+                last_field_name = key
+            elif isinstance(seg, IndexSegment):
+                try:
+                    current = current[seg.index]
+                except IndexError as exc:
+                    return MlodyUnresolvedValue(
+                        label=label,
+                        reason=f"index error on tabular result: {exc} (label: {label!r})",
+                    )
+            elif isinstance(seg, SliceSegment):
+                current = current[slice(seg.start, seg.stop, seg.step)]
+            else:
+                return MlodyUnresolvedValue(
+                    label=label,
+                    reason=(
+                        f"unsupported path segment {type(seg).__name__!r} "
+                        f"on tabular list result (label: {label!r})"
+                    ),
+                )
+        else:
+            return MlodyUnresolvedValue(
+                label=label,
+                reason=(
+                    f"cannot apply path segment {type(seg).__name__!r} "
+                    f"to value of type {type(current).__name__!r} (label: {label!r})"
+                ),
+            )
+
+    if last_field_name is not None and active_schema is not None:
+        import pyarrow as _pa  # noqa: PLC0415
+
+        try:
+            arrow_field = active_schema.field(last_field_name)
+            arrow_type = arrow_field.type
+        except Exception:
+            arrow_field = None
+            arrow_type = None
+
+        if arrow_type is not None:
+            is_nested = (
+                _pa.types.is_struct(arrow_type)
+                or _pa.types.is_list(arrow_type)
+                or _pa.types.is_map(arrow_type)
+                or _pa.types.is_large_list(arrow_type)
+            )
+            if not is_nested:
+                type_map = _get_arrow_type_map()
+                mlody_type_name = type_map.get(arrow_type)
+                if mlody_type_name is None:
+                    return MlodyUnresolvedValue(
+                        label=label,
+                        reason=(
+                            f"field {last_field_name!r}: no mlody primitive maps to "
+                            f"Arrow type {arrow_type!s} (label: {label!r})"
+                        ),
+                    )
+
+                declared_type_name: str | None = None
+                value_type = getattr(value, "type", None)
+                direct_fields = getattr(value_type, "fields", None)
+                attrs_dict = getattr(value_type, "attributes", None)
+                attrs_fields = (
+                    attrs_dict.get("fields")
+                    if isinstance(attrs_dict, dict)
+                    else None
+                )
+                fields_list: list[object] = list(direct_fields or attrs_fields or [])
+                for field in fields_list:
+                    if getattr(field, "name", None) == last_field_name:
+                        field_type = getattr(field, "type", None)
+                        declared_type_name = getattr(field_type, "name", None) or getattr(
+                            field_type, "type", None
+                        )
+                        break
+
+                if (
+                    declared_type_name is not None
+                    and declared_type_name != mlody_type_name
+                ):
+                    return MlodyUnresolvedValue(
+                        label=label,
+                        reason=(
+                            f"field {last_field_name!r} type mismatch: "
+                            f"Arrow inferred {mlody_type_name!r} but mlody declares "
+                            f"{declared_type_name!r} (label: {label!r})"
+                        ),
+                    )
+
+                element_type = _get_mlody_primitive_type(mlody_type_name)
+                promoted = promote_scalar_leaf(
+                    current,
+                    last_field_name,
+                    element_type,
+                    label,
+                )
+                if promoted is not None:
+                    return promoted
+
+    return _RawAttrValue(value=current, label=label)
+
+
+def _maybe_traverse_tabular_value(
+    value: object,
+    path: tuple[object, ...],
+    label: "Label",
+) -> MlodyValue | None:
+    """Return a shared tabular traversal result when *value* is tabular-backed."""
+    from mlody.core.traversal_grammar import SqlSegment  # noqa: PLC0415
+    from mlody.core.tabular.location_specs import source_from_value  # noqa: PLC0415
+
+    if not path:
         return None
 
-    if not isinstance(segment, (IndexSegment, SliceSegment)):
+    value_struct = _tabular_value_struct(value)
+    if value_struct is None:
+        if isinstance(path[0], SqlSegment):
+            return MlodyUnresolvedValue(
+                label=label,
+                reason=(
+                    "SQL/tabular traversal requires a value(...) target; "
+                    f"got {type(value).__name__!r} (label: {label!r})"
+                ),
+            )
+        return None
+
+    if not _is_explicit_tabular_value_struct(value_struct):
+        if isinstance(path[0], SqlSegment):
+            value_name = str(getattr(value_struct, "name", "<unknown>"))
+            return MlodyUnresolvedValue(
+                label=label,
+                reason=(
+                    "SQL/tabular traversal requires a tabular value; "
+                    f"{value_name!r} is not tabular in v1 (label: {label!r})"
+                ),
+            )
         return None
 
     try:
@@ -791,32 +1024,22 @@ def _run_tabular_entity_query_segment(
     except ValueError as exc:
         return MlodyUnresolvedValue(
             label=label,
-            reason=f"Failed to prepare tabular entity query: {exc} (label: {label!r})",
+            reason=f"Failed to prepare tabular value for traversal: {exc} (label: {label!r})",
         )
 
     if tabular_source is None:
-        return None
-
-    try:
-        preview = tabular_source.preview(tabular_source.count())
-    except Exception as exc:  # noqa: BLE001
-        return MlodyUnresolvedValue(
-            label=label,
-            reason=f"Failed to read tabular value rows: {exc} (label: {label!r})",
-        )
-
-    rows = preview.table.to_pylist()
-    if isinstance(segment, IndexSegment):
-        try:
-            return _RawAttrValue(value=rows[segment.index], label=label)
-        except IndexError as exc:
+        if isinstance(path[0], SqlSegment):
+            value_name = str(getattr(value_struct, "name", "<unknown>"))
             return MlodyUnresolvedValue(
                 label=label,
-                reason=f"tabular index error: {exc} (label: {label!r})",
+                reason=(
+                    "SQL/tabular traversal requires a tabular value; "
+                    f"{value_name!r} is not tabular in v1 (label: {label!r})"
+                ),
             )
+        return None
 
-    sliced_rows = rows[slice(segment.start, segment.stop, segment.step)]
-    return _RawAttrValue(value=sliced_rows, label=label)
+    return _traverse_tabular_source(tabular_source, value_struct, path, label)
 
 
 def _traverse_json_backed_value(
@@ -1550,12 +1773,6 @@ class ValueTraversalStrategy:
         if not path:
             return MlodyValueValue(struct=value)
 
-        # Parquet-backed values: delegate entire path to ParquetTraversalStrategy
-        # before any virtual-value or record-aware processing (D-2, task 4.4).
-        location = getattr(value, "location", None)
-        if getattr(location, "type", None) == "parquet":
-            return ParquetTraversalStrategy().traverse(value, path, label)
-
         # Check whether the path contains any non-FieldSegment / non-str segments.
         # If it does, we must use the engine-aware loop (tasks 4.1–4.3).
         def _is_field_only(p: tuple[object, ...]) -> bool:
@@ -1568,6 +1785,11 @@ class ValueTraversalStrategy:
             return True
 
         has_engine_segs = not _is_field_only(path)
+
+        if has_engine_segs:
+            tabular_result = _maybe_traverse_tabular_value(value, path, label)
+            if tabular_result is not None:
+                return tabular_result
 
         if has_engine_segs or isinstance(value, MlodyVectorValue):
             # Engine-aware loop: handles IndexSegment, KeySegment,
@@ -1763,15 +1985,11 @@ class ValueTraversalStrategy:
                 # Short-circuit on failure
                 return accumulator
 
-            # When the accumulator has become a parquet-backed MlodyValueValue
-            # (e.g. after traversing the "valid" field of a record), delegate
-            # all remaining segments to ParquetTraversalStrategy, which knows
-            # how to read slices and fields directly from disk.
-            if (
-                isinstance(accumulator, MlodyValueValue)
-                and _is_parquet_backed(accumulator.struct)
-            ):
-                return _delegate_to_parquet(accumulator, path[i:], label)
+            tabular_result = _maybe_traverse_tabular_value(
+                accumulator, path[i:], label
+            )
+            if tabular_result is not None:
+                return tabular_result
 
             # Mapped traversal applies FieldSegment and KeySegment over each element of
             # a vector accumulator.  IndexSegment is intentionally excluded: [n] on a
@@ -1836,22 +2054,6 @@ class ValueTraversalStrategy:
 # ---------------------------------------------------------------------------
 # ParquetTraversalStrategy  (tasks 4.1–4.5, design D-2, D-4)
 # ---------------------------------------------------------------------------
-
-
-def _delegate_to_parquet(
-    accumulator: "MlodyValueValue",
-    remaining: tuple[object, ...],
-    label: "Label",
-) -> "MlodyValue":
-    """Hand a parquet-backed accumulator + remaining path to ParquetTraversalStrategy.
-
-    Used when ValueTraversalStrategy's engine loop traverses a record field
-    whose value is parquet-backed (e.g. ``celebA.valid`` where ``valid`` is a
-    parquet dataset).  Once the accumulator is parquet-backed, the rest of
-    the path is read directly from disk by the parquet strategy.
-    """
-    return ParquetTraversalStrategy().traverse(accumulator.struct, remaining, label)
-
 
 class ParquetTraversalStrategy:
     """Traversal strategy for ``kind="value"`` entities backed by a Parquet file.
@@ -2584,48 +2786,14 @@ def resolve_label_to_value(
             except TraversalParseError:
                 eq_expr = None
             if eq_expr is not None and eq_expr.segments:
+                tabular_result = _maybe_traverse_tabular_value(
+                    result,
+                    eq_expr.segments,
+                    label,
+                )
+                if tabular_result is not None:
+                    return tabular_result
                 seg = eq_expr.segments[0]
-                if isinstance(seg, SqlSegment):
-                    return _run_sql_entity_query(result, seg.query, label)
-                # For Parquet-backed entities the entity_query bracket expression
-                # (e.g. [0]) must be forwarded through ParquetTraversalStrategy
-                # rather than the generic _traverse_one_step, because the strategy
-                # carries the file path needed to read from disk.
-                # Prefer checking the traversal RESULT for parquet backing — the
-                # root struct may have a posix location while a nested field is
-                # the actual parquet-backed vector (e.g. celebA-dataset.valid[1]).
-                _result_struct: object = None
-                if isinstance(result, MlodyValueValue):
-                    _result_struct = result.struct
-                if _result_struct is not None and _is_parquet_backed(_result_struct):
-                    from mlody.core.traversal_grammar import PathSegment  # noqa: PLC0415
-
-                    all_pq_segs = tuple(
-                        s for s in eq_expr.segments if isinstance(s, PathSegment)
-                    )
-                    if all_pq_segs:
-                        pq_result = ParquetTraversalStrategy().traverse(
-                            _result_struct,
-                            all_pq_segs,
-                            label,
-                        )
-                        return pq_result
-                elif getattr(location_of_struct, "type", None) == "parquet":
-                    from mlody.core.traversal_grammar import PathSegment  # noqa: PLC0415
-
-                    all_pq_segs = tuple(
-                        s for s in eq_expr.segments if isinstance(s, PathSegment)
-                    )
-                    if all_pq_segs:
-                        pq_result = ParquetTraversalStrategy().traverse(
-                            struct,
-                            all_pq_segs,
-                            label,
-                        )
-                        return pq_result
-                tabular_step = _run_tabular_entity_query_segment(result, seg, label)
-                if tabular_step is not None:
-                    return tabular_step
                 step = _traverse_one_step(
                     result, seg, resolved_path, label, traversal_error_policy
                 )
@@ -2691,14 +2859,12 @@ def _workspace_traverse_record(
         except TraversalParseError:
             expr = None
         if expr is not None and expr.segments:
+            tabular_result = _maybe_traverse_tabular_value(current, expr.segments, lbl)
+            if tabular_result is not None:
+                if isinstance(tabular_result, MlodyUnresolvedValue):
+                    return tabular_result
+                return getattr(tabular_result, "value", tabular_result)
             seg = expr.segments[0]
-            from mlody.core.traversal_grammar import SqlSegment  # noqa: PLC0415
-
-            if isinstance(seg, SqlSegment):
-                sql_result = _run_sql_entity_query(current, seg.query, lbl)
-                if isinstance(sql_result, MlodyUnresolvedValue):
-                    return sql_result
-                return sql_result.value
             q_result = _traverse_one_step(
                 current, seg, field_parts, lbl, TraversalErrorPolicy.RAISE
             )

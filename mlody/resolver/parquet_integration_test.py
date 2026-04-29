@@ -368,6 +368,30 @@ class TestParquetIndexAccess:
         assert [row["id"] for row in rows] == [1, 2]
         mock_stage.assert_called_once_with("https://example.com/employees.csv")
 
+    def test_remote_csv_slice_entity_query_returns_rows(
+        self, tmp_path: Path
+    ) -> None:
+        """Remote CSV values support non-SQL slice entity-query suffixes."""
+        csv_path = tmp_path / "employees.csv"
+        csv_path.write_text("id,label,score\n0,cat,0.1\n1,dog,0.4\n2,bird,0.6\n")
+        ws = _make_remote_csv_workspace(tmp_path, "https://example.com/employees.csv")
+
+        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+            mock_stage.return_value = SimpleNamespace(
+                uri="https://example.com/employees.csv",
+                path=csv_path,
+                content_hash="abc123",
+            )
+            label = parse_label("@data//pkg/dataset:remote_dataset[:2]")
+            result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue, got {result!r}"
+        rows = result.value
+        assert isinstance(rows, list)
+        assert [row["id"] for row in rows] == [0, 1]
+        assert [row["label"] for row in rows] == ["cat", "dog"]
+        mock_stage.assert_called_once_with("https://example.com/employees.csv")
+
     def test_source_backed_local_csv_sql_entity_query_materializes_cache(
         self, tmp_path: Path
     ) -> None:
@@ -493,6 +517,48 @@ class TestParquetChainedAccess:
         assert isinstance(result, MlodyValueValue), f"Expected MlodyValueValue, got {result!r}"
         assert result.struct.location.data == ("cat",)  # type: ignore[union-attr]
         assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
+
+    def test_source_backed_local_csv_slice_plus_field_via_value_strategy(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-parquet tabular values support slice-plus-field through ValueTraversalStrategy."""
+        csv_path = tmp_path / "employees.csv"
+        csv_path.write_text("id,label,score\n0,cat,0.1\n1,dog,0.4\n2,bird,0.6\n")
+        local_path = tmp_path / "artifacts" / "employees.csv"
+        ws = _make_source_backed_local_csv_workspace(
+            tmp_path,
+            "https://example.com/employees.csv",
+            local_path,
+        )
+
+        from mlody.resolver.label_value import ValueTraversalStrategy, _lookup_entity
+        from mlody.core.traversal_grammar import FieldSegment, SliceSegment
+
+        lookup = _lookup_entity(ws, "teams/data/pkg/dataset", "local_dataset")
+        assert lookup is not None
+        _, struct = lookup
+
+        label = parse_label("@data//pkg/dataset:local_dataset")
+        strategy = ValueTraversalStrategy()
+
+        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+            mock_stage.return_value = SimpleNamespace(
+                uri="https://example.com/employees.csv",
+                path=csv_path,
+                content_hash="abc123",
+            )
+            result = strategy.traverse(
+                struct,
+                (SliceSegment(0, 2, None), FieldSegment("label")),
+                label,
+            )
+
+        assert isinstance(result, MlodyValueValue), f"Expected MlodyValueValue, got {result!r}"
+        assert result.struct.location.data == ("cat", "dog")  # type: ignore[union-attr]
+        assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
+        assert local_path.exists()
+        assert local_path.read_text() == csv_path.read_text()
+        mock_stage.assert_called_once_with("https://example.com/employees.csv")
 
     def test_slice_plus_field_via_strategy(
         self, tmp_path: Path
