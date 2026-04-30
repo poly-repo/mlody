@@ -333,15 +333,20 @@ class MlodySourceRangeValue(MlodyValue):
     end_line: int
 
     def to_console_representation(self) -> RichDomNode:
-        line_range = f"{self.start_line}...{self.end_line}"
-        info_table = table(["path", "lines"], [[text(self.filepath), text(line_range)]])
+        line_suffix = (
+            str(self.start_line)
+            if self.start_line == self.end_line
+            else f"{self.start_line}-{self.end_line}"
+        )
+        header = f"# {self.filepath}:{line_suffix}"
+        separator = "#"
         try:
             lines = self.abs_path.read_text().splitlines()
             snippet = "\n".join(lines[self.start_line - 1 : self.end_line])
-            code: RichDomNode = SyntaxNode(snippet, language="python")
+            content = f"{header}\n{separator}\n{snippet}"
         except Exception:
-            code = text(f"(could not read {self.abs_path})")
-        return stack(info_table, code)
+            content = f"{header}\n{separator}\n(could not read {self.abs_path})"
+        return SyntaxNode(content, language="python")
 
 
 # ---------------------------------------------------------------------------

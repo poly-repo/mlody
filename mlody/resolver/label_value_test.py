@@ -1165,6 +1165,59 @@ class TestAggregateTypeRendering:
         assert "releases" in rendered
         assert "vector[string]" in rendered
 
+    def test_source_range_console_representation_uses_single_source_block(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        source_path = ROOT / "teams/myroot/entities.mlody"
+        fs.create_file(
+            str(source_path),
+            contents="line1\nline2\nline3\nline4\n",
+        )
+        source_range_value = MlodySourceRangeValue(
+            filepath="teams/myroot/entities.mlody",
+            abs_path=source_path,
+            start_line=2,
+            end_line=3,
+        )
+
+        buffer = Console(record=True, width=120)
+        RichDomExecutor(console=buffer).render(
+            source_range_value.to_console_representation()
+        )
+        rendered_lines = [line.rstrip() for line in buffer.export_text().splitlines()]
+
+        assert rendered_lines[0] == "# teams/myroot/entities.mlody:2-3"
+        assert rendered_lines[1] == "#"
+        assert rendered_lines[2] == "line2"
+        assert rendered_lines[3] == "line3"
+
+    def test_source_range_console_representation_collapses_single_line_span(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        source_path = ROOT / "teams/myroot/entities.mlody"
+        fs.create_file(
+            str(source_path),
+            contents="line1\nline2\nline3\n",
+        )
+        source_range_value = MlodySourceRangeValue(
+            filepath="teams/myroot/entities.mlody",
+            abs_path=source_path,
+            start_line=2,
+            end_line=2,
+        )
+
+        buffer = Console(record=True, width=120)
+        RichDomExecutor(console=buffer).render(
+            source_range_value.to_console_representation()
+        )
+        rendered_lines = [line.rstrip() for line in buffer.export_text().splitlines()]
+
+        assert rendered_lines[0] == "# teams/myroot/entities.mlody:2"
+        assert rendered_lines[1] == "#"
+        assert rendered_lines[2] == "line2"
+
 
 # ---------------------------------------------------------------------------
 # 4.1 Unit tests for _traverse_one_step
