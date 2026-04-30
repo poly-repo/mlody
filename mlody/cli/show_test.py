@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import http.server
+from io import StringIO
 import json
 import logging
 from pathlib import Path
@@ -14,6 +15,7 @@ import networkx
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from rich.console import Console
 from click.testing import CliRunner
 from common.python.starlarkish.core.struct import Struct, struct
 
@@ -508,6 +510,39 @@ class TestShowCommandOutput:
         assert "<IMG>" in result.output
         assert "[0]" not in result.output
 
+    def test_wide_tabular_preview_falls_back_to_row_mode(self, tmp_path: Path) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@pixelle//datasets:celebA"]
+        wide_rows = [
+            {f"col_{i}": (i % 2 == 0) for i in range(20)},
+            {f"col_{i}": (i % 3 == 0) for i in range(20)},
+        ]
+        resolved_value = _RawAttrValue(
+            value=pa.Table.from_pylist(wide_rows),
+            label=_parse_label("@pixelle//datasets:celebA[@sql where flag=True limit 2]"),
+        )
+
+        runner = CliRunner()
+        with (
+            patch("mlody.cli.show.resolve_workspace") as mock_rw,
+            patch("mlody.cli.show.resolve_label_to_value") as mock_rlv,
+        ):
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "@pixelle//datasets:celebA[@sql where flag=True limit 2]"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "pyarrow.Table" in result.output
+        assert "[0]" in result.output
+        assert "col_0: True" in result.output
+        assert "col_19: False" in result.output
+        assert "┏" not in result.output
+
     def test_tabular_preview_with_unsafe_terminal_images_falls_back(self, tmp_path: Path) -> None:
         mock_ws = MagicMock()
         mock_ws.root_infos = {}
@@ -601,6 +636,97 @@ class TestShowCommandOutput:
         assert "True" in result.output
         assert "[0]" not in result.output
         assert "<PNG" not in result.output
+
+    def test_kitty_encoder_uses_explicit_table_placement(self) -> None:
+        class _FakeImage:
+            size = (32, 32)
+
+            def convert(self, _mode: str):
+                return self
+
+            def save(self, handle, *, format: str, optimize: bool) -> None:
+                del format, optimize
+                handle.write(b"fake-png")
+
+        encoder = mlody.cli.show._TerminalImageEncoder(
+            encode=lambda img: mlody.cli.show._kitty_encode(
+                img,
+                max_width=160,
+                cell_rows=4,
+                no_cursor_movement=True,
+            ),
+            encode_with_placement=lambda img, columns, rows: mlody.cli.show._kitty_encode(
+                img,
+                max_width=160,
+                cell_columns=columns,
+                cell_rows=rows,
+                cell_aspect=2.0,
+                no_cursor_movement=True,
+            ),
+            supports_rich_tables=True,
+            rich_table_target_rows=4,
+            rich_table_cell_aspect=2.0,
+        )
+        encoded = encoder.encode_for_table(_FakeImage(), columns=8, rows=4)
+
+        assert encoded is not None
+        header = encoded.split(";", 1)[0]
+        assert "r=4" in header
+        assert "c=8" in header
+        assert "C=1" in header
+
+    def test_rich_table_image_cell_reserves_4x4_character_block(self) -> None:
+        renderable = mlody.cli.show._RichTableImageCell(
+            encoded="\x1b_Gkitty\x1b\\",
+            width=4,
+            height=4,
+        )
+        console = Console(file=StringIO(), width=20, force_terminal=False, color_system=None)
+        measurement = renderable.__rich_measure__(console, console.options)
+
+        console.print(renderable, end="")
+        rendered = console.file.getvalue()
+
+        assert measurement.minimum == 4
+        assert measurement.maximum == 4
+        assert rendered.splitlines() == ["    ", "    ", "    ", "    "]
+
+    def test_prepare_cell_uses_squareish_kitty_table_footprint(self) -> None:
+        class _FakeImage:
+            format = "PNG"
+            width = 178
+            height = 218
+            size = (178, 218)
+
+            def convert(self, _mode: str):
+                return self
+
+            def save(self, handle, *, format: str, optimize: bool) -> None:
+                del format, optimize
+                handle.write(b"fake-png")
+
+        fake_image = _FakeImage()
+        encoder = mlody.cli.show._TerminalImageEncoder(
+            encode=lambda _img: "\x1b_Gkitty\x1b\\",
+            encode_with_placement=lambda _img, columns, rows: f"\x1b_Gc={columns},r={rows},C=1;stub\x1b\\",
+            supports_rich_tables=True,
+            rich_table_target_rows=4,
+            rich_table_cell_aspect=2.0,
+        )
+
+        with patch("mlody.cli.show._to_pil_image", return_value=fake_image):
+            cell = mlody.cli.show._prepare_cell(
+                {"bytes": b"fake-image"},
+                image_encoder=encoder,
+            )
+
+        assert cell.encoded is not None
+        header = cell.encoded.split(";", 1)[0]
+        assert "c=7" in header
+        assert "r=4" in header
+        assert "C=1" in header
+        assert cell.display_height == 4
+        assert cell.display_width == 7
 
 
 class TestShowCommandDagPlan:

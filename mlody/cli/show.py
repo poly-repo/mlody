@@ -6,6 +6,7 @@ import dataclasses
 from functools import singledispatch
 import json
 import logging
+import math
 import os
 import pwd
 import socket
@@ -74,9 +75,23 @@ class _TerminalImageEncoder:
     """
 
     encode: Callable[[object], str | None]
+    encode_with_placement: Callable[[object, int, int], str | None] | None = None
     supports_rich_tables: bool = False
+    rich_table_target_rows: int = 1
+    rich_table_cell_aspect: float = 1.0
 
     def __call__(self, image: object) -> str | None:
+        return self.encode(image)
+
+    def encode_for_table(
+        self,
+        image: object,
+        *,
+        columns: int,
+        rows: int,
+    ) -> str | None:
+        if self.encode_with_placement is not None:
+            return self.encode_with_placement(image, columns, rows)
         return self.encode(image)
 
 
@@ -87,27 +102,32 @@ class _PreparedCell:
     label: str
     encoded: str | None = None
     is_image: bool = False
+    display_width: int = 0
+    display_height: int = 1
 
 
 @dataclasses.dataclass(frozen=True)
 class _RichTableImageCell:
     """Rich renderable for table-safe terminal image cells."""
 
-    label: str
     encoded: str
+    width: int
+    height: int
 
     def __rich_measure__(self, console, options) -> Measurement:
-        width = max(1, cell_len(self.label))
+        width = max(1, self.width)
         return Measurement(width, width)
 
     def __rich_console__(self, console, options):
         # Treat the terminal-image payload as zero-width so Rich sizes the cell
-        # from the fallback label instead of the raw escape sequence. Render a
-        # blank spacer rather than the label itself so the cell stays visually
-        # clean in image-capable terminals.
-        width = max(1, cell_len(self.label))
+        # from the configured cell footprint instead of the raw escape
+        # sequence. Render a blank spacer block so the cell stays visually
+        # clean in image-capable terminals while Rich reserves the intended
+        # 4×4 character area for the image.
+        width = max(1, self.width)
+        height = max(1, self.height)
         yield Segment(self.encoded, None, (("__mlody_terminal_image__",),))
-        yield " " * width
+        yield "\n".join([" " * width] * height)
 
 
 def _get_username() -> str:
@@ -272,7 +292,15 @@ def _can_sixel() -> bool:
         return False
 
 
-def _kitty_encode(img, *, max_width: int = 640) -> str | None:  # img: PIL.Image.Image
+def _kitty_encode(
+    img,
+    *,
+    max_width: int = 640,
+    cell_columns: int | None = None,
+    cell_rows: int | None = None,
+    cell_aspect: float = 2.0,
+    no_cursor_movement: bool = False,
+) -> str | None:  # img: PIL.Image.Image
     """Encode a PIL Image using the Kitty terminal graphics protocol.
 
     Transmits the image as a sequence of base64-encoded PNG chunks (≤ 4096
@@ -289,9 +317,25 @@ def _kitty_encode(img, *, max_width: int = 640) -> str | None:  # img: PIL.Image
         if w > max_width:
             h = max(1, int(h * max_width / w))
             img = img.resize((max_width, h), _PIL.LANCZOS)
+            w, h = img.size
+
+        if cell_columns is not None and cell_rows is not None:
+            target_aspect = cell_columns / max(1.0, cell_rows * cell_aspect)
+            image_aspect = w / max(1.0, h)
+            if abs(image_aspect - target_aspect) > 0.01:
+                if image_aspect > target_aspect:
+                    padded_height = max(h, math.ceil(w / target_aspect))
+                    canvas = _PIL.new("RGBA", (w, padded_height), (0, 0, 0, 0))
+                    canvas.paste(img.convert("RGBA"), (0, (padded_height - h) // 2))
+                else:
+                    padded_width = max(w, math.ceil(h * target_aspect))
+                    canvas = _PIL.new("RGBA", (padded_width, h), (0, 0, 0, 0))
+                    canvas.paste(img.convert("RGBA"), ((padded_width - w) // 2, 0))
+                img = canvas
+                w, h = img.size
 
         buf = _io.BytesIO()
-        img.convert("RGB").save(buf, format="PNG", optimize=False)
+        img.save(buf, format="PNG", optimize=False)
         png_bytes = buf.getvalue()
 
         b64 = _b64.standard_b64encode(png_bytes).decode("ascii")
@@ -306,7 +350,20 @@ def _kitty_encode(img, *, max_width: int = 640) -> str | None:  # img: PIL.Image
             more = 0 if i == len(chunks) - 1 else 1
             if i == 0:
                 # First chunk: action=T (transmit+display), f=100 (PNG), q=1 (quiet)
-                parts.append(f"\x1b_Ga=T,f=100,q=1,m={more};{chunk}\x1b\\")
+                placement_parts = ["a=T", "f=100", "q=1"]
+                if cell_columns is not None:
+                    placement_parts.append(f"c={max(1, cell_columns)}")
+                if cell_rows is not None:
+                    placement_parts.append(f"r={max(1, cell_rows)}")
+                if no_cursor_movement:
+                    placement_parts.append("C=1")
+                placement_parts.append(f"m={more}")
+                parts.append(
+                    "\x1b_G"
+                    + ",".join(placement_parts)
+                    + ";"
+                    f"{chunk}\x1b\\"
+                )
             else:
                 parts.append(f"\x1b_Gm={more};{chunk}\x1b\\")
 
@@ -411,23 +468,56 @@ def _prepare_cell(value: object, *, image_encoder=None) -> _PreparedCell:
         img = _to_pil_image(value)
         if img is not None:
             encoded = None
+            display_width = max(1, cell_len(f"<{img.format or 'image'} {img.width}×{img.height}>"))
+            display_height = 1
             if image_encoder is not None:
-                try:
-                    encoded = image_encoder(img)
-                except Exception:
-                    encoded = None
+                if _image_encoder_supports_rich_tables(image_encoder):
+                    display_height = max(
+                        1,
+                        int(getattr(image_encoder, "rich_table_target_rows", 1)),
+                    )
+                    display_width = max(
+                        1,
+                        math.ceil(
+                            display_height
+                            * img.width
+                            / max(1, img.height)
+                            * float(getattr(image_encoder, "rich_table_cell_aspect", 1.0))
+                        ),
+                    )
+                    try:
+                        encoded = image_encoder.encode_for_table(
+                            img,
+                            columns=display_width,
+                            rows=display_height,
+                        )
+                    except Exception:
+                        encoded = None
+                else:
+                    try:
+                        encoded = image_encoder(img)
+                    except Exception:
+                        encoded = None
             return _PreparedCell(
                 label=f"<{img.format or 'image'} {img.width}×{img.height}>",
                 encoded=encoded or None,
                 is_image=True,
+                display_width=display_width,
+                display_height=display_height,
             )
         if isinstance(value, dict):
             return _PreparedCell(
                 label=f"<image {len(value['bytes'])} bytes>",
                 is_image=True,
+                display_width=max(1, cell_len(f"<image {len(value['bytes'])} bytes>")),
             )
-        return _PreparedCell(label=f"<bytes {len(value)}>", is_image=True)
-    return _PreparedCell(label=str(value))
+        return _PreparedCell(
+            label=f"<bytes {len(value)}>",
+            is_image=True,
+            display_width=max(1, cell_len(f"<bytes {len(value)}>")),
+        )
+    label = str(value)
+    return _PreparedCell(label=label, display_width=max(1, cell_len(label)))
 
 
 def _prepared_cell_display(cell: _PreparedCell) -> str:
@@ -444,8 +534,25 @@ def _image_encoder_for_terminal():
     """Return an image encoder callable for the current terminal, or None."""
     if _can_kitty():
         return _TerminalImageEncoder(
-            encode=lambda img: _kitty_encode(img, max_width=160),
+            encode=lambda img: _kitty_encode(
+                img,
+                max_width=160,
+                cell_rows=4,
+                no_cursor_movement=True,
+            ),
+            encode_with_placement=lambda img, columns, rows: _kitty_encode(
+                img,
+                max_width=160,
+                cell_columns=columns,
+                cell_rows=rows,
+                cell_aspect=2.0,
+                no_cursor_movement=True,
+            ),
             supports_rich_tables=True,
+            rich_table_target_rows=4,
+            # Terminal cells are typically about twice as tall as they are wide,
+            # so reserving ~2 columns per row yields a squarer on-screen image.
+            rich_table_cell_aspect=2.0,
         )
     if _can_sixel():
         return _TerminalImageEncoder(
@@ -462,7 +569,7 @@ def _is_image_cell(value: object) -> bool:
     ) or isinstance(value, bytes)
 
 
-def _format_image_row_preview(
+def _format_row_preview(
     prepared_rows: list[dict[str, _PreparedCell]],
     column_names: list[str],
     header: str,
@@ -471,8 +578,8 @@ def _format_image_row_preview(
 ) -> str:
     """Render tabular previews row-by-row.
 
-    This is used when the preview contains terminal-image payloads that cannot
-    be safely embedded inside a Rich table without corrupting layout.
+    This is used when embedding cells in a Rich table would be unreadable or
+    would corrupt terminal layout.
     """
     lines = [header]
     for i, row in enumerate(prepared_rows):
@@ -489,6 +596,26 @@ def _format_image_row_preview(
     if display_total > rows:
         lines.append(f"… ({display_total - rows} more rows not shown)")
     return "\n".join(lines)
+
+
+def _should_use_row_preview(
+    prepared_rows: list[dict[str, _PreparedCell]],
+    column_names: list[str],
+) -> bool:
+    """Return whether a tabular preview is too wide for a readable Rich table."""
+    if len(column_names) > 16:
+        return True
+
+    console_width = max(_console.width, 40)
+    # Account for borders / separators while keeping the estimate conservative.
+    estimated_width = 1
+    for column_name in column_names:
+        sample_width = cell_len(column_name)
+        for row in prepared_rows[:5]:
+            sample_width = max(sample_width, row[column_name].display_width)
+        estimated_width += min(max(sample_width, 4), 20) + 3
+
+    return estimated_width > console_width
 
 
 def _format_value(
@@ -520,7 +647,16 @@ def _format_value(
             for row in prepared_rows
             for cell in row.values()
         ):
-            return _format_image_row_preview(
+            return _format_row_preview(
+                prepared_rows,
+                list(preview.column_names),
+                header=header,
+                display_total=display_total,
+                rows=rows,
+            )
+
+        if _should_use_row_preview(prepared_rows, list(preview.column_names)):
+            return _format_row_preview(
                 prepared_rows,
                 list(preview.column_names),
                 header=header,
@@ -535,7 +671,11 @@ def _format_value(
         for row in prepared_rows:
             table.add_row(
                 *[
-                    _RichTableImageCell(cell.label, cell.encoded)
+                    _RichTableImageCell(
+                        encoded=cell.encoded or "",
+                        width=cell.display_width,
+                        height=cell.display_height,
+                    )
                     if _contains_terminal_control(cell.encoded)
                     and _image_encoder_supports_rich_tables(image_encoder)
                     else _prepared_cell_display(cell)
