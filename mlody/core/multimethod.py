@@ -41,6 +41,10 @@ def _match_score(pattern: object, arg: object) -> int | None:
     - 3   : mm.posix exact path (no wildcards)
     - 3 + sum(subscores) : mm.value composite pattern
     - 3 + subscore       : mm.vector pattern
+
+    For mm.T and mm.vector, the type name is read from `arg.type_name` with a
+    fallback to `arg.name` to accommodate type structs that use `name` instead
+    of `type_name` as their primary identifier field.
     """
     # --- mm.ANY ---
     if _is_struct_kind(pattern, "mm_any"):

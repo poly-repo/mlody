@@ -73,12 +73,23 @@ def _method_impl(generic, patterns, body):
         )
 
     # Eagerly resolve label references in patterns.  A label reference is a
-    # string starting with ':' that names an already-registered entity.  We
-    # resolve it to its name string so the dispatch engine never sees raw labels.
+    # string starting with ':' (short form: ":my-type") or '@' (long form:
+    # "@root//path:my-type").  Both are resolved to the matched entity's name
+    # field so the dispatch engine never sees raw label strings.
     resolved_patterns = []
     for p in patterns:
-        if isinstance(p, str) and p.startswith(":"):
-            label = p[1:]
+        if isinstance(p, str) and (p.startswith(":") or p.startswith("@")):
+            if p.startswith(":"):
+                label = p[1:]
+            else:
+                # '@root//path:name' form — entity name follows the last ':'
+                if ":" not in p:
+                    raise ValueError(
+                        "mm.method: '@'-prefixed label reference " + repr(p)
+                        + " must include a ':name' entity selector "
+                        + "(e.g. '@root//path:my-type')."
+                    )
+                label = p.split(":")[-1]
             resolved = None
             for kind in ["type", "location", "representation", "value", "action", "task"]:
                 try:
