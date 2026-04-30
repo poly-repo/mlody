@@ -66,6 +66,10 @@ o_py_test(
 o_py_test(
     name = "label_value_test",
     srcs = ["label_value_test.py"],
+    data = [
+        "//mlody/core:rule.mlody",  # keep — read via fs.add_real_file in _make_workspace
+        "//mlody/common:mm.mlody",  # keep — read via fs.add_real_file in _make_workspace
+    ],
     deps = [
         ":resolver_lib",
         "//common/python/console:console_lib",
@@ -81,6 +85,10 @@ o_py_test(
 o_py_test(
     name = "parquet_integration_test",
     srcs = ["parquet_integration_test.py"],
+    data = [
+        "//mlody/core:rule.mlody",  # keep — copied to tmp_path workspace via shutil in _add_mm_files
+        "//mlody/common:mm.mlody",  # keep — copied to tmp_path workspace via shutil in _add_mm_files
+    ],
     deps = [
         ":resolver_lib",
         "//common/python/starlarkish/core:core_lib",

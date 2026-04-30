@@ -63,6 +63,20 @@ class WorkspaceLoader:
             except Exception:
                 pass
 
+        mm_path = self._monorepo_root / "mlody" / "common" / "mm.mlody"
+        if not self._registry.is_loaded(mm_path):
+            # Only load mm.mlody when the workspace has a roots.mlody (i.e. it is
+            # a proper mlody workspace).  Sandboxes or test fixtures without any
+            # roots file are exempt: they have no user .mlody files that need mm.
+            # When roots.mlody is present, mm.mlody is mandatory — raise if absent.
+            if self._roots_file.exists():
+                self._registry.eval_file(mm_path)
+                # Propagate mm and defmethod as persistent injections so every
+                # subsequent user .mlody file sees them without an explicit load().
+                self._registry.propagate_globals_as_persistent_injections(
+                    mm_path, ["mm", "defmethod"]
+                )
+
         self._root_infos.clear()
         self._root_infos.update(self._registry.build_root_infos())
 

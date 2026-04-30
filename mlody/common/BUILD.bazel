@@ -9,6 +9,7 @@ exports_files([
     "freshness.mlody",
     "implementation.mlody",
     "locations.mlody",
+    "mm.mlody",
     "representation.mlody",
     "task.mlody",
     "types.mlody",
@@ -94,6 +95,7 @@ o_py_library(
         "context.py",
         "struct.py",
     ],
+    data = ["mm.mlody"],  # keep — mm.mlody is loaded at workspace startup
     visibility = ["//:__subpackages__"],
     deps = [
         "//common/python/starlarkish/core:core_lib",
@@ -206,6 +208,22 @@ o_py_test(
     deps = [
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody:mlody_lib",
+        "//mlody/core:core_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "mm_test",
+    srcs = ["mm_test.py"],
+    data = [
+        "mm.mlody",  # keep — test loads mm.mlody at runtime
+        "//mlody/core:rule.mlody",  # keep — mm.mlody depends on rule.mlody
+    ],
+    deps = [
+        "//common/python/starlarkish/core:core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody:mlody_lib",  # keep — sets up mlody package namespace correctly
         "//mlody/core:core_lib",
         "@pip//pytest",
     ],

@@ -287,6 +287,10 @@ PYTHON_SPECIFIC_BUILTINS = struct(
     re=re,
     hashlib=hashlib,
     os=os,
+    # id() is needed by mm.mlody to key dispatch functions in _GENERIC_NAMES.
+    # It is safe to expose: it returns an integer (the memory address of the
+    # object), which cannot be used as a sandbox escape.
+    id=builtins.id,
 )
 
 # A curated list of safe built-ins to expose to user scripts.
@@ -324,6 +328,7 @@ SAFE_BUILTINS: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
     "TypeError": TypeError,
     "NotImplementedError": NotImplementedError,
     "zip": builtins.zip,
+    "callable": builtins.callable,
     "None": None,
     "True": True,
     "False": False,
@@ -338,6 +343,15 @@ class Builtins:
     lookup: Callable[[str, str], Any]
     ctx: Struct
     inject: Callable[[str, Any], None]
+    # Closed over the Evaluator's _method_registry dict at construction time.
+    # Default None so that direct Builtins(...) construction sites that have
+    # not been updated yet don't fail with a missing-argument error.
+    register_method: Callable[[str, Any], None] | None = None
+    get_methods: Callable[[str], list[Any]] | None = None
+    # dispatch_method wraps mlody.core.multimethod.dispatch so that mm.mlody's
+    # dispatch_fn can call it without a Python-style import (imports are blocked
+    # in the sandbox because __import__ is stripped from SAFE_BUILTINS).
+    dispatch_method: Callable[[str, Any, list[Any]], Any] | None = None
 
 
 class Evaluator:
@@ -384,6 +398,10 @@ class Evaluator:
         self._build_refs_by_name: dict[str, Named] = {}
         self.executors: dict[str, Named] = {}
         self._executors_by_name: dict[str, Named] = {}
+        self.generics: dict[str, Named] = {}
+        self._generics_by_name: dict[str, Named] = {}
+        # Structure per generic name: {"arity": int | None, "methods": list[Struct]}
+        self._method_registry: dict[str, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
         self.all: dict[str, Named] = {}
         for _pname in ["integer", "string", "bool", "float"]:
             _sentinel: Named = Struct(  # type: ignore[assignment]
@@ -394,6 +412,11 @@ class Evaluator:
             #            self.all[f"type/{_pname}"] = _sentinel
             self.all[("type", None, _pname)] = _sentinel
         self._module_globals: dict[Path, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
+        # Names injected sandbox-wide: seeded into every new file's sandbox_globals.
+        # workspace_loader populates this after evaluating mm.mlody so that `mm`
+        # and `defmethod` are available in all subsequent user files without an
+        # explicit load().
+        self._persistent_injections: dict[str, Any] = {}  # pyright: ignore[reportExplicitAny]
         # Override print in the sandbox so callers can suppress stdout writes
         # (e.g. the LSP server, which uses stdout as its JSON-RPC transport).
         self._print_fn = print_fn
@@ -624,9 +647,12 @@ class Evaluator:
         elif kind == "executor":
             self.executors[key] = thing
             self._executors_by_name[thing.name] = thing
+        elif kind == "generic":
+            self.generics[key] = thing
+            self._generics_by_name[thing.name] = thing
         else:
             raise ValueError(
-                f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location', 'freshness', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor'."
+                f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location', 'freshness', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor', 'generic'."
             )
         self.all[(kind, _stem, thing.name)] = thing
         if kind == "type":
@@ -703,9 +729,15 @@ class Evaluator:
                     f"No executor {name!r}. Available: {sorted(self._executors_by_name)}"
                 )
             return self._executors_by_name[name]
+        elif kind == "generic":
+            if name not in self._generics_by_name:
+                raise NameError(
+                    f"No generic {name!r}. Available: {sorted(self._generics_by_name)}"
+                )
+            return self._generics_by_name[name]
         else:
             raise ValueError(
-                f"Unknown lookup kind {kind!r}. Supported: 'root', 'type', 'location', 'freshness', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor'."
+                f"Unknown lookup kind {kind!r}. Supported: 'root', 'type', 'location', 'freshness', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor', 'generic'."
             )
 
     def _load(
@@ -826,9 +858,13 @@ class Evaluator:
             # with the instance-level print_fn so that callers (e.g. the LSP server)
             # can suppress sandbox stdout writes without mutating the shared
             # module-level constant.
+            # Also spread _persistent_injections so that names registered by init
+            # files (e.g. `mm` from mm.mlody) are visible in every subsequent file
+            # without an explicit load().
             sandbox_globals: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
                 "__builtins__": {**SAFE_BUILTINS, "print": self._print_fn},
                 "__MLODY__": True,
+                **self._persistent_injections,
             }
 
             ctx_kwargs: dict[str, Any] = {
@@ -869,11 +905,45 @@ class Evaluator:
                 target_globals = self._module_globals.get(current_file, sandbox_globals)
                 target_globals[name] = value
 
+            def _register_method(generic_name: str, method: Any) -> None:  # pyright: ignore[reportExplicitAny]
+                entry = self._method_registry.setdefault(
+                    generic_name, {"arity": None, "methods": []}
+                )
+                method_patterns: list[Any] = list(getattr(method, "patterns", []))  # pyright: ignore[reportExplicitAny]
+                new_arity = len(method_patterns)
+                existing_arity: int | None = entry["arity"]  # type: ignore[assignment]
+                if existing_arity is not None and existing_arity != new_arity:
+                    raise ValueError(
+                        f"generic {generic_name!r} has arity {existing_arity}; "
+                        f"cannot attach method with {new_arity} patterns"
+                    )
+                if existing_arity is None:
+                    entry["arity"] = new_arity
+                entry["methods"].append(method)  # type: ignore[union-attr]
+
+            def _get_methods(generic_name: str) -> list[Any]:  # pyright: ignore[reportExplicitAny]
+                entry = self._method_registry.get(generic_name)
+                if entry is None:
+                    return []
+                return list(entry["methods"])  # type: ignore[index]
+
+            def _dispatch_method(
+                name: str, args: Any, methods: list[Any]  # pyright: ignore[reportExplicitAny]
+            ) -> Any:  # pyright: ignore[reportExplicitAny]
+                # Lazy import so that targets without a dep on mlody.core.multimethod
+                # can still use the evaluator (e.g. rule_test, which has no mm dispatch).
+                from mlody.core.multimethod import dispatch as _md
+
+                return _md(name, tuple(args), methods)
+
             builtins_obj = Builtins(
                 register=_register_for_file,
                 lookup=self._lookup,
                 ctx=ctx_struct,
                 inject=_inject_into_sandbox,
+                register_method=_register_method,
+                get_methods=_get_methods,
+                dispatch_method=_dispatch_method,
             )
             sandbox_globals["builtins"] = builtins_obj
             if self._resolve_hook is not None:

@@ -168,6 +168,10 @@ o_py_library(
 o_py_test(
     name = "setf_test",
     srcs = ["setf_test.py"],
+    data = [
+        "rule.mlody",  # keep — read at runtime via fs.add_real_file in workspace fixture
+        "//mlody/common:mm.mlody",  # keep — read at runtime via fs.add_real_file in workspace fixture
+    ],
     deps = [
         ":core_lib",
         "//common/python/starlarkish/core:core_lib",
@@ -387,6 +391,10 @@ o_py_test(
 o_py_test(
     name = "workspace_test",
     srcs = ["workspace_test.py"],
+    data = [
+        "rule.mlody",  # keep — read at runtime via fs.add_real_file in the project fixture
+        "//mlody/common:mm.mlody",  # keep — read at runtime via fs.add_real_file in the project fixture
+    ],
     deps = [
         ":core_lib",
         "//common/python/starlarkish/core:core_lib",
@@ -407,6 +415,7 @@ o_py_library(
         "derived.py",
         "lineage.py",
         "location_composition.py",
+        "multimethod.py",
         "optimiser.py",
         "place.py",
         "plan.py",
@@ -470,6 +479,31 @@ o_py_test(
     ],
     deps = [
         "//common/python/starlarkish/evaluator:evaluator_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "multimethod_test",
+    srcs = ["multimethod_test.py"],
+    deps = [
+        ":core_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "mm_workspace_loader_test",
+    srcs = ["mm_workspace_loader_test.py"],
+    data = [
+        "rule.mlody",  # keep — mm.mlody depends on rule.mlody at runtime
+        "//mlody/common:mm.mlody",  # keep — loaded by workspace_loader in Phase 1
+    ],
+    deps = [
+        ":core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "@pip//pyfakefs",
         "@pip//pytest",
     ],
 )

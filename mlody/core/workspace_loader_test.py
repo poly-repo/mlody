@@ -53,6 +53,13 @@ class _FakeRegistry:
     def resolve_all(self) -> None:
         self.resolved = True
 
+    def propagate_globals_as_persistent_injections(
+        self, file_path: Path, names: list[str]
+    ) -> None:
+        # No-op in the fake: persistent injection is an evaluator concern, not
+        # exercised by the loader-unit tests that use _FakeRegistry.
+        pass
+
     def iter_registry_items(
         self,
     ) -> tuple[tuple[tuple[object, object, object], object], ...]:

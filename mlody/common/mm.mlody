@@ -1,0 +1,163 @@
+# mm.mlody — multimethod dispatch namespace for the mlody DSL.
+#
+# This file is evaluated early (Phase 1) before any user .mlody file so that
+# every file sees `mm` and `defmethod` without an explicit load().  It can
+# also be loaded explicitly:
+#
+#   load("//mlody/common/mm.mlody", "mm")
+#
+# Only `mm` (the namespace struct) and `defmethod` (a top-level shorthand for
+# mm.method) are injected into the sandbox.  All other names remain private.
+#
+# Load-order note: a method() call that references a type via ":my-type" is
+# resolved eagerly at registration time.  The referenced type must therefore be
+# registered (typically via typedef in types.mlody) before the file containing
+# the method() call is evaluated.  This is the same ordering requirement that
+# applies to all other label references in the DSL.
+
+load("//mlody/core/rule.mlody", "rule")
+
+
+# ---------------------------------------------------------------------------
+# Generic name registry
+#
+# We need to recover the generic name from the dispatch callable when
+# mm.method(generic=render, ...) is called.  Starlark closures do not expose
+# upvalues, so we key by id(dispatch_fn) into a module-level dict.
+# ---------------------------------------------------------------------------
+
+_GENERIC_NAMES = {}
+
+
+# ---------------------------------------------------------------------------
+# _generic_impl — declare a named multimethod
+# ---------------------------------------------------------------------------
+
+def _generic_impl(name, description=""):
+    if name == "":
+        raise ValueError("mm.generic: name must not be empty")
+
+    generic_struct = struct(kind="generic", name=name, description=description)
+    builtins.register("generic", generic_struct)
+
+    captured_name = name
+
+    def dispatch_fn(*args):
+        # Use builtins.dispatch_method rather than a Python import: the sandbox
+        # strips __import__, so 'from x import y' inside closures is forbidden.
+        # The evaluator wires dispatch_method to mlody.core.multimethod.dispatch.
+        methods = builtins.get_methods(captured_name)
+        return builtins.dispatch_method(captured_name, args, methods)
+
+    # Store name keyed by the function's id so _method_impl can recover it.
+    _GENERIC_NAMES[python.id(dispatch_fn)] = captured_name
+
+    return dispatch_fn
+
+
+# ---------------------------------------------------------------------------
+# _method_impl — attach a concrete implementation to a generic
+# ---------------------------------------------------------------------------
+
+def _method_impl(generic, patterns, body):
+    if not callable(body):
+        raise TypeError(
+            "mm.method: body must be callable, got " + repr(type(body))
+        )
+
+    # Recover the generic name from the dispatch_fn.
+    generic_name = _GENERIC_NAMES.get(python.id(generic), None)
+    if generic_name == None:
+        raise TypeError(
+            "mm.method: generic must be the callable returned by mm.generic()"
+        )
+
+    # Eagerly resolve label references in patterns.  A label reference is a
+    # string starting with ':' that names an already-registered entity.  We
+    # resolve it to its name string so the dispatch engine never sees raw labels.
+    resolved_patterns = []
+    for p in patterns:
+        if isinstance(p, str) and p.startswith(":"):
+            label = p[1:]
+            resolved = None
+            for kind in ["type", "location", "representation", "value", "action", "task"]:
+                try:
+                    resolved = builtins.lookup(kind, label)
+                    break
+                except:
+                    pass
+            if resolved == None:
+                raise ValueError(
+                    "mm.method: cannot resolve label reference " + repr(p)
+                    + " — no entity named " + repr(label) + " is registered. "
+                    + "Ensure the entity is declared before this method() call."
+                )
+            resolved_patterns.append(resolved.name)
+        else:
+            resolved_patterns.append(p)
+
+    method_struct = struct(
+        kind="method",
+        generic=generic_name,
+        patterns=resolved_patterns,
+        body=body,
+    )
+    builtins.register_method(generic_name, method_struct)
+
+
+# ---------------------------------------------------------------------------
+# Pattern constants and factories
+# ---------------------------------------------------------------------------
+
+ANY = struct(kind="mm_any")
+
+
+def _T_impl(scalar_name):
+    if scalar_name == "":
+        raise ValueError("mm.T: scalar_name must not be empty")
+    return struct(kind="mm_scalar_pattern", type_name=scalar_name)
+
+
+json = struct(kind="mm_repr_pattern", repr_name="json")
+
+
+def _posix_impl(path_pattern):
+    if not isinstance(path_pattern, str):
+        raise TypeError("mm.posix: path_pattern must be a string")
+    return struct(kind="mm_posix_pattern", path_pattern=path_pattern)
+
+
+def _vector_impl(element_type=None):
+    et = element_type if element_type != None else ANY
+    return struct(kind="mm_vector_pattern", element_type=et)
+
+
+def _value_impl(**field_patterns):
+    return struct(kind="mm_value_pattern", fields=field_patterns)
+
+
+# ---------------------------------------------------------------------------
+# defmethod shim
+# ---------------------------------------------------------------------------
+
+def _defmethod_impl(generic, patterns, body):
+    return _method_impl(generic=generic, patterns=patterns, body=body)
+
+
+# ---------------------------------------------------------------------------
+# Assemble the mm namespace struct and inject
+# ---------------------------------------------------------------------------
+
+mm = struct(
+    ANY=ANY,
+    generic=_generic_impl,
+    method=_method_impl,
+    T=_T_impl,
+    json=json,
+    posix=_posix_impl,
+    vector=_vector_impl,
+    value=_value_impl,
+)
+
+builtins.inject("mm", mm)
+builtins.inject("defmethod", _defmethod_impl)

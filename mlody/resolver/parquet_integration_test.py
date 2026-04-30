@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -28,6 +29,18 @@ from mlody.resolver.label_value import (
     _RawAttrValue,
     resolve_label_to_value,
 )
+
+# Real source files required by workspace_loader Phase 1.
+_REAL_RULE_MLODY = Path(__file__).parent.parent / "core" / "rule.mlody"
+_REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
+
+
+def _add_mm_files(root: Path) -> None:
+    """Copy rule.mlody and mm.mlody into the workspace under root."""
+    (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
+    (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_REAL_RULE_MLODY, root / "mlody" / "core" / "rule.mlody")
+    shutil.copy2(_REAL_MM_MLODY, root / "mlody" / "common" / "mm.mlody")
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +218,8 @@ def _make_workspace(root: Path, parquet_path: Path) -> Workspace:
     (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
     # types.mlody required for Workspace; write a minimal stub.
     (root / "mlody" / "common" / "types.mlody").write_text("")
+    # mm.mlody and rule.mlody required by workspace_loader Phase 1.
+    _add_mm_files(root)
 
     mlody_content = _PARQUET_VALUE_MLODY_TEMPLATE.format(
         parquet_path=str(parquet_path)
@@ -245,6 +260,8 @@ def _make_workspace_with_plain_value(root: Path) -> Workspace:
     (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
     (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
     (root / "mlody" / "common" / "types.mlody").write_text("")
+    # mm.mlody and rule.mlody required by workspace_loader Phase 1.
+    _add_mm_files(root)
     (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(_PLAIN_VALUE_MLODY)
 
     ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
@@ -817,6 +834,8 @@ def _make_rich_workspace(root: Path, parquet_path: Path) -> Workspace:
     (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
     (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
     (root / "mlody" / "common" / "types.mlody").write_text("")
+    # mm.mlody and rule.mlody required by workspace_loader Phase 1.
+    _add_mm_files(root)
 
     content = _RICH_PARQUET_VALUE_MLODY_TEMPLATE.format(parquet_path=str(parquet_path))
     (root / "teams" / "data" / "pkg" / "rich.mlody").write_text(content)
@@ -835,6 +854,8 @@ def _make_mismatch_workspace(root: Path, parquet_path: Path) -> Workspace:
     (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
     (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
     (root / "mlody" / "common" / "types.mlody").write_text("")
+    # mm.mlody and rule.mlody required by workspace_loader Phase 1.
+    _add_mm_files(root)
 
     content = _MISMATCH_MLODY_TEMPLATE.format(parquet_path=str(parquet_path))
     (root / "teams" / "data" / "pkg" / "mismatch.mlody").write_text(content)
@@ -1141,6 +1162,8 @@ def _make_record_with_parquet_field_workspace(
     (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
     (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
     (root / "mlody" / "common" / "types.mlody").write_text("")
+    # mm.mlody and rule.mlody required by workspace_loader Phase 1.
+    _add_mm_files(root)
 
     content = _RECORD_WITH_PARQUET_FIELD_TEMPLATE.format(parquet_path=str(parquet_path))
     (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(content)

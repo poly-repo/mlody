@@ -29,6 +29,18 @@ from mlody.core.workspace import RootInfo, Workspace, WorkspaceLoadError
 
 ROOT = Path("/project")
 
+# Real source files that mm.mlody depends on; must be added to fake filesystems
+# via fs.add_real_file so workspace_loader can eval them during Phase 1.
+_REAL_RULE_MLODY = Path(__file__).parent / "rule.mlody"
+_REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
+
+
+def _add_mm_files(fs: FakeFilesystem, root: Path) -> None:
+    """Add rule.mlody and mm.mlody to the fake filesystem under root."""
+    fs.add_real_file(_REAL_RULE_MLODY, target_path=str(root / "mlody/core/rule.mlody"))
+    fs.add_real_file(_REAL_MM_MLODY, target_path=str(root / "mlody/common/mm.mlody"))
+
+
 BUILTINS_MLODY = """\
 def root(name, path, description=""):
     entity_type = None
@@ -128,6 +140,8 @@ def project(fs: FakeFilesystem) -> Path:
     fs.create_file(str(ROOT / "mlody/core/builtins.mlody"), contents=BUILTINS_MLODY)
     fs.create_file(str(ROOT / "mlody/roots.mlody"), contents=ROOTS_MLODY)
     fs.create_file(str(ROOT / "mlody/common/types.mlody"), contents=TYPES_MLODY)
+    # mm.mlody and rule.mlody are required by workspace_loader Phase 1.
+    _add_mm_files(fs, ROOT)
     fs.create_file(
         str(ROOT / "mlody/teams/lexica/models.mlody"),
         contents='builtins.register("root", struct(name="bert", lr=0.001))',
@@ -235,6 +249,8 @@ class TestTwoPhaseLoading:
         root = Path("/no_roots")
         root.mkdir()
         fs.create_file(str(root / "mlody/roots.mlody"), contents="# no roots here\n")
+        # mm.mlody is required by workspace_loader when roots.mlody exists.
+        _add_mm_files(fs, root)
         ws = Workspace(monorepo_root=root)
         ws.load()
 
@@ -799,6 +815,8 @@ def _make_port_project(fs: FakeFilesystem, entity_mlody: str) -> Path:
     fs.create_file(str(root / "mlody/core/builtins.mlody"), contents=_PORT_BUILTINS)
     fs.create_file(str(root / "mlody/roots.mlody"), contents=_ROOTS_WITH_BERT)
     fs.create_file(str(root / "mlody/common/types.mlody"), contents=TYPES_MLODY)
+    # mm.mlody is required by workspace_loader when roots.mlody exists.
+    _add_mm_files(fs, root)
     fs.create_dir(str(root / "mlody/teams/bert"))
     fs.create_file(str(root / "mlody/teams/bert/entity.mlody"), contents=entity_mlody)
     return root
@@ -1051,6 +1069,8 @@ def _make_record_project(fs: FakeFilesystem, entity_mlody: str) -> Path:
     root = Path("/rec_project")
     fs.create_file(str(root / "mlody/core/builtins.mlody"), contents=_RECORD_PORT_BUILTINS)
     fs.create_file(str(root / "mlody/roots.mlody"), contents=_RECORD_ROOTS_MLODY)
+    # mm.mlody is required by workspace_loader when roots.mlody exists.
+    _add_mm_files(fs, root)
     fs.create_dir(str(root / "mlody/teams/bert"))
     fs.create_file(str(root / "mlody/teams/bert/entity.mlody"), contents=entity_mlody)
     return root

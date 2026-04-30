@@ -32,3 +32,12 @@ o_py_test(
         "@pip//pytest",
     ],
 )
+
+o_py_test(
+    name = "evaluator_generics_test",
+    srcs = ["evaluator_generics_test.py"],
+    deps = [
+        ":evaluator_lib",
+        "@pip//pytest",
+    ],
+)

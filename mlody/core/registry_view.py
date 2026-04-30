@@ -68,6 +68,20 @@ class RegistryView:
     def available_root_names(self) -> tuple[str, ...]:
         return tuple(sorted(self._evaluator._roots_by_name))
 
+    def propagate_globals_as_persistent_injections(
+        self, file_path: Path, names: list[str]
+    ) -> None:
+        """Copy named symbols from file_path's globals into _persistent_injections.
+
+        _persistent_injections are seeded into every subsequent file's sandbox so
+        that the named symbols are visible without an explicit load().  This is how
+        mm.mlody makes `mm` and `defmethod` available sandbox-wide after Phase 1.
+        """
+        file_globals = self._evaluator._module_globals.get(file_path, {})
+        for name in names:
+            if name in file_globals:
+                self._evaluator._persistent_injections[name] = file_globals[name]
+
     def root_value(self, root_name: str) -> object:
         return self._evaluator._roots_by_name[root_name]
 
