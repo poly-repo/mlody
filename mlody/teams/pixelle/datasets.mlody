@@ -3,6 +3,14 @@ load("@common//:types.mlody", "opaque", "typedef", "string", "integer", "bool", 
 load("//mlody/common/locations.mlody")
 load("//mlody/common/representation.mlody", "json", "text", "parquet", "csv")
 
+value(
+    name = "some-metadata",
+    type = opaque(),
+    representation = json(),
+    location = posix(path="~/.cache/mlody/artifacts/metadata.json"),
+)
+
+
 typedef(
     name = "celebA-row",
     base = record(

@@ -33,14 +33,16 @@ from mlody.resolver.label_value import (
 # Real source files required by workspace_loader Phase 1.
 _REAL_RULE_MLODY = Path(__file__).parent.parent / "core" / "rule.mlody"
 _REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
+_REAL_RENDER_MLODY = Path(__file__).parent.parent / "common" / "render.mlody"
 
 
 def _add_mm_files(root: Path) -> None:
-    """Copy rule.mlody and mm.mlody into the workspace under root."""
+    """Copy rule.mlody, mm.mlody, and render.mlody into the workspace under root."""
     (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
     (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
     shutil.copy2(_REAL_RULE_MLODY, root / "mlody" / "core" / "rule.mlody")
     shutil.copy2(_REAL_MM_MLODY, root / "mlody" / "common" / "mm.mlody")
+    shutil.copy2(_REAL_RENDER_MLODY, root / "mlody" / "common" / "render.mlody")
 
 
 # ---------------------------------------------------------------------------

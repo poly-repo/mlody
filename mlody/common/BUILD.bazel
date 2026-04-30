@@ -10,6 +10,7 @@ exports_files([
     "implementation.mlody",
     "locations.mlody",
     "mm.mlody",
+    "render.mlody",
     "representation.mlody",
     "task.mlody",
     "types.mlody",
@@ -95,7 +96,7 @@ o_py_library(
         "context.py",
         "struct.py",
     ],
-    data = ["mm.mlody"],  # keep — mm.mlody is loaded at workspace startup
+    data = ["mm.mlody", "render.mlody"],  # keep — loaded at workspace startup
     visibility = ["//:__subpackages__"],
     deps = [
         "//common/python/starlarkish/core:core_lib",

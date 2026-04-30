@@ -42,9 +42,10 @@ def _match_score(pattern: object, arg: object) -> int | None:
     - 3 + sum(subscores) : mm.value composite pattern
     - 3 + subscore       : mm.vector pattern
 
-    For mm.T and mm.vector, the type name is read from `arg.type_name` with a
-    fallback to `arg.name` to accommodate type structs that use `name` instead
-    of `type_name` as their primary identifier field.
+    Field fallbacks for real mlody structs vs. test stubs:
+    - mm.T / mm.vector : reads `arg.type_name`, falls back to `arg.name`
+    - mm.json (repr)   : reads `arg.repr_name`, falls back to `arg.name`
+    - mm.posix (loc)   : reads `arg.location_type`, falls back to `arg.type`
     """
     # --- mm.ANY ---
     if _is_struct_kind(pattern, "mm_any"):
@@ -65,7 +66,10 @@ def _match_score(pattern: object, arg: object) -> int | None:
     # --- mm.json / bare repr constant ---
     if _is_struct_kind(pattern, "mm_repr_pattern"):
         if _is_struct_kind(arg, "representation"):
-            if getattr(arg, "repr_name", None) == getattr(pattern, "repr_name", None):
+            # Real mlody representation structs carry `name`; stub/test structs may
+            # carry `repr_name`. Fall back to `name` so both work.
+            arg_repr_name = getattr(arg, "repr_name", None) or getattr(arg, "name", None)
+            if arg_repr_name == getattr(pattern, "repr_name", None):
                 return 3
         return None
 
@@ -73,7 +77,10 @@ def _match_score(pattern: object, arg: object) -> int | None:
     if _is_struct_kind(pattern, "mm_posix_pattern"):
         if not _is_struct_kind(arg, "location"):
             return None
-        if getattr(arg, "location_type", None) != "posix":
+        # Real mlody location structs carry `type`; stub/test structs may carry
+        # `location_type`. Fall back to `type` so both work.
+        loc_kind = getattr(arg, "location_type", None) or getattr(arg, "type", None)
+        if loc_kind != "posix":
             return None
         path = getattr(arg, "path", "")
         path_pattern: str = getattr(pattern, "path_pattern", "")

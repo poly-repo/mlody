@@ -1,0 +1,360 @@
+# render.mlody — multimethod-based console rendering for mlody value entities.
+#
+# Defines the `render_value` generic and a set of default methods that cover all
+# representation and location types.  Pipeline authors can attach additional
+# methods in their own .mlody files:
+#
+#   defmethod(render_value, [mm.value(representation=mm.json)], _my_renderer)
+#
+# Method bodies must return a render spec struct:
+#
+#   struct(
+#       kind     = "render_value_spec",
+#       title    = "value: my-name",
+#       sections = [
+#           struct(name="Type",     rows=[["kind", "record"], ["fields", "x, y"]]),
+#           struct(name="Location", rows=[["kind", "posix"], ["path", "/data/**"]]),
+#       ],
+#   )
+#
+# The Python host (mlody/cli/show.py) converts this struct to a Rich panel.
+#
+# Load order: render.mlody is loaded in Phase 1 (after mm.mlody) so that
+# `render_value` and `defmethod` are both available when user files are evaluated.
+
+load("//mlody/core/rule.mlody", "rule")
+
+# ---------------------------------------------------------------------------
+# Shared helpers — type inspection
+# ---------------------------------------------------------------------------
+
+def _name_of(s):
+    """Return the name/type string from a type, location, or representation struct."""
+    if s == None:
+        return "-"
+    n = python.getattr(s, "name", None)
+    if n != None:
+        return n
+    t = python.getattr(s, "type", None)
+    if t != None:
+        return t
+    return "-"
+
+
+def _root_kind_of(type_struct):
+    """Return the _root_kind of a type struct (e.g. 'record', 'vector', 'scalar')."""
+    if type_struct == None:
+        return None
+    return python.getattr(type_struct, "_root_kind", None)
+
+
+def _format_record_fields(type_struct):
+    """Return a comma-separated list of field names from a record type struct."""
+    if type_struct == None:
+        return "(none)"
+    attrs = python.getattr(type_struct, "attributes", None)
+    if attrs == None:
+        return "(none)"
+    fields = attrs.get("fields", None) if python.hasattr(attrs, "get") else None
+    if fields == None or len(fields) == 0:
+        return "(none)"
+    parts = []
+    for f in fields:
+        fname = python.getattr(f, "name", "?")
+        ftype = _name_of(python.getattr(f, "type", None))
+        parts.append(fname + ": " + ftype)
+    return ", ".join(parts)
+
+
+def _format_element_type(type_struct):
+    """Return the element type name for a vector type struct."""
+    if type_struct == None:
+        return "-"
+    attrs = python.getattr(type_struct, "attributes", None)
+    if attrs != None and python.hasattr(attrs, "get"):
+        et = attrs.get("element_type", None)
+        if et != None:
+            return _name_of(et)
+    et = python.getattr(type_struct, "element_type", None)
+    if et != None:
+        return _name_of(et)
+    return "-"
+
+
+def _type_rows(type_struct):
+    """Return rows for the Type section."""
+    if type_struct == None:
+        return [["kind", "-"]]
+    root_kind = _root_kind_of(type_struct)
+    rows = [["kind", _name_of(type_struct)]]
+    if root_kind == "record":
+        rows.append(["fields", _format_record_fields(type_struct)])
+    elif root_kind == "vector":
+        rows.append(["element type", _format_element_type(type_struct)])
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers — location inspection
+# ---------------------------------------------------------------------------
+
+def _location_detail_rows(location):
+    """Return rows for a Location section, including type-specific attributes."""
+    if location == None:
+        return [["kind", "-"]]
+    loc_type = python.getattr(location, "type", None) or "-"
+    attrs = python.getattr(location, "attributes", {}) or {}
+    has_get = python.hasattr(attrs, "get")
+    rows = [["kind", loc_type]]
+    if loc_type == "posix":
+        path = attrs.get("path", None) if has_get else None
+        if path != None:
+            rows.append(["path", ", ".join(path) if isinstance(path, list) else str(path)])
+    elif loc_type == "s3":
+        for key in ["bucket", "prefix", "region"]:
+            v = attrs.get(key, None) if has_get else None
+            if v != None:
+                rows.append([key, v])
+    elif loc_type == "postgres" or loc_type == "rds":
+        for key in ["host", "database", "port", "connection_id"]:
+            v = attrs.get(key, None) if has_get else None
+            if v != None:
+                rows.append([key, str(v)])
+    elif loc_type == "derived":
+        for key in ["source_ref", "sql_fragment", "dialect"]:
+            v = attrs.get(key, None) if has_get else None
+            if v != None:
+                rows.append([key, str(v)])
+    elif loc_type == "named_arg":
+        v = attrs.get("flag_name", None) if has_get else None
+        if v != None:
+            rows.append(["flag", v])
+    elif loc_type == "remote":
+        v = attrs.get("uri", None) if has_get else None
+        if v != None:
+            rows.append(["uri", v])
+    elif loc_type == "git_repository":
+        for key in ["endpoint", "branch", "tag", "commit"]:
+            v = attrs.get(key, None) if has_get else None
+            if v != None:
+                rows.append([key, v])
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers — representation inspection
+# ---------------------------------------------------------------------------
+
+def _repr_attr_rows(repr_struct):
+    """Return representation-specific attribute rows (beyond the name)."""
+    if repr_struct == None:
+        return []
+    name = python.getattr(repr_struct, "name", None)
+    rows = []
+    if name == "parquet":
+        schema = python.getattr(repr_struct, "schema", None)
+        if schema != None:
+            rows.append(["schema", _name_of(schema)])
+        mf = python.getattr(repr_struct, "multifile", None)
+        if mf != None:
+            rows.append(["multifile", str(mf)])
+        for k in ["min_length", "max_length", "total_min_length", "total_max_length"]:
+            v = python.getattr(repr_struct, k, None)
+            if v != None:
+                rows.append([k, str(v)])
+    elif name == "csv":
+        schema = python.getattr(repr_struct, "schema", None)
+        if schema != None:
+            rows.append(["schema", _name_of(schema)])
+        sep = python.getattr(repr_struct, "separator", None)
+        if sep != None:
+            rows.append(["separator", repr(sep)])
+        hr = python.getattr(repr_struct, "header_required", None)
+        if hr != None:
+            rows.append(["header_required", str(hr)])
+        mf = python.getattr(repr_struct, "multifile", None)
+        if mf != None:
+            rows.append(["multifile", str(mf)])
+    elif name == "text":
+        markup = python.getattr(repr_struct, "markup", None)
+        if markup != None and markup != "none":
+            rows.append(["markup", markup])
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Shared helper — source section
+# ---------------------------------------------------------------------------
+
+def _source_section(value):
+    """Return a Source section if the value has a source label."""
+    src = python.getattr(value, "source", None)
+    if src == None:
+        return []
+    return [struct(name="Source", rows=[["from", str(src)]])]
+
+
+def _value_title(value):
+    name = python.getattr(value, "name", None)
+    return "value: " + (name if name != None else "?")
+
+
+def _type_rows_with_unit(value):
+    """Type rows including the unit if present."""
+    rows = _type_rows(python.getattr(value, "type", None))
+    unit = python.getattr(value, "unit", None)
+    if unit != None:
+        unit_name = python.getattr(unit, "name", None)
+        rows.append(["unit", unit_name if unit_name != None else str(unit)])
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# render_value generic
+# ---------------------------------------------------------------------------
+
+render_value = mm.generic(
+    "render_value",
+    description="Render a value entity as a structured console panel.",
+)
+
+
+# ---------------------------------------------------------------------------
+# Parquet representation — schema, multifile, length bounds.
+# ---------------------------------------------------------------------------
+
+def _render_parquet_value(ctx, value):
+    repr_rows = [["representation", "parquet"]] + _repr_attr_rows(value.representation)
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [
+            struct(name="Tupe",     rows=_type_rows_with_unit(value)),
+            struct(name="Format",   rows=repr_rows),
+            struct(name="Location", rows=_location_detail_rows(value.location)),
+        ] + _source_section(value),
+    )
+
+defmethod(render_value, [mm.value(representation=mm.parquet)], _render_parquet_value)
+
+
+# ---------------------------------------------------------------------------
+# CSV representation — separator, header, schema.
+# ---------------------------------------------------------------------------
+
+def _render_csv_value(ctx, value):
+    repr_rows = [["representation", "csv"]] + _repr_attr_rows(value.representation)
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [
+            struct(name="Type",     rows=_type_rows_with_unit(value)),
+            struct(name="Format",   rows=repr_rows),
+            struct(name="Location", rows=_location_detail_rows(value.location)),
+        ] + _source_section(value),
+    )
+
+defmethod(render_value, [mm.value(representation=mm.csv)], _render_csv_value)
+
+
+# ---------------------------------------------------------------------------
+# Text representation — markup mode.
+# ---------------------------------------------------------------------------
+
+def _render_text_value(ctx, value):
+    repr_rows = [["representation", "text"]] + _repr_attr_rows(value.representation)
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [
+            struct(name="Type",     rows=_type_rows_with_unit(value)),
+            struct(name="Format",   rows=repr_rows),
+            struct(name="Location", rows=_location_detail_rows(value.location)),
+        ] + _source_section(value),
+    )
+
+defmethod(render_value, [mm.value(representation=mm.text)], _render_text_value)
+
+
+# ---------------------------------------------------------------------------
+# Console representation.
+# ---------------------------------------------------------------------------
+
+def _render_console_value(ctx, value):
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [
+            struct(name="Type",     rows=_type_rows_with_unit(value)),
+            struct(name="Format",   rows=[["representation", "console"]]),
+            struct(name="Location", rows=_location_detail_rows(value.location)),
+        ] + _source_section(value),
+    )
+
+defmethod(render_value, [mm.value(representation=mm.console)], _render_console_value)
+
+
+# ---------------------------------------------------------------------------
+# JSON representation — highlight that content is stored as JSON.
+# ---------------------------------------------------------------------------
+
+def _render_json_value(ctx, value):
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [
+            struct(name="Type",     rows=_type_rows_with_unit(value)),
+            struct(name="Format",   rows=[["representation", "json"]]),
+            struct(name="Location", rows=_location_detail_rows(value.location)),
+        ] + _source_section(value),
+    )
+
+defmethod(render_value, [mm.value(representation=mm.json)], _render_json_value)
+
+
+# ---------------------------------------------------------------------------
+# Vector type — show element type prominently.
+# ---------------------------------------------------------------------------
+
+def _render_vector_value(ctx, value):
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [
+            struct(name="Type",     rows=_type_rows_with_unit(value)),
+            struct(name="Location", rows=_location_detail_rows(value.location)),
+        ] + _source_section(value),
+    )
+
+defmethod(render_value, [mm.value(type=mm.vector(element_type=mm.ANY))], _render_vector_value)
+
+
+# ---------------------------------------------------------------------------
+# Fallback — compact summary for any value.
+# ---------------------------------------------------------------------------
+
+def _render_default_value(ctx, value):
+    repr_struct = python.getattr(value, "representation", None)
+    sections = [
+        struct(name="Type", rows=_type_rows_with_unit(value)),
+    ]
+    if repr_struct != None:
+        repr_rows = [["representation", _name_of(repr_struct)]] + _repr_attr_rows(repr_struct)
+        sections = sections + [struct(name="Format", rows=repr_rows)]
+    sections = sections + [
+        struct(name="Location", rows=_location_detail_rows(value.location)),
+    ]
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = sections + _source_section(value),
+    )
+
+defmethod(render_value, [mm.ANY], _render_default_value)
+
+
+# ---------------------------------------------------------------------------
+# Inject into sandbox
+# ---------------------------------------------------------------------------
+
+builtins.inject("render_value", render_value)

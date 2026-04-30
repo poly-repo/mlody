@@ -19,6 +19,7 @@ from mlody.core.workspace import Workspace
 # Real source files required by workspace_loader Phase 1; added to fake filesystems.
 _REAL_RULE_MLODY = Path(__file__).parent / "rule.mlody"
 _REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
+_REAL_RENDER_MLODY = Path(__file__).parent.parent / "common" / "render.mlody"
 
 
 _STRING_TYPE = Struct(kind="type", type="string", name="string")
@@ -145,9 +146,10 @@ def _create_workspace_project(
     fs.create_file(str(root / "mlody/core/builtins.mlody"), contents=_BUILTINS_MLODY)
     fs.create_file(str(root / "mlody/roots.mlody"), contents=_ROOTS_MLODY)
     fs.create_file(str(root / "mlody/common/types.mlody"), contents=_TYPES_MLODY)
-    # mm.mlody and rule.mlody are required by workspace_loader Phase 1.
+    # mm.mlody, render.mlody, and rule.mlody are required by workspace_loader Phase 1.
     fs.add_real_file(_REAL_RULE_MLODY, target_path=str(root / "mlody/core/rule.mlody"))
     fs.add_real_file(_REAL_MM_MLODY, target_path=str(root / "mlody/common/mm.mlody"))
+    fs.add_real_file(_REAL_RENDER_MLODY, target_path=str(root / "mlody/common/render.mlody"))
     fs.create_file(
         str(root / "mlody/teams/lexica/services/release/api/image.mlody"),
         contents=f"""\

@@ -855,19 +855,40 @@ def _(
         return False
 
 
+def _render_spec_to_dom(spec: object) -> RichDomNode:
+    """Convert a render_value_spec struct returned by a Starlark method body to a Rich DOM node."""
+    from common.python.console import panel, stack, table, text  # noqa: PLC0415
+
+    sections = list(getattr(spec, "sections", None) or [])
+    title = str(getattr(spec, "title", "value") or "value")
+    nodes = [
+        table(
+            [str(getattr(s, "name", "")), ""],
+            [[text(str(r[0])), text(str(r[1]))] for r in (list(getattr(s, "rows", None) or []))],
+        )
+        for s in sections
+        if getattr(s, "rows", None)
+    ]
+    return panel(stack(*nodes) if nodes else text("(no content)"), title=title)
+
+
 def _print_mlody_value(
-    value: MlodyValue, *, _has_error: list[bool] | None = None
+    value: MlodyValue,
+    *,
+    workspace: Workspace | None = None,
+    _has_error: list[bool] | None = None,
 ) -> None:
     """Print a MlodyValue to the console.
 
     Data-backed values (parquet, derived) are rendered inline via click.echo.
-    All structural values are rendered through the DOM via dom_executor.
+    MlodyValueValue entities are rendered via the render_value multimethod when a
+    workspace is provided; all other structural values use to_console_representation.
     """
     dom_executor = RichDomExecutor(_console)
 
     if isinstance(value, MlodyVectorValue):
         for elem in value.elements:
-            _print_mlody_value(elem, _has_error=_has_error)
+            _print_mlody_value(elem, workspace=workspace, _has_error=_has_error)
         return
 
     if isinstance(value, MlodyValueValue):
@@ -888,6 +909,20 @@ def _print_mlody_value(
             _has_error=_has_error,
         ):
             return
+        # Try multimethod dispatch via render_value generic.
+        if workspace is not None:
+            from mlody.core.multimethod import DispatchError, dispatch  # noqa: PLC0415
+
+            entry = workspace.evaluator._method_registry.get("render_value", {})
+            methods = list(entry.get("methods", []))
+            if methods:
+                try:
+                    spec = dispatch("render_value", (value.struct,), methods)
+                    _logger.debug("render_value: multimethod dispatch succeeded for %r", value.struct)
+                    dom_executor.render(_render_spec_to_dom(spec))
+                    return
+                except DispatchError:
+                    _logger.debug("render_value: no matching method for %r, falling back to to_console_representation", value.struct)
 
     from mlody.resolver.label_value import _RawAttrValue  # noqa: PLC0415
 
@@ -1069,7 +1104,7 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
 
                 print()
                 _error_sink: list[bool] = []
-                _print_mlody_value(mlody_value, _has_error=_error_sink)
+                _print_mlody_value(mlody_value, workspace=workspace, _has_error=_error_sink)
                 if _error_sink:
                     has_error = True
         except WorkspaceLoadError as exc:

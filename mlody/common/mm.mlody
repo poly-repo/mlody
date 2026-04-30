@@ -129,7 +129,11 @@ def _T_impl(scalar_name):
     return struct(kind="mm_scalar_pattern", type_name=scalar_name)
 
 
-json = struct(kind="mm_repr_pattern", repr_name="json")
+json    = struct(kind="mm_repr_pattern", repr_name="json")
+parquet = struct(kind="mm_repr_pattern", repr_name="parquet")
+csv     = struct(kind="mm_repr_pattern", repr_name="csv")
+text    = struct(kind="mm_repr_pattern", repr_name="text")
+console = struct(kind="mm_repr_pattern", repr_name="console")
 
 
 def _posix_impl(path_pattern):
@@ -165,6 +169,10 @@ mm = struct(
     method=_method_impl,
     T=_T_impl,
     json=json,
+    parquet=parquet,
+    csv=csv,
+    text=text,
+    console=console,
     posix=_posix_impl,
     vector=_vector_impl,
     value=_value_impl,

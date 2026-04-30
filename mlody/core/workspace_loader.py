@@ -64,18 +64,25 @@ class WorkspaceLoader:
                 pass
 
         mm_path = self._monorepo_root / "mlody" / "common" / "mm.mlody"
-        if not self._registry.is_loaded(mm_path):
-            # Only load mm.mlody when the workspace has a roots.mlody (i.e. it is
-            # a proper mlody workspace).  Sandboxes or test fixtures without any
-            # roots file are exempt: they have no user .mlody files that need mm.
+        if self._roots_file.exists():
+            # Only load mm.mlody in a proper mlody workspace (one with roots.mlody).
+            # Sandboxes or test fixtures without a roots file are exempt.
             # When roots.mlody is present, mm.mlody is mandatory — raise if absent.
-            if self._roots_file.exists():
+            if not self._registry.is_loaded(mm_path):
                 self._registry.eval_file(mm_path)
-                # Propagate mm and defmethod as persistent injections so every
-                # subsequent user .mlody file sees them without an explicit load().
-                self._registry.propagate_globals_as_persistent_injections(
-                    mm_path, ["mm", "defmethod"]
-                )
+            # Always propagate even when mm.mlody was pre-loaded by a caller,
+            # so that render.mlody and user files evaluated later see mm/defmethod.
+            self._registry.propagate_globals_as_persistent_injections(
+                mm_path, ["mm", "defmethod"]
+            )
+
+        render_path = self._monorepo_root / "mlody" / "common" / "render.mlody"
+        if self._roots_file.exists():
+            if not self._registry.is_loaded(render_path):
+                self._registry.eval_file(render_path)
+            self._registry.propagate_globals_as_persistent_injections(
+                render_path, ["render_value"]
+            )
 
         self._root_infos.clear()
         self._root_infos.update(self._registry.build_root_infos())
