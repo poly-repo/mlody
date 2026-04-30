@@ -1718,13 +1718,16 @@ def test_mlody_descriptor_types_declare_source_range_field() -> None:
         fields = descriptor.attributes["fields"]  # type: ignore[attr-defined]
         assert fields[0].name == "_source_range"
         assert fields[0].type.name == "mlody-source-range"
+        assert fields[1].name == "raw"
+        assert fields[1].type.name == "string"
+        assert callable(getattr(fields[1], "materializer", None))
 
     task_descriptor = ev._types_by_name["mlody-task"]
     task_fields = task_descriptor.attributes["fields"]  # type: ignore[attr-defined]
-    assert [field.name for field in task_fields] == ["_source_range", "_hash"]
-    assert task_fields[1].type.name == "string"
-    assert callable(getattr(task_fields[1], "materializer", None))
+    assert [field.name for field in task_fields] == ["_source_range", "raw", "_hash"]
+    assert task_fields[2].type.name == "string"
+    assert callable(getattr(task_fields[2], "materializer", None))
 
     workspace_descriptor = ev._types_by_name["mlody-workspace"]
     workspace_fields = workspace_descriptor.attributes["fields"]  # type: ignore[attr-defined]
-    assert [field.name for field in workspace_fields] == ["_source_range", "info"]
+    assert [field.name for field in workspace_fields] == ["_source_range", "raw", "info"]

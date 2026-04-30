@@ -381,6 +381,11 @@ typedef(
             type = builtins.lookup("type", "mlody-source-range"),
             mandatory = False,
         ),
+        field(
+            name = "raw",
+            type = string(),
+            materializer = lambda owner: python.runtime_json_blob(owner),
+        ),
     ]),
 )
 

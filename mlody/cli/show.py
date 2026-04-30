@@ -591,6 +591,18 @@ def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
 
     return repr(obj)
 
+
+def _raw_json_blob(payload: object, *, name: object) -> str | None:
+    """Return a pretty JSON blob for declared ``raw`` values."""
+    if name != "raw" or not isinstance(payload, str):
+        return None
+    try:
+        parsed = json.loads(payload)
+    except Exception:
+        return None
+    return json.dumps(parsed, indent=2, sort_keys=True)
+
+
 def _print_row_list(rows: list, *, image_encoder=None) -> None:
     """Display row-list results using the same table preview as tabular sources."""
     if rows and all(isinstance(row, dict) for row in rows):
@@ -757,6 +769,9 @@ def _print_mlody_value(
 def _render_mlody_value(value: MlodyValue) -> RichDomNode:
     if isinstance(value, MlodyValueValue):
         payload = _display_payload(value)
+        raw_json = _raw_json_blob(payload, name=getattr(value.struct, "name", None))
+        if raw_json is not None:
+            return panel(SyntaxNode(raw_json, language="json"), title="value")
         if hasattr(payload, "as_mapping") or isinstance(payload, (list, dict)):
             content = _pretty_struct_str(payload)
         else:
@@ -782,6 +797,9 @@ def _describe_mlody_value(value: MlodyValue) -> str:
         return f"action:\n{pretty_repr(value.struct)}"
     if isinstance(value, MlodyValueValue):
         payload = _display_payload(value)
+        raw_json = _raw_json_blob(payload, name=getattr(value.struct, "name", None))
+        if raw_json is not None:
+            return f"value:\n{raw_json}"
         if hasattr(payload, "as_mapping") or isinstance(payload, (list, dict)):
             return f"value:\n{_pretty_struct_str(payload)}"
         return f"value:\n{_format_value(payload)}"

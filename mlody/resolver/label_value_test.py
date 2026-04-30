@@ -10,6 +10,7 @@ starlarkish internals.
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -91,6 +92,12 @@ builtins.register("type", struct(
 ))
 _ENTITY_FIELDS = [
     struct(name="_source_range", type=builtins.lookup("type", "mlody-source-range"), mandatory=False),
+    struct(
+        name="raw",
+        type=struct(kind="type", type="string", name="string"),
+        materializer=lambda owner: python.runtime_json_blob(owner),
+        mandatory=False,
+    ),
 ]
 builtins.register("type", struct(
     kind="type", type="mlody-value", name="mlody-value",
@@ -638,6 +645,62 @@ builtins.register("value", struct(
         assert isinstance(result, MlodySourceRangeValue)
         assert result.filepath.endswith("entities.mlody")
         assert result.start_line >= 1
+
+    def test_task_raw_materializes_runtime_json_snapshot(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        ws = _make_workspace(
+            fs,
+            {
+                "teams/myroot/entities.mlody": TASK_MLODY,
+            },
+        )
+
+        result = resolve_label_to_value(parse_label("@myroot//entities:my_task.raw"), ws)
+
+        assert isinstance(result, MlodyValueValue)
+        payload = json.loads(force_virtual_value(result.struct))
+        assert payload["kind"] == "task"
+        assert payload["name"] == "my_task"
+        assert payload["_source_range"]["filepath"].endswith("entities.mlody")
+        assert isinstance(payload["_hash"], str)
+        assert "raw" not in payload
+
+    def test_nested_type_raw_materializes_json_for_non_entity_structs(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        ws = _make_workspace(
+            fs,
+            {
+                "teams/myroot/entities.mlody": """\
+builtins.register("value", struct(
+    kind="value",
+    name="my_value",
+    type=struct(
+        kind="type",
+        type="integer",
+        name="integer",
+        attributes={"min": 1},
+        _allowed_attrs={"min": "integer"},
+        validator=lambda _v: True,
+    ),
+    location=struct(kind="location", type="inline", name="inline"),
+    _lineage=[],
+))
+""",
+            },
+        )
+
+        result = resolve_label_to_value(parse_label("@myroot//entities:my_value.type.raw"), ws)
+
+        assert isinstance(result, MlodyValueValue)
+        payload = json.loads(force_virtual_value(result.struct))
+        assert payload["kind"] == "type"
+        assert payload["name"] == "integer"
+        assert payload["attributes"]["min"] == 1
+        assert payload["validator"] == "<callable>"
 
 
 # ---------------------------------------------------------------------------

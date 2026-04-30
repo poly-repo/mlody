@@ -483,7 +483,10 @@ class StructTraversalStrategy:
     ) -> MlodyValue:
         from mlody.core.traversal_grammar import FieldSegment, PathSegment  # noqa: PLC0415
         from mlody.core.traversal_runtime import step_named_child  # noqa: PLC0415
-        from mlody.core.virtual_value import lookup_runtime_attribute  # noqa: PLC0415
+        from mlody.core.virtual_value import (  # noqa: PLC0415
+            lookup_runtime_attribute,
+            synthesize_runtime_child,
+        )
 
         if not path:
             return _wrap_struct(self._kind, value)
@@ -491,6 +494,7 @@ class StructTraversalStrategy:
         obj: object = value
         parent_obj: object = value  # tracks the object before the last getattr step
         terminal_field_name: str | None = None
+        _sentinel = object()
         for i, segment in enumerate(path):
             parent_obj = obj
             if isinstance(segment, FieldSegment):
@@ -511,6 +515,20 @@ class StructTraversalStrategy:
             try:
                 obj = step_named_child(obj, field_name)
             except (AttributeError, KeyError):
+                field_decl = lookup_runtime_attribute(obj, field_name)
+                if field_decl is not None:
+                    raw_value = getattr(obj, field_name, _sentinel)
+                    if raw_value is not _sentinel:
+                        obj = raw_value
+                    else:
+                        synthesized = synthesize_runtime_child(obj, field_name)
+                        if synthesized is not None:
+                            obj = synthesized
+                        else:
+                            field_decl = None
+                if field_decl is not None:
+                    terminal_field_name = field_name
+                    continue
                 traversed = "".join(str(s) for s in path[:i])
                 parent = f" on '{traversed}'" if traversed else ""
                 return MlodyUnresolvedValue(
@@ -1798,7 +1816,11 @@ class ValueTraversalStrategy:
         traversal_error_policy: TraversalErrorPolicy = TraversalErrorPolicy.RAISE,
     ) -> MlodyValue:
         from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
-        from mlody.core.virtual_value import traverse_virtual_value  # noqa: PLC0415
+        from mlody.core.virtual_value import (  # noqa: PLC0415
+            lookup_runtime_attribute,
+            synthesize_runtime_child,
+            traverse_virtual_value,
+        )
         from mlody.core.traversal_grammar import PathSegment, FieldSegment  # noqa: PLC0415
 
         if not path:
@@ -1931,11 +1953,22 @@ class ValueTraversalStrategy:
         # handler registered in a table analogous to _LOCATION_COMPOSERS.
         obj: object = value
         _vt_parent_obj: object = value  # tracks the object before the last getattr step
+        _vt_sentinel = object()
         for i, segment in enumerate(str_path):
             _vt_parent_obj = obj
             try:
                 obj = getattr(obj, segment)
             except AttributeError:
+                field_decl = lookup_runtime_attribute(obj, segment)
+                if field_decl is not None:
+                    raw_value = getattr(obj, segment, _vt_sentinel)
+                    if raw_value is not _vt_sentinel:
+                        obj = raw_value
+                        continue
+                    synthesized = synthesize_runtime_child(obj, segment)
+                    if synthesized is not None:
+                        obj = synthesized
+                        continue
                 traversed = ".".join(str_path[:i])
                 parent = f" on '{traversed}'" if traversed else ""
                 return MlodyUnresolvedValue(

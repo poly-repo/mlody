@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import http.server
+import json
 import logging
 from pathlib import Path
 import threading
@@ -384,6 +385,40 @@ class TestShowCommandOutput:
         assert "release" in result.output
         assert "abc123" in result.output
         assert "materializer" not in result.output
+
+    def test_raw_value_is_rendered_as_json_blob(self, tmp_path: Path) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@bert//models:cfg.raw"]
+        raw_type = _make_type_struct("string", root_kind="string")
+        resolved_value = MlodyValueValue(
+            struct=make_virtual_value(
+                value_type=raw_type,
+                label="@bert//models:cfg.raw",
+                materializer=lambda _value: json.dumps(
+                    {"kind": "task", "name": "trainer", "_hash": "abc123"},
+                    indent=2,
+                    sort_keys=True,
+                ),
+                name="raw",
+            )
+        )
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "@bert//models:cfg.raw"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert '"kind": "task"' in result.output
+        assert '"name": "trainer"' in result.output
+        assert '"_hash": "abc123"' in result.output
 
     def test_multiple_targets_displayed_in_order(self) -> None:
         ws = MagicMock()

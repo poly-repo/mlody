@@ -45,6 +45,7 @@ import ast
 import builtins
 import functools
 import hashlib
+import json
 import logging
 import os
 import re
@@ -169,12 +170,115 @@ def _uuid7_string() -> str:
     return str(uuid_utils.uuid7())
 
 
+def _is_virtual_value_struct(obj: object) -> bool:
+    """Return True when *obj* is a typed virtual value Struct."""
+    if not isinstance(obj, Struct):
+        return False
+    if getattr(obj, "kind", None) != "value":
+        return False
+    loc = getattr(obj, "location", None)
+    return (
+        loc is not None
+        and getattr(loc, "type", None) == "virtual"
+        and callable(getattr(loc, "materializer", None))
+    )
+
+
+def _force_virtual_value_struct(obj: object) -> object:
+    """Materialize a virtual value Struct, returning all other inputs unchanged."""
+    if not _is_virtual_value_struct(obj):
+        return obj
+    loc = getattr(obj, "location", None)
+    assert loc is not None
+    materializer = getattr(loc, "materializer", None)
+    if materializer is None:
+        return obj
+    return materializer(obj)
+
+
+def _looks_like_workspace(obj: object) -> bool:
+    """Duck-type check for mlody Workspace objects without importing mlody.core."""
+    return (
+        hasattr(obj, "_monorepo_root")
+        and hasattr(obj, "_workspace_root")
+        and hasattr(obj, "root_infos")
+    )
+
+
+def _runtime_json_data(obj: object, *, _seen: set[int] | None = None) -> object:
+    """Convert runtime objects to JSON-safe data, forcing virtual children."""
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, bytes):
+        return f"<bytes {len(obj)}>"
+    if callable(obj) and not isinstance(obj, type):
+        return "<callable>"
+    if _is_virtual_value_struct(obj):
+        return _runtime_json_data(_force_virtual_value_struct(obj), _seen=_seen)
+
+    if _seen is None:
+        _seen = set()
+
+    is_container_like = (
+        isinstance(obj, (Struct, dict, list, tuple, set))
+        or _looks_like_workspace(obj)
+        or hasattr(obj, "__dict__")
+    )
+    obj_id = id(obj)
+    if is_container_like:
+        if obj_id in _seen:
+            return "<cycle>"
+        _seen.add(obj_id)
+
+    try:
+        if isinstance(obj, Struct):
+            result: dict[str, object] = {}
+            for key, value in obj.as_mapping().items():
+                if key in {"raw", "_entity_type"}:
+                    continue
+                result[str(key)] = _runtime_json_data(value, _seen=_seen)
+            return result
+        if isinstance(obj, dict):
+            return {
+                str(key): _runtime_json_data(value, _seen=_seen)
+                for key, value in obj.items()
+            }
+        if isinstance(obj, (list, tuple, set)):
+            return [_runtime_json_data(value, _seen=_seen) for value in obj]
+        if _looks_like_workspace(obj):
+            return {
+                "monorepo_root": str(getattr(obj, "_monorepo_root", "")),
+                "workspace_root": str(getattr(obj, "_workspace_root", "")),
+                "full_workspace": bool(getattr(obj, "_full_workspace", False)),
+                "root_infos": _runtime_json_data(getattr(obj, "root_infos", {}), _seen=_seen),
+                "info": _runtime_json_data(getattr(obj, "info", None), _seen=_seen),
+            }
+        if hasattr(obj, "__dict__"):
+            return {
+                str(key): _runtime_json_data(value, _seen=_seen)
+                for key, value in vars(obj).items()
+                if key not in {"raw", "_entity_type", "_evaluator", "evaluator"}
+            }
+        return repr(obj)
+    finally:
+        if is_container_like:
+            _seen.remove(obj_id)
+
+
+def _runtime_json_blob(obj: object) -> str:
+    """Return a stable, pretty-printed JSON snapshot of a runtime object."""
+    return json.dumps(_runtime_json_data(obj), indent=2, sort_keys=True)
+
+
 # Python-specific builtins that are not part of the Starlark standard.
 # These will be exposed under a `python` object.
 PYTHON_SPECIFIC_BUILTINS = struct(
     hasattr=builtins.hasattr,
     getattr=builtins.getattr,
     parse_astropy_unit=_parse_astropy_unit,
+    runtime_json_blob=_runtime_json_blob,
     uuid7=_uuid7_string,
     round=builtins.round,
     sum=builtins.sum,
@@ -261,11 +365,13 @@ class Evaluator:
         self.roots: dict[str, Named] = dict()
         self.types: dict[str, Named] = dict()
         self.locations: dict[str, Named] = dict()
+        self.freshnesses: dict[str, Named] = dict()
         self.representations: dict[str, Named] = dict()
         self.values: dict[str, Named] = dict()
         self._roots_by_name: dict[str, Named] = {}
         self._types_by_name: dict[str, Named] = {}
         self._locations_by_name: dict[str, Named] = {}
+        self._freshnesses_by_name: dict[str, Named] = {}
         self._representations_by_name: dict[str, Named] = {}
         self._values_by_name: dict[str, Named] = {}
         self.actions: dict[str, Named] = {}
@@ -494,6 +600,9 @@ class Evaluator:
         elif kind == "location":
             self.locations[key] = thing
             self._locations_by_name[thing.name] = thing
+        elif kind == "freshness":
+            self.freshnesses[key] = thing
+            self._freshnesses_by_name[thing.name] = thing
         elif kind == "representation":
             self.representations[key] = thing
             self._representations_by_name[thing.name] = thing
@@ -517,7 +626,7 @@ class Evaluator:
             self._executors_by_name[thing.name] = thing
         else:
             raise ValueError(
-                f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor'."
+                f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location', 'freshness', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor'."
             )
         self.all[(kind, _stem, thing.name)] = thing
         if kind == "type":
@@ -546,6 +655,12 @@ class Evaluator:
                     f"No location {name!r}. Available: {sorted(self._locations_by_name)}"
                 )
             return self._locations_by_name[name]
+        elif kind == "freshness":
+            if name not in self._freshnesses_by_name:
+                raise NameError(
+                    f"No freshness {name!r}. Available: {sorted(self._freshnesses_by_name)}"
+                )
+            return self._freshnesses_by_name[name]
         elif kind == "representation":
             if name not in self._representations_by_name:
                 raise NameError(
@@ -590,7 +705,7 @@ class Evaluator:
             return self._executors_by_name[name]
         else:
             raise ValueError(
-                f"Unknown lookup kind {kind!r}. Supported: 'root', 'type', 'location', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor'."
+                f"Unknown lookup kind {kind!r}. Supported: 'root', 'type', 'location', 'freshness', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor'."
             )
 
     def _load(

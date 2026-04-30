@@ -8,6 +8,7 @@ attributes without dropping to raw Python data.
 
 from __future__ import annotations
 
+import json
 from typing import Callable
 
 from common.python.starlarkish.core.struct import Struct
@@ -15,6 +16,93 @@ from mlody.core.traversal_runtime import step_named_child
 
 
 _SENTINEL = object()
+_STRING_TYPE = Struct(
+    kind="type",
+    type="string",
+    name="string",
+    _root_kind="string",
+    attributes={},
+    _allowed_attrs={},
+)
+
+
+def _is_virtual_value_struct(obj: object) -> bool:
+    if not isinstance(obj, Struct):
+        return False
+    if getattr(obj, "kind", None) != "value":
+        return False
+    loc = getattr(obj, "location", None)
+    return (
+        loc is not None
+        and getattr(loc, "type", None) == "virtual"
+        and callable(getattr(loc, "materializer", None))
+    )
+
+
+def _force_virtual_value_struct(obj: object) -> object:
+    if not _is_virtual_value_struct(obj):
+        return obj
+    loc = getattr(obj, "location", None)
+    assert loc is not None
+    materializer = getattr(loc, "materializer", None)
+    if materializer is None:
+        return obj
+    return materializer(obj)
+
+
+def _runtime_json_data(obj: object, *, _seen: set[int] | None = None) -> object:
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, bytes):
+        return f"<bytes {len(obj)}>"
+    if callable(obj) and not isinstance(obj, type):
+        return "<callable>"
+    if _is_virtual_value_struct(obj):
+        return _runtime_json_data(_force_virtual_value_struct(obj), _seen=_seen)
+
+    if _seen is None:
+        _seen = set()
+
+    is_container_like = isinstance(obj, (Struct, dict, list, tuple, set))
+    obj_id = id(obj)
+    if is_container_like:
+        if obj_id in _seen:
+            return "<cycle>"
+        _seen.add(obj_id)
+
+    try:
+        if isinstance(obj, Struct):
+            result: dict[str, object] = {}
+            for key, value in obj.as_mapping().items():
+                if key in {"raw", "_entity_type"}:
+                    continue
+                result[str(key)] = _runtime_json_data(value, _seen=_seen)
+            return result
+        if isinstance(obj, dict):
+            return {
+                str(key): _runtime_json_data(value, _seen=_seen)
+                for key, value in obj.items()
+            }
+        if isinstance(obj, (list, tuple, set)):
+            return [_runtime_json_data(value, _seen=_seen) for value in obj]
+        return repr(obj)
+    finally:
+        if is_container_like:
+            _seen.remove(obj_id)
+
+
+def _runtime_json_blob(obj: object) -> str:
+    return json.dumps(_runtime_json_data(obj), indent=2, sort_keys=True)
+
+
+def _synthetic_raw_attribute() -> Struct:
+    return Struct(
+        kind="field",
+        name="raw",
+        type=_STRING_TYPE,
+        materializer=_runtime_json_blob,
+        mandatory=False,
+    )
 
 
 def is_virtual_value(value: object) -> bool:
@@ -140,7 +228,12 @@ def lookup_runtime_attribute(value: object, segment: str) -> object | None:
 
     entity_type = getattr(value, "_entity_type", None)
     if entity_type is not None:
-        return lookup_declared_attribute(entity_type, segment)
+        entity_attr = lookup_declared_attribute(entity_type, segment)
+        if entity_attr is not None:
+            return entity_attr
+
+    if segment == "raw" and isinstance(value, Struct):
+        return _synthetic_raw_attribute()
 
     return None
 
