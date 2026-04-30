@@ -20,6 +20,7 @@ _THIS_DIR = Path(__file__).parent
 _RULE_MLODY = (_THIS_DIR.parent / "core" / "rule.mlody").read_text()
 _ATTRS_MLODY = (_THIS_DIR / "attrs.mlody").read_text()
 _TYPES_MLODY = (_THIS_DIR / "types.mlody").read_text()
+_FRESHNESS_MLODY = (_THIS_DIR / "freshness.mlody").read_text()
 _LOCATIONS_MLODY = (_THIS_DIR / "locations.mlody").read_text()
 _REPRESENTATION_MLODY = (_THIS_DIR / "representation.mlody").read_text()
 _VALUES_MLODY = (_THIS_DIR / "values.mlody").read_text()
@@ -28,6 +29,7 @@ _BASE_FILES: dict[str, str] = {
     "mlody/core/rule.mlody": _RULE_MLODY,
     "mlody/common/attrs.mlody": _ATTRS_MLODY,
     "mlody/common/types.mlody": _TYPES_MLODY,
+    "mlody/common/freshness.mlody": _FRESHNESS_MLODY,
     "mlody/common/locations.mlody": _LOCATIONS_MLODY,
     "mlody/common/representation.mlody": _REPRESENTATION_MLODY,
     "mlody/common/values.mlody": _VALUES_MLODY,
@@ -107,6 +109,14 @@ def test_value_string_location_label_resolves_to_location_struct() -> None:
     assert v.location.name == "s3"
 
 
+def test_value_string_freshness_label_resolves_to_freshness_struct() -> None:
+    """freshness='always' (string) resolves to the always freshness struct."""
+    ev = _eval('value(name="z", type=integer(), freshness="always")')
+    v = ev._values_by_name["z"]
+    assert v.freshness.kind == "freshness"
+    assert v.freshness.name == "always"
+
+
 # ---------------------------------------------------------------------------
 # TC-004: constrained type struct is stored
 # ---------------------------------------------------------------------------
@@ -133,6 +143,14 @@ def test_value_stores_constrained_location_struct() -> None:
     assert v.location.attributes.get("bucket") == "prod"
 
 
+def test_value_stores_constrained_freshness_struct() -> None:
+    """freshness=ttl(duration='P1D') stores the constrained struct."""
+    ev = _eval('value(name="prod_data", type=integer(), freshness=ttl(duration="P1D"))')
+    v = ev._values_by_name["prod_data"]
+    assert v.freshness.kind == "freshness"
+    assert v.freshness.attributes.get("duration") == "P1D"
+
+
 # ---------------------------------------------------------------------------
 # TC-006: unknown type string raises NameError
 # ---------------------------------------------------------------------------
@@ -155,6 +173,12 @@ def test_value_unknown_location_string_raises_name_error() -> None:
         _eval('value(name="bad", type=integer(), location="nonexistent")')
 
 
+def test_value_unknown_freshness_string_raises_name_error() -> None:
+    """freshness='nonexistent' raises NameError."""
+    with pytest.raises(NameError):
+        _eval('value(name="bad", type=integer(), freshness="nonexistent")')
+
+
 # ---------------------------------------------------------------------------
 # TC-008: wrong type for type attr raises TypeError
 # ---------------------------------------------------------------------------
@@ -175,6 +199,12 @@ def test_value_type_struct_as_location_raises_type_error() -> None:
     """TC-009: passing a type struct as location raises TypeError."""
     with pytest.raises(TypeError):
         _eval('value(name="bad", type=integer(), location=integer())')
+
+
+def test_value_location_struct_as_freshness_raises_type_error() -> None:
+    """Passing a location struct as freshness raises TypeError."""
+    with pytest.raises(TypeError):
+        _eval('value(name="bad", type=integer(), freshness=s3())')
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +236,7 @@ def test_value_allows_missing_location() -> None:
     v = ev._values_by_name["v"]
     assert v.type.kind == "type"
     assert v.location.type == "inline"
+    assert v.freshness.type == "manual"
 
 
 def test_value_allows_missing_type() -> None:
@@ -213,6 +244,7 @@ def test_value_allows_missing_type() -> None:
     v = ev._values_by_name["v"]
     assert v.type.name == "nothing"
     assert v.location.kind == "location"
+    assert v.freshness.type == "manual"
 
 
 def test_both_defaults_applied() -> None:
@@ -220,6 +252,7 @@ def test_both_defaults_applied() -> None:
     v = ev._values_by_name["v"]
     assert v.type.name == "nothing"
     assert v.location.type == "inline"
+    assert v.freshness.type == "manual"
 
 
 def test_inline_location_with_data() -> None:

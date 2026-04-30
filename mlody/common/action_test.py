@@ -20,6 +20,7 @@ _THIS_DIR = Path(__file__).parent
 _RULE_MLODY = (_THIS_DIR.parent / "core" / "rule.mlody").read_text()
 _ATTRS_MLODY = (_THIS_DIR / "attrs.mlody").read_text()
 _TYPES_MLODY = (_THIS_DIR / "types.mlody").read_text()
+_FRESHNESS_MLODY = (_THIS_DIR / "freshness.mlody").read_text()
 _LOCATIONS_MLODY = (_THIS_DIR / "locations.mlody").read_text()
 _VALUES_MLODY = (_THIS_DIR / "values.mlody").read_text()
 _BUILD_REF_MLODY = (_THIS_DIR / "build_ref.mlody").read_text()
@@ -30,6 +31,7 @@ _BASE_FILES: dict[str, str] = {
     "mlody/core/rule.mlody": _RULE_MLODY,
     "mlody/common/attrs.mlody": _ATTRS_MLODY,
     "mlody/common/types.mlody": _TYPES_MLODY,
+    "mlody/common/freshness.mlody": _FRESHNESS_MLODY,
     "mlody/common/locations.mlody": _LOCATIONS_MLODY,
     "mlody/common/values.mlody": _VALUES_MLODY,
     "mlody/common/build_ref.mlody": _BUILD_REF_MLODY,

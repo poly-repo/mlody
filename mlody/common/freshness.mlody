@@ -1,0 +1,152 @@
+load("//mlody/core/rule.mlody", "rule")
+load("//mlody/common/attrs.mlody", "attr", "extend_attrs", "validate_attr_value")
+
+
+def _make_freshness_factory(freshness_struct):
+    allowed = python.getattr(freshness_struct, "_allowed_attrs", {})
+    mandatory = python.getattr(freshness_struct, "_attrs_mandatory", set())
+    current_attrs = python.getattr(freshness_struct, "attributes", {})
+
+    def factory(**kwargs):
+        for k in kwargs:
+            if k not in allowed:
+                raise TypeError(
+                    freshness_struct.name + "() got unexpected attribute " + repr(k)
+                    + ". Allowed: " + repr(set(allowed))
+                )
+        for k, v in kwargs.items():
+            validate_attr_value(k, v, allowed[k])
+
+        for k in mandatory:
+            if k not in current_attrs and k not in kwargs:
+                raise ValueError(
+                    freshness_struct.name + "() Missing mandatory argument " + repr(k)
+                )
+
+        if not kwargs:
+            return freshness_struct
+
+        captured_kwargs = dict(kwargs)
+
+        def extra_validator(value):
+            for k, expected in captured_kwargs.items():
+                if value != expected:
+                    raise ValueError(
+                        f"freshness constraint {k!r} not satisfied: "
+                        f"expected {expected!r}, got {value!r}"
+                    )
+            return True
+
+        return extend_attrs(
+            base=freshness_struct,
+            extra_attributes=captured_kwargs,
+            extra_validator=extra_validator,
+        )
+
+    return factory
+
+
+def _freshness_impl(ctx):
+    base_type = python.getattr(ctx.attr, "base", None)
+
+    if base_type == None:
+        base_type = Struct(
+            kind="freshness",
+            type=ctx.attr.name,
+            name=ctx.attr.name,
+            attributes={},
+            _allowed_attrs={},
+            validator=lambda v: True,
+            abstract=False,
+            _root_kind=ctx.attr.name,
+        )
+
+    other_fields = {}
+    if python.hasattr(ctx.attr, "description"):
+        other_fields["description"] = ctx.attr.description
+
+    predicate = python.getattr(ctx.attr, "predicate", None)
+
+    extra_attrs_spec = None
+    default_attributes = None
+    attrs_mandatory = set()
+    if python.hasattr(ctx.attr, "attrs") and ctx.attr.attrs != None:
+        for attr_name, attr_def in ctx.attr.attrs.as_mapping().items():
+            declared_type = python.getattr(attr_def, "type", None)
+            if declared_type == None:
+                raise ValueError(
+                    f"freshness {ctx.attr.name!r}: attrs[{attr_name!r}] must declare a type"
+                )
+            if extra_attrs_spec == None:
+                extra_attrs_spec = {}
+            extra_attrs_spec[attr_name] = declared_type
+            metadata = python.getattr(attr_def, "metadata", None)
+            mandatory = python.getattr(metadata, "mandatory", None) if metadata != None else None
+            if mandatory == True:
+                attrs_mandatory.add(attr_name)
+            default_value = python.getattr(metadata, "default", None) if metadata != None else None
+            if default_value != None:
+                if default_attributes == None:
+                    default_attributes = {}
+                default_attributes[attr_name] = default_value
+    if attrs_mandatory:
+        other_fields["_attrs_mandatory"] = attrs_mandatory
+
+    abstract = python.getattr(ctx.attr, "abstract", None)
+    other_fields["abstract"] = abstract == True
+    other_fields["_root_kind"] = ctx.attr.name
+
+    new_freshness_struct = extend_attrs(
+        base=base_type,
+        type_name=ctx.attr.name,
+        extra_attributes=default_attributes,
+        extra_attrs_spec=extra_attrs_spec,
+        extra_validator=predicate,
+        **other_fields
+    )
+    builtins.register(ctx.kind, new_freshness_struct)
+    injectable = python.getattr(ctx.attr, "injectable", True)
+    if injectable != False:
+        builtins.inject(ctx.attr.name, _make_freshness_factory(new_freshness_struct))
+    return {}
+
+
+freshness = rule(
+    implementation=_freshness_impl,
+    kind="freshness",
+    attrs={
+        "base":       attr(type="freshness", mandatory=False, default=None),
+        "attrs":      attr(type="dict",      mandatory=False, default=None),
+        "predicate":  attr(type="callable",  mandatory=False, default=None),
+        "abstract":   attr(type="bool",      mandatory=False, default=None),
+        "injectable": attr(type="bool",      mandatory=False, default=None),
+    },
+)
+
+
+freshness(
+    name="manual",
+)
+
+
+freshness(
+    name="ttl",
+    attrs={
+        # String-backed for now until MLody grows a first-class duration type.
+        "duration": attr(type="string", mandatory=True),
+    },
+)
+
+
+freshness(
+    name="scheduled",
+    attrs={
+        # Cron-like schedule string for now; this can later become structured.
+        "schedule": attr(type="string", mandatory=True),
+    },
+)
+
+
+freshness(
+    name="always",
+)

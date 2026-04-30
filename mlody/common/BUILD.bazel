@@ -6,6 +6,7 @@ exports_files([
     "attrs.mlody",
     "build_ref.mlody",
     "executor.mlody",
+    "freshness.mlody",
     "implementation.mlody",
     "locations.mlody",
     "representation.mlody",
@@ -58,6 +59,20 @@ o_py_test(
 )
 
 o_py_test(
+    name = "freshness_test",
+    srcs = ["freshness_test.py"],
+    data = [
+        "attrs.mlody",
+        "freshness.mlody",
+        "//mlody/core:rule.mlody",
+    ],
+    deps = [
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
     name = "locations_test",
     srcs = ["locations_test.py"],
     data = [
@@ -91,6 +106,7 @@ o_py_test(
     srcs = ["values_test.py"],
     data = [
         "attrs.mlody",
+        "freshness.mlody",
         "locations.mlody",
         "representation.mlody",
         "types.mlody",
@@ -112,6 +128,7 @@ o_py_test(
         "action.mlody",
         "attrs.mlody",
         "build_ref.mlody",
+        "freshness.mlody",
         "implementation.mlody",
         "locations.mlody",
         "types.mlody",
@@ -133,6 +150,7 @@ o_py_test(
         "action.mlody",
         "attrs.mlody",
         "build_ref.mlody",
+        "freshness.mlody",
         "implementation.mlody",
         "locations.mlody",
         "types.mlody",
@@ -153,6 +171,7 @@ o_py_test(
         "attrs.mlody",
         "build_ref.mlody",
         "executor.mlody",
+        "freshness.mlody",
         "implementation.mlody",
         "locations.mlody",
         "representation.mlody",
@@ -175,6 +194,7 @@ o_py_test(
         "attrs.mlody",
         "build_ref.mlody",
         "executor.mlody",
+        "freshness.mlody",
         "implementation.mlody",
         "locations.mlody",
         "representation.mlody",

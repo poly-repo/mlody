@@ -447,6 +447,7 @@ o_py_test(
         "rule.mlody",
         "//mlody/common:action.mlody",  # keep — base files for in-memory test workspace
         "//mlody/common:attrs.mlody",  # keep
+        "//mlody/common:freshness.mlody",  # keep
         "//mlody/common:locations.mlody",  # keep
         "//mlody/common:task.mlody",  # keep
         "//mlody/common:types.mlody",  # keep

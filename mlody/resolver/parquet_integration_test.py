@@ -64,6 +64,19 @@ builtins.register("value", struct(
 ))
 """
 
+_POSIX_PARQUET_VALUE_MLODY_TEMPLATE = """\
+builtins.register("value", struct(
+    kind="value",
+    name="my_dataset",
+    type=None,
+    location=struct(kind="location", type="posix", name="dataset_loc", path="{parquet_path}"),
+    representation=None,
+    default=None,
+    source=None,
+    _lineage=[],
+))
+"""
+
 # A value entity with a standard (non-Parquet) location for regression test.
 _PLAIN_VALUE_MLODY = """\
 builtins.register("value", struct(
@@ -203,6 +216,26 @@ def _make_workspace(root: Path, parquet_path: Path) -> Workspace:
     return ws
 
 
+def _make_posix_parquet_workspace(root: Path, parquet_path: Path) -> Workspace:
+    """Create a workspace with a path-backed Parquet value entity."""
+    (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
+    (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
+    (root / "teams" / "data" / "pkg").mkdir(parents=True, exist_ok=True)
+
+    (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
+    (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
+    (root / "mlody" / "common" / "types.mlody").write_text("")
+
+    mlody_content = _POSIX_PARQUET_VALUE_MLODY_TEMPLATE.format(
+        parquet_path=str(parquet_path)
+    )
+    (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(mlody_content)
+
+    ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
+    ws.load()
+    return ws
+
+
 def _make_workspace_with_plain_value(root: Path) -> Workspace:
     """Create a minimal workspace with a non-Parquet value entity."""
     (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
@@ -320,6 +353,23 @@ class TestParquetIndexAccess:
         parquet_file = tmp_path / "train.parquet"
         _make_parquet_file(parquet_file)
         ws = _make_workspace(tmp_path, parquet_file)
+
+        label = parse_label("@data//pkg/dataset:my_dataset[@sql WHERE score > 0.3]")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue, got {result!r}"
+        rows = result.value
+        assert isinstance(rows, list)
+        assert [row["id"] for row in rows] == [3, 4]
+        assert [row["label"] for row in rows] == ["fish", "hamster"]
+
+    def test_sql_entity_query_on_path_backed_parquet_value_returns_filtered_rows(
+        self, tmp_path: Path
+    ) -> None:
+        """Path-backed parquet values still support SQL suffix traversal."""
+        parquet_file = tmp_path / "train.parquet"
+        _make_parquet_file(parquet_file)
+        ws = _make_posix_parquet_workspace(tmp_path, parquet_file)
 
         label = parse_label("@data//pkg/dataset:my_dataset[@sql WHERE score > 0.3]")
         result = resolve_label_to_value(label, ws)

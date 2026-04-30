@@ -760,7 +760,9 @@ def _tabular_value_struct(value: object) -> object | None:
 
 
 def _is_explicit_tabular_value_struct(value_struct: object) -> bool:
-    """Return whether *value_struct* is explicitly declared as tabular."""
+    """Return whether *value_struct* is declared in a tabular-capable shape."""
+    from mlody.core.tabular.location_specs import PosixLocationSpec  # noqa: PLC0415
+
     location = getattr(value_struct, "location", None)
     location_type = (
         getattr(location, "_root_kind", None)
@@ -777,8 +779,11 @@ def _is_explicit_tabular_value_struct(value_struct: object) -> bool:
         getattr(value_struct, "_source_value", None) is not None
         or getattr(value_struct, "source", None) is not None
     )
+    has_path_backed_location = PosixLocationSpec.from_location(location) is not None
 
     if location_type in {"derived", "remote", "parquet"}:
+        return True
+    if has_path_backed_location:
         return True
     if has_tabular_representation:
         return True

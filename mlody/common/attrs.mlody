@@ -45,6 +45,12 @@ def validate_attr_value(attr_name: str, value: python.Any, type_ref: python.Any)
                     f"Attribute {attr_name!r} expects a location struct, got {type(value)!r}"
                 )
             return
+        if type_ref == "freshness":
+            if type(value) != "struct" or python.getattr(value, "kind", None) != "freshness":
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects a freshness struct, got {type(value)!r}"
+                )
+            return
         if type_ref == "type_ref":
             # Accepts a type struct OR a string name (resolved by the impl at call time)
             if isinstance(value, str):
@@ -62,6 +68,16 @@ def validate_attr_value(attr_name: str, value: python.Any, type_ref: python.Any)
             if type(value) != "struct" or python.getattr(value, "kind", None) != "location":
                 raise TypeError(
                     f"Attribute {attr_name!r} expects a location struct or string name, "
+                    f"got {type(value)!r}"
+                )
+            return
+        if type_ref == "freshness_ref":
+            # Accepts a freshness struct OR a string name (resolved by the impl at call time)
+            if isinstance(value, str):
+                return
+            if type(value) != "struct" or python.getattr(value, "kind", None) != "freshness":
+                raise TypeError(
+                    f"Attribute {attr_name!r} expects a freshness struct or string name, "
                     f"got {type(value)!r}"
                 )
             return
@@ -334,7 +350,7 @@ def _validate_map(attrs: dict[str, python.Any], value: python.Any) -> None:
 
 
 # -------------------------
-# extend_attrs: create derived type/location from base struct
+# extend_attrs: create derived type/location/freshness from base struct
 # -------------------------
 def extend_attrs(
     base: Struct,
@@ -358,8 +374,10 @@ def extend_attrs(
 
     base_map = base.as_mapping()
     base_kind_field = base_map.get("kind")
-    if base_kind_field != "type" and base_kind_field != "location":
-        raise TypeError("extend_attrs expects a base with kind='type' or kind='location'")
+    if base_kind_field != "type" and base_kind_field != "location" and base_kind_field != "freshness":
+        raise TypeError(
+            "extend_attrs expects a base with kind='type', 'location', or 'freshness'"
+        )
 
     # Merge runtime attribute values
     merged_attrs = dict(base_map.get("attributes", {}))

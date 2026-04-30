@@ -1,5 +1,6 @@
 load("//mlody//core/rule.mlody", "rule")
 load("//mlody/common/attrs.mlody", "attr", "validate_attr_value")
+load("//mlody/common/freshness.mlody")
 
 
 _CONTEXTUAL_VALUE_ATTRS = {
@@ -57,6 +58,10 @@ def _resolve_type_ref(value):
 
 def _resolve_location_ref(value):
     return _resolve_ref(value, "location")
+
+
+def _resolve_freshness_ref(value):
+    return _resolve_ref(value, "freshness")
 
 
 def _resolve_source_ref(value):
@@ -211,6 +216,7 @@ def _value_rule_attrs():
     attrs = {
         "type":           attr(type="type_ref", mandatory=False),
         "location":       attr(type="location_ref", mandatory=False),
+        "freshness":      attr(type="freshness_ref", mandatory=False),
         "unit":           attr(type="string", mandatory=False),
         "default":        attr(mandatory=False),
         "source":         _SOURCE_ATTR,
@@ -224,6 +230,7 @@ def _value_rule_attrs():
 def _value_impl(ctx):
     type_raw = python.getattr(ctx.attr, "type", None)
     loc_raw = python.getattr(ctx.attr, "location", None)
+    freshness_raw = python.getattr(ctx.attr, "freshness", None)
     unit_raw = python.getattr(ctx.attr, "unit", None)
     default_raw = python.getattr(ctx.attr, "default", None)
     source_raw = python.getattr(ctx.attr, "source", None)
@@ -287,6 +294,9 @@ def _value_impl(ctx):
         loc_ref = _resolve_location_ref(loc_raw) if loc_raw != None else None
         if loc_ref == None:
             loc_ref = builtins.lookup("location", "inline")
+    freshness_ref = _resolve_freshness_ref(freshness_raw) if freshness_raw != None else None
+    if freshness_ref == None:
+        freshness_ref = builtins.lookup("freshness", "always")
 
     allowed_locations_for_default = ["inline", "named_arg"]
     if default_raw != None and python.getattr(loc_ref, "type", None) not in allowed_locations_for_default:
@@ -321,6 +331,7 @@ def _value_impl(ctx):
         "name": ctx.attr.name,
         "type": type_ref,
         "location": loc_ref,
+        "freshness": freshness_ref,
         "unit": unit_ref,
         "default": default_raw,
         "source": source_ref,
