@@ -94,6 +94,12 @@ def _match_score(pattern: object, arg: object) -> int | None:
         if arg_type_name != "vector":
             return None
         element_type = getattr(arg, "element_type", None)
+        # Real mlody vector types produced by _make_factory store element_type
+        # inside arg.attributes, not as a direct field.
+        if element_type is None:
+            _attrs = getattr(arg, "attributes", None)
+            if isinstance(_attrs, dict):
+                element_type = _attrs.get("element_type")
         element_pattern = getattr(pattern, "element_type", None)
         if element_pattern is None:
             return 4  # 3 + 1 (default mm.ANY)
