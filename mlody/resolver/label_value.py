@@ -1021,10 +1021,16 @@ def _maybe_traverse_tabular_value(
     label: "Label",
 ) -> MlodyValue | None:
     """Return a shared tabular traversal result when *value* is tabular-backed."""
-    from mlody.core.traversal_grammar import SqlSegment  # noqa: PLC0415
+    from mlody.core.traversal_grammar import (  # noqa: PLC0415
+        IndexSegment,
+        SliceSegment,
+        SqlSegment,
+    )
     from mlody.core.tabular.location_specs import source_from_value  # noqa: PLC0415
 
     if not path:
+        return None
+    if not isinstance(path[0], (SqlSegment, IndexSegment, SliceSegment)):
         return None
 
     value_struct = _tabular_value_struct(value)

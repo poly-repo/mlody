@@ -194,6 +194,14 @@ def _source_section(value):
     return [struct(name="Source", rows=[["from", str(src)]])]
 
 
+def _display_json_section(value):
+    """Return a Content section if the dispatch struct carries pre-computed JSON."""
+    content = python.getattr(value, "_display_json", None)
+    if content == None:
+        return []
+    return [struct(name="Content", rows=[], code=content, language="json")]
+
+
 def _value_title(value):
     name = python.getattr(value, "name", None)
     return "value: " + (name if name != None else "?")
@@ -220,38 +228,30 @@ render_value = mm.generic(
 
 
 # ---------------------------------------------------------------------------
-# Parquet representation — schema, multifile, length bounds.
+# Parquet representation — render data table only.
 # ---------------------------------------------------------------------------
 
 def _render_parquet_value(ctx, value):
-    repr_rows = [["representation", "parquet"]] + _repr_attr_rows(value.representation)
+    preview = python.getattr(value, "_tabular_preview", None)
     return struct(
         kind     = "render_value_spec",
         title    = _value_title(value),
-        sections = [
-            struct(name="Tupe",     rows=_type_rows_with_unit(value)),
-            struct(name="Format",   rows=repr_rows),
-            struct(name="Location", rows=_location_detail_rows(value.location)),
-        ] + _source_section(value),
+        sections = [struct(name="Data", rows=[], tabular_preview=preview)],
     )
 
 defmethod(render_value, [mm.value(representation=mm.parquet)], _render_parquet_value)
 
 
 # ---------------------------------------------------------------------------
-# CSV representation — separator, header, schema.
+# CSV representation — render data table only.
 # ---------------------------------------------------------------------------
 
 def _render_csv_value(ctx, value):
-    repr_rows = [["representation", "csv"]] + _repr_attr_rows(value.representation)
+    preview = python.getattr(value, "_tabular_preview", None)
     return struct(
         kind     = "render_value_spec",
         title    = _value_title(value),
-        sections = [
-            struct(name="Type",     rows=_type_rows_with_unit(value)),
-            struct(name="Format",   rows=repr_rows),
-            struct(name="Location", rows=_location_detail_rows(value.location)),
-        ] + _source_section(value),
+        sections = [struct(name="Data", rows=[], tabular_preview=preview)],
     )
 
 defmethod(render_value, [mm.value(representation=mm.csv)], _render_csv_value)
@@ -334,6 +334,13 @@ defmethod(render_value, [mm.value(type=mm.vector(element_type=mm.ANY))], _render
 # ---------------------------------------------------------------------------
 
 def _render_default_value(ctx, value):
+    preview = python.getattr(value, "_tabular_preview", None)
+    if preview != None:
+        return struct(
+            kind     = "render_value_spec",
+            title    = _value_title(value),
+            sections = [struct(name="Data", rows=[], tabular_preview=preview)],
+        )
     repr_struct = python.getattr(value, "representation", None)
     sections = [
         struct(name="Type", rows=_type_rows_with_unit(value)),
@@ -347,10 +354,34 @@ def _render_default_value(ctx, value):
     return struct(
         kind     = "render_value_spec",
         title    = _value_title(value),
-        sections = sections + _source_section(value),
+        sections = sections + _source_section(value) + _display_json_section(value),
     )
 
 defmethod(render_value, [mm.ANY], _render_default_value)
+
+
+# ---------------------------------------------------------------------------
+# Source range — render file location and a syntax-highlighted code snippet.
+# ---------------------------------------------------------------------------
+
+def _render_source_range_value(ctx, value):
+    filepath   = python.getattr(value, "filepath",   None) or "-"
+    start_line = python.getattr(value, "start_line", None)
+    end_line   = python.getattr(value, "end_line",   None)
+    content    = python.getattr(value, "content",    None)
+    line_label = (str(start_line)
+                  if start_line == end_line
+                  else str(start_line) + "-" + str(end_line))
+    content = "# " + filepath + ":" + line_label + "\n" + content
+    return struct(
+        kind     = "render_value_spec",
+        title    = "source: " + filepath + ":" + line_label,
+        sections = [
+            struct(name="Content",  rows=[], code=content, language="python"),
+        ],
+    )
+
+defmethod(render_value, [mm.source_range], _render_source_range_value)
 
 
 # ---------------------------------------------------------------------------

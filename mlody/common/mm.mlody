@@ -151,6 +151,9 @@ def _value_impl(**field_patterns):
     return struct(kind="mm_value_pattern", fields=field_patterns)
 
 
+source_range = struct(kind="mm_source_range_pattern")
+
+
 # ---------------------------------------------------------------------------
 # defmethod shim
 # ---------------------------------------------------------------------------
@@ -176,6 +179,7 @@ mm = struct(
     posix=_posix_impl,
     vector=_vector_impl,
     value=_value_impl,
+    source_range=source_range,
 )
 
 builtins.inject("mm", mm)

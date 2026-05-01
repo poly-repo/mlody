@@ -107,6 +107,16 @@ class _PreparedCell:
 
 
 @dataclasses.dataclass(frozen=True)
+class _RichRenderableNode:
+    """Adapts an arbitrary Rich renderable into a RichDomNode for use in DOM tables."""
+
+    renderable: object
+
+    def render(self, ctx: object) -> object:
+        return self.renderable
+
+
+@dataclasses.dataclass(frozen=True)
 class _RichTableImageCell:
     """Rich renderable for table-safe terminal image cells."""
 
@@ -530,6 +540,44 @@ def _cell_label(value: object, *, image_encoder=None) -> str:
     return _prepared_cell_display(_prepare_cell(value, image_encoder=image_encoder))
 
 
+def _build_tabular_preview(
+    table: pa.Table,
+    image_encoder: object = None,
+) -> tuple[list[str], list[list[object]], int]:
+    """Convert a pyarrow Table into the (col_names, data_rows, total_rows) tuple
+    stored as _tabular_preview in dispatch structs.
+
+    For image-capable terminals each image cell is stored as a _RichRenderableNode
+    wrapping a _RichTableImageCell so the DOM table can render it inline.
+    For all other cells the cell is stored as a plain string.
+    """
+    pydict = table.to_pydict()
+    col_names = list(table.column_names)
+    data_rows: list[list[object]] = []
+    for i in range(table.num_rows):
+        row: list[object] = []
+        for col in col_names:
+            cell = _prepare_cell(pydict[col][i], image_encoder=image_encoder)
+            if (
+                cell.is_image
+                and cell.encoded is not None
+                and _image_encoder_supports_rich_tables(image_encoder)
+            ):
+                row.append(
+                    _RichRenderableNode(
+                        _RichTableImageCell(
+                            encoded=cell.encoded,
+                            width=cell.display_width,
+                            height=cell.display_height,
+                        )
+                    )
+                )
+            else:
+                row.append(_prepared_cell_display(cell))
+        data_rows.append(row)
+    return col_names, data_rows, table.num_rows
+
+
 def _image_encoder_for_terminal():
     """Return an image encoder callable for the current terminal, or None."""
     if _can_kitty():
@@ -861,14 +909,28 @@ def _render_spec_to_dom(spec: object) -> RichDomNode:
 
     sections = list(getattr(spec, "sections", None) or [])
     title = str(getattr(spec, "title", "value") or "value")
-    nodes = [
-        table(
-            [str(getattr(s, "name", "")), ""],
-            [[text(str(r[0])), text(str(r[1]))] for r in (list(getattr(s, "rows", None) or []))],
-        )
-        for s in sections
-        if getattr(s, "rows", None)
-    ]
+    nodes: list[RichDomNode] = []
+    for s in sections:
+        rows = list(getattr(s, "rows", None) or [])
+        code = getattr(s, "code", None)
+        if rows:
+            nodes.append(table(
+                [str(getattr(s, "name", "")), ""],
+                [[text(str(r[0])), text(str(r[1]))] for r in rows],
+            ))
+        if code is not None:
+            language = str(getattr(s, "language", "python") or "python")
+            nodes.append(SyntaxNode(str(code), language=language))
+        tabular_preview = getattr(s, "tabular_preview", None)
+        if tabular_preview is not None:
+            col_names, data_rows, _total_rows = tabular_preview
+            nodes.append(table(
+                col_names,
+                [
+                    [cell if hasattr(cell, "render") else text(str(cell)) for cell in row]
+                    for row in data_rows
+                ],
+            ))
     return panel(stack(*nodes) if nodes else text("(no content)"), title=title)
 
 
@@ -891,6 +953,38 @@ def _print_mlody_value(
             _print_mlody_value(elem, workspace=workspace, _has_error=_has_error)
         return
 
+    from mlody.resolver.label_value import MlodySourceRangeValue  # noqa: PLC0415
+
+    if isinstance(value, MlodySourceRangeValue):
+        if workspace is not None:
+            from mlody.core.multimethod import DispatchError, dispatch  # noqa: PLC0415
+            from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
+
+            entry = workspace.evaluator._method_registry.get("render_value", {})
+            methods = list(entry.get("methods", []))
+            if methods:
+                try:
+                    lines_text = value.abs_path.read_text().splitlines()
+                    snippet = "\n".join(lines_text[value.start_line - 1 : value.end_line])
+                except Exception:
+                    snippet = f"(could not read {value.abs_path})"
+                sr_struct = Struct(
+                    kind="mlody-source-range",
+                    filepath=value.filepath,
+                    start_line=value.start_line,
+                    end_line=value.end_line,
+                    content=snippet,
+                )
+                try:
+                    spec = dispatch("render_value", (sr_struct,), methods)
+                    _logger.debug("render_value: dispatch succeeded for source-range %r", value.filepath)
+                    dom_executor.render(_render_spec_to_dom(spec))
+                    return
+                except DispatchError:
+                    _logger.debug("render_value: no method for source-range, falling back")
+        dom_executor.render(value.to_console_representation())
+        return
+
     if isinstance(value, MlodyValueValue):
         display_payload = _display_payload(value)
         try:
@@ -904,32 +998,86 @@ def _print_mlody_value(
             if _has_error is not None:
                 _has_error.append(True)
             return
+
+        extra_fields: dict[str, object] = {}
+
+        if tabular_source is not None:
+            try:
+                preview = tabular_source.preview(50)
+                extra_fields["_tabular_preview"] = _build_tabular_preview(
+                    preview.table,
+                    image_encoder=_image_encoder_for_terminal(),
+                )
+            except Exception:
+                pass
+
+        raw_json = _raw_json_blob(display_payload, name=getattr(value.struct, "name", None))
+        if raw_json is not None:
+            extra_fields["_display_json"] = raw_json
+
+        if workspace is not None:
+            from mlody.core.multimethod import DispatchError, dispatch  # noqa: PLC0415
+            from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
+
+            entry = workspace.evaluator._method_registry.get("render_value", {})
+            methods = list(entry.get("methods", []))
+            if methods:
+                dispatch_struct = (
+                    Struct(**{**value.struct.as_mapping(), **extra_fields})
+                    if extra_fields
+                    else value.struct
+                )
+                try:
+                    spec = dispatch("render_value", (dispatch_struct,), methods)
+                    _logger.debug("render_value: multimethod dispatch succeeded for %r", value.struct)
+                    dom_executor.render(_render_spec_to_dom(spec))
+                    return
+                except DispatchError:
+                    _logger.debug("render_value: no matching method for %r, falling back", value.struct)
+
         if tabular_source is not None and _print_tabular_source(
             tabular_source,
             _has_error=_has_error,
         ):
             return
-        # Try multimethod dispatch via render_value generic.
-        if workspace is not None:
-            from mlody.core.multimethod import DispatchError, dispatch  # noqa: PLC0415
-
-            entry = workspace.evaluator._method_registry.get("render_value", {})
-            methods = list(entry.get("methods", []))
-            if methods:
-                try:
-                    spec = dispatch("render_value", (value.struct,), methods)
-                    _logger.debug("render_value: multimethod dispatch succeeded for %r", value.struct)
-                    dom_executor.render(_render_spec_to_dom(spec))
-                    return
-                except DispatchError:
-                    _logger.debug("render_value: no matching method for %r, falling back to to_console_representation", value.struct)
 
     from mlody.resolver.label_value import _RawAttrValue  # noqa: PLC0415
 
     if isinstance(value, _RawAttrValue):
         enc = _image_encoder_for_terminal()
+        raw_table: pa.Table | None = None
         if isinstance(value.value, pa.Table):
-            click.echo(_format_value(value.value, image_encoder=enc))
+            raw_table = value.value
+        elif isinstance(value.value, list) and value.value and all(isinstance(r, dict) for r in value.value):
+            try:
+                raw_table = pa.Table.from_pylist(value.value)
+            except (pa.ArrowInvalid, pa.ArrowTypeError, TypeError, ValueError):
+                raw_table = None
+        if raw_table is not None and workspace is not None:
+            from mlody.core.multimethod import DispatchError, dispatch  # noqa: PLC0415
+            from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
+
+            entry = workspace.evaluator._method_registry.get("render_value", {})
+            methods = list(entry.get("methods", []))
+            if methods:
+                label_str = (
+                    value.label.format_inner()
+                    if hasattr(value.label, "format_inner")
+                    else str(value.label)
+                )
+                dispatch_struct = Struct(
+                    kind="value",
+                    name=label_str,
+                    _tabular_preview=_build_tabular_preview(raw_table, image_encoder=enc),
+                )
+                try:
+                    spec = dispatch("render_value", (dispatch_struct,), methods)
+                    dom_executor.render(_render_spec_to_dom(spec))
+                    return
+                except DispatchError:
+                    _logger.debug("render_value: no method for raw table, falling back")
+        if raw_table is not None:
+            click.echo(_format_value(raw_table, image_encoder=enc))
             return
         if isinstance(value.value, list):
             _print_row_list(value.value, image_encoder=enc)

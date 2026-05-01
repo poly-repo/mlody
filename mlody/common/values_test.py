@@ -236,7 +236,7 @@ def test_value_allows_missing_location() -> None:
     v = ev._values_by_name["v"]
     assert v.type.kind == "type"
     assert v.location.type == "inline"
-    assert v.freshness.type == "manual"
+    assert v.freshness.type == "always"
 
 
 def test_value_allows_missing_type() -> None:
@@ -244,7 +244,7 @@ def test_value_allows_missing_type() -> None:
     v = ev._values_by_name["v"]
     assert v.type.name == "nothing"
     assert v.location.kind == "location"
-    assert v.freshness.type == "manual"
+    assert v.freshness.type == "always"
 
 
 def test_both_defaults_applied() -> None:
@@ -252,7 +252,7 @@ def test_both_defaults_applied() -> None:
     v = ev._values_by_name["v"]
     assert v.type.name == "nothing"
     assert v.location.type == "inline"
-    assert v.freshness.type == "manual"
+    assert v.freshness.type == "always"
 
 
 def test_inline_location_with_data() -> None:

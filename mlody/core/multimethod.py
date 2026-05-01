@@ -118,6 +118,12 @@ def _match_score(pattern: object, arg: object) -> int | None:
             total += sub
         return 3 + total
 
+    # --- mm.source_range ---
+    if _is_struct_kind(pattern, "mm_source_range_pattern"):
+        if _is_struct_kind(arg, "mlody-source-range"):
+            return 3
+        return None
+
     return None
 
 

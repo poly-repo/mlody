@@ -242,6 +242,7 @@ def _make_posix_parquet_workspace(root: Path, parquet_path: Path) -> Workspace:
     (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
     (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
     (root / "mlody" / "common" / "types.mlody").write_text("")
+    _add_mm_files(root)
 
     mlody_content = _POSIX_PARQUET_VALUE_MLODY_TEMPLATE.format(
         parquet_path=str(parquet_path)
@@ -280,6 +281,7 @@ def _make_remote_csv_workspace(root: Path, uri: str) -> Workspace:
     (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
     (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
     (root / "mlody" / "common" / "types.mlody").write_text("")
+    _add_mm_files(root)
     (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(
         _REMOTE_CSV_VALUE_MLODY_TEMPLATE.format(uri=uri)
     )
@@ -302,6 +304,7 @@ def _make_source_backed_local_csv_workspace(
     (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
     (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
     (root / "mlody" / "common" / "types.mlody").write_text("")
+    _add_mm_files(root)
     (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(
         _SOURCE_BACKED_LOCAL_CSV_VALUE_MLODY_TEMPLATE.format(
             uri=uri,
