@@ -30,6 +30,22 @@ _BASE_FILES: dict[str, str] = {
     "mlody/common/mm.mlody": _MM_MLODY,
 }
 
+_RENDER_MLODY = (_THIS_DIR / "render.mlody").read_text()
+
+
+def _run_with_render(script: str) -> Evaluator:
+    """Evaluate mm.mlody + render.mlody (in that order), then evaluate user script."""
+    files = {
+        **_BASE_FILES,
+        "mlody/common/render.mlody": _RENDER_MLODY,
+    }
+    files["test.mlody"] = dedent(script)
+    with InMemoryFS(files, root="/project") as root:
+        ev = _make_evaluator_with_mm(files, root)
+        ev.eval_file(root / "mlody" / "common" / "render.mlody")
+        ev.eval_file(root / "test.mlody")
+    return ev
+
 
 def _make_evaluator_with_mm(
     files: dict[str, str],
@@ -437,3 +453,64 @@ def test_composite_score_most_constrained_wins() -> None:
     ret = dispatch("render", (value_arg,), [specific_method, general_method])
     assert ret == "specific"
     assert results == ["specific"]
+
+
+# ---------------------------------------------------------------------------
+# render_value — celebA-row vector renderer
+# ---------------------------------------------------------------------------
+
+
+def test_celebA_vector_renderer_two_column_preview() -> None:
+    """render_value on a vector-of-celebA-row produces image + attributes columns."""
+    from mlody.core.multimethod import dispatch
+    from common.python.starlarkish.core.struct import Struct
+
+    element_type = Struct(kind="type", name="celebA-row", type_name="celebA-row")
+    type_struct = Struct(kind="type", name="vector", type_name="vector", element_type=element_type)
+    value_struct = Struct(
+        kind="value",
+        name="test-dataset",
+        type=type_struct,
+        _tabular_preview=(
+            ["image", "Bald", "Young"],
+            [
+                ["<img1>", "False", "True"],
+                ["<img2>", "True", "False"],
+            ],
+            2,
+        ),
+    )
+
+    ev = _run_with_render("pass")
+    methods = list(ev._method_registry.get("render_value", {}).get("methods", []))
+    spec = dispatch("render_value", (value_struct,), methods)
+
+    assert spec.kind == "render_value_spec"
+    assert len(spec.sections) == 1
+    col_names, data_rows, total_rows = spec.sections[0].tabular_preview
+    assert col_names == ["image", "attributes"]
+    assert data_rows[0] == ["<img1>", "Young"]
+    assert data_rows[1] == ["<img2>", "Bald"]
+    assert total_rows == 2
+
+
+def test_celebA_vector_renderer_no_preview_when_absent() -> None:
+    """render_value on a celebA-row vector with no _tabular_preview returns empty tabular."""
+    from mlody.core.multimethod import dispatch
+    from common.python.starlarkish.core.struct import Struct
+
+    element_type = Struct(kind="type", name="celebA-row", type_name="celebA-row")
+    type_struct = Struct(kind="type", name="vector", type_name="vector", element_type=element_type)
+    value_struct = Struct(
+        kind="value",
+        name="test-dataset",
+        type=type_struct,
+    )
+
+    ev = _run_with_render("pass")
+    methods = list(ev._method_registry.get("render_value", {}).get("methods", []))
+    spec = dispatch("render_value", (value_struct,), methods)
+
+    assert spec.kind == "render_value_spec"
+    assert len(spec.sections) == 1
+    assert spec.sections[0].tabular_preview is None

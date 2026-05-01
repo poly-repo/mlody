@@ -106,7 +106,10 @@ def _match_score(pattern: object, arg: object) -> int | None:
     if _is_struct_kind(pattern, "mm_value_pattern"):
         if not _is_struct_kind(arg, "value"):
             return None
-        fields: dict[str, object] = getattr(pattern, "fields", {}) or {}
+        raw_fields: Any = getattr(pattern, "fields", {}) or {}
+        # When mm.value() is called from Starlark, the struct() factory coerces
+        # the **kwargs dict into a Struct.  Normalise both cases to a mapping.
+        fields: Any = raw_fields.as_mapping() if hasattr(raw_fields, "as_mapping") else raw_fields
         if not fields:
             return 3
         total = 0

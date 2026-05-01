@@ -330,6 +330,74 @@ defmethod(render_value, [mm.value(type=mm.vector(element_type=mm.ANY))], _render
 
 
 # ---------------------------------------------------------------------------
+# celebA-row vector — 2-column image + attributes table.
+#
+# Detects boolean columns dynamically: a column is boolean when every
+# non-empty cell is "True" or "False" and at least one such cell exists.
+# The image column is the first non-boolean column (positional).
+# ---------------------------------------------------------------------------
+
+def _bool_cell(cell):
+    return cell == "True" or cell == "False"
+
+def _empty_cell(cell):
+    return cell == None or cell == ""
+
+def _is_bool_column(col_idx, data_rows):
+    has_bool = False
+    for row in data_rows:
+        cell = row[col_idx]
+        if _bool_cell(cell):
+            has_bool = True
+        elif not _empty_cell(cell):
+            return False
+    return has_bool
+
+def _celebA_tabular_preview(preview):
+    col_names = preview[0]
+    data_rows = preview[1]
+    total_rows = preview[2]
+
+    bool_col_indices = []
+    image_col_idx = None
+    for i, _col in enumerate(col_names):
+        if _is_bool_column(i, data_rows):
+            bool_col_indices.append(i)
+        elif image_col_idx == None:
+            image_col_idx = i
+
+    if image_col_idx == None:
+        return preview
+
+    new_rows = []
+    for row in data_rows:
+        image_cell = row[image_col_idx]
+        attrs = []
+        for i in bool_col_indices:
+            if row[i] == "True":
+                attrs.append(col_names[i])
+        new_rows.append([image_cell, ", ".join(attrs)])
+
+    return (["image", "attributes"], new_rows, total_rows)
+
+
+def _render_celebA_vector(ctx, value):
+    preview = python.getattr(value, "_tabular_preview", None)
+    transformed = _celebA_tabular_preview(preview) if preview != None else None
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [struct(name="Data", rows=[], tabular_preview=transformed)],
+    )
+
+defmethod(
+    render_value,
+    [mm.value(type=mm.vector(element_type=mm.T("celebA-row")))],
+    _render_celebA_vector,
+)
+
+
+# ---------------------------------------------------------------------------
 # Fallback — compact summary for any value.
 # ---------------------------------------------------------------------------
 
