@@ -57,10 +57,14 @@ def _match_score(pattern: object, arg: object) -> int | None:
 
     # --- mm.T scalar type pattern ---
     if _is_struct_kind(pattern, "mm_scalar_pattern"):
+        arg_type_name: str | None = None
         if _is_struct_kind(arg, "type"):
             arg_type_name = getattr(arg, "type_name", None) or getattr(arg, "name", None)
-            if arg_type_name == getattr(pattern, "type_name", None):
-                return 3
+        elif isinstance(arg, str) and arg.startswith(":"):
+            # Unresolved label reference stored by _make_factory, e.g. ":celebA-row"
+            arg_type_name = arg[1:]
+        if arg_type_name == getattr(pattern, "type_name", None):
+            return 3
         return None
 
     # --- mm.json / bare repr constant ---

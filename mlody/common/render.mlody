@@ -32,6 +32,9 @@ def _name_of(s):
     """Return the name/type string from a type, location, or representation struct."""
     if s == None:
         return "-"
+    # Unresolved label string like ":celebA-row" stored by _make_factory
+    if python.hasattr(s, "startswith"):
+        return s[1:] if s.startswith(":") else s
     n = python.getattr(s, "name", None)
     if n != None:
         return n
@@ -317,6 +320,13 @@ defmethod(render_value, [mm.value(representation=mm.json)], _render_json_value)
 # ---------------------------------------------------------------------------
 
 def _render_vector_value(ctx, value):
+    preview = python.getattr(value, "_tabular_preview", None)
+    if preview != None:
+        return struct(
+            kind     = "render_value_spec",
+            title    = _value_title(value),
+            sections = [struct(name="Data", rows=[], tabular_preview=preview)] + _source_section(value),
+        )
     return struct(
         kind     = "render_value_spec",
         title    = _value_title(value),

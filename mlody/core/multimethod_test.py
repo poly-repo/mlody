@@ -439,6 +439,33 @@ def test_dispatch_body_receives_original_args() -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# 11b. _match_score — mm.T matches string label element_type (real-world path)
+# ---------------------------------------------------------------------------
+
+
+def test_mm_T_matches_string_label_element_type() -> None:
+    """mm.T("celebA-row") matches a vector whose element_type is the string ":celebA-row".
+
+    _make_factory stores element_type as an unresolved label string in attributes;
+    dispatch must handle that as equivalent to a resolved type struct.
+    """
+    element_type_struct = _make_struct(kind="type", name="celebA-row", type_name="celebA-row")
+    vector_with_struct = _make_struct(kind="type", name="vector", type_name="vector",
+                                      element_type=element_type_struct)
+    vector_with_label = _make_struct(kind="type", name="vector", type_name="vector",
+                                     attributes={"element_type": ":celebA-row"})
+    pattern = vector_pattern(T("celebA-row"))
+
+    assert _match_score(pattern, vector_with_struct) == 6   # 3 + 3
+    assert _match_score(pattern, vector_with_label) == 6    # same score via label path
+
+
+def test_mm_T_plain_string_still_nonmatch() -> None:
+    """A plain string without ':' prefix does NOT match mm.T (no regression)."""
+    assert _match_score(T("string"), "string") is None
+
+
 def test_dispatch_composite_score_most_constrained_wins() -> None:
     """The most-constrained composite pattern wins.
 

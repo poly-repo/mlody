@@ -1065,11 +1065,34 @@ def _print_mlody_value(
                     if hasattr(value.label, "format_inner")
                     else str(value.label)
                 )
-                dispatch_struct = Struct(
-                    kind="value",
-                    name=label_str,
-                    _tabular_preview=_build_tabular_preview(raw_table, image_encoder=enc),
-                )
+                # When the label has a query transform (e.g. @sql), look up the
+                # base entity to recover its type struct for dispatch matching.
+                type_struct = None
+                entity_query = getattr(value.label, "entity_query", None)
+                entity = getattr(value.label, "entity", None)
+                if entity_query is not None and entity is not None:
+                    from mlody.core.label.label import Label as _Label  # noqa: PLC0415
+                    base_label = _Label(
+                        workspace=value.label.workspace,
+                        workspace_query=value.label.workspace_query,
+                        entity=entity,
+                        entity_query=None,
+                        attribute_path=value.label.attribute_path,
+                        attribute_query=value.label.attribute_query,
+                    )
+                    try:
+                        base_value = workspace.resolve(base_label.format_inner())
+                        type_struct = getattr(base_value, "type", None)
+                    except Exception:
+                        pass
+                dispatch_kwargs: dict[str, object] = {
+                    "kind": "value",
+                    "name": label_str,
+                    "_tabular_preview": _build_tabular_preview(raw_table, image_encoder=enc),
+                }
+                if type_struct is not None:
+                    dispatch_kwargs["type"] = type_struct
+                dispatch_struct = Struct(**dispatch_kwargs)
                 try:
                     spec = dispatch("render_value", (dispatch_struct,), methods)
                     dom_executor.render(_render_spec_to_dom(spec))
