@@ -108,4 +108,15 @@ http_archive(
     strip_prefix = "whisper.cpp-1.7.1",  # Match the tag version
     urls = ["https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.7.1.tar.gz"],
 )
+
+http_archive(
+    name = "mediapipe",
+    # MediaPipe v0.10.33 — pinned 2026-04-20
+    # Tag:    v0.10.33
+    # URL:    https://github.com/google-ai-edge/mediapipe/archive/refs/tags/v0.10.33.tar.gz
+    # SHA256: 460697149eb104bc0ba645b3cc0b35560ed7176f45f3a3966516431b955f7601
+    sha256 = "460697149eb104bc0ba645b3cc0b35560ed7176f45f3a3966516431b955f7601",
+    strip_prefix = "mediapipe-0.10.33",
+    urls = ["https://github.com/google-ai-edge/mediapipe/archive/refs/tags/v0.10.33.tar.gz"],
+)
 ##
