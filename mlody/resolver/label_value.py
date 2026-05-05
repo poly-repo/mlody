@@ -685,7 +685,7 @@ def promote_scalar_leaf(
         data=data,
         abstract=False,
         _root_kind="inline",
-        attributes={"data": data},
+        attributes={},
         _allowed_attrs={},
     )
 

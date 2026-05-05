@@ -180,6 +180,36 @@ class TestShowCommandCwdTarget:
         # task rendering includes "task:" prefix
         assert "task" in result.output or "lr" in result.output
 
+    def test_cwd_target_passes_config_overrides_to_resolve_workspace(
+        self, tmp_path: Path
+    ) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@bert//models:lr"]
+        resolved_value = MlodyTaskValue(struct=struct(kind="task", name="lr"))
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "--with", "@bert//models:cfg=abc123", "@bert//models:lr"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        mock_rw.assert_called_once_with(
+            "@bert//models:lr",
+            monorepo_root=tmp_path,
+            workspace_root=tmp_path,
+            config=("@bert//models:cfg=abc123",),
+            roots_file=None,
+            full_workspace=False,
+            verbose=False,
+        )
+
     def test_cwd_target_with_legacy_workspace_injection(self) -> None:
         # Existing tests inject workspace — this legacy path must still work
         ws = MagicMock()
@@ -191,6 +221,23 @@ class TestShowCommandCwdTarget:
 
         assert result.exit_code == 0
         assert "0.001" in result.output
+
+    def test_cwd_target_with_legacy_workspace_applies_config_overrides(self) -> None:
+        ws = MagicMock()
+        ws.resolve.return_value = 0.001
+        ws.root_infos = {}
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.configure_workspace") as mock_configure:
+            mock_configure.return_value = ws
+            result = runner.invoke(
+                cli,
+                ["show", "--with", "@bert//models:cfg=abc123", "@bert//models:lr"],
+                obj={"workspace": ws, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        mock_configure.assert_called_once_with(ws, ("@bert//models:cfg=abc123",))
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +269,7 @@ class TestShowCommandCommittoidTarget:
             "main|@bert//models:lr",
             monorepo_root=tmp_path,
             workspace_root=tmp_path,
+            config=(),
             roots_file=None,
             full_workspace=False,
             verbose=False,

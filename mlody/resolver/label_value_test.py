@@ -38,6 +38,7 @@ from mlody.resolver.label_value import (
     _value_rows,
     resolve_label_to_value,
 )
+from mlody.resolver.resolver import configure_workspace
 
 # ---------------------------------------------------------------------------
 # Shared .mlody file contents used across fixtures
@@ -710,6 +711,35 @@ builtins.register("value", struct(
         assert payload["name"] == "integer"
         assert payload["attributes"]["min"] == 1
         assert payload["validator"] == "<callable>"
+
+    def test_value_raw_reflects_configured_inline_payload(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        ws = _make_workspace(
+            fs,
+            {
+                "teams/myroot/entities.mlody": """\
+builtins.register("value", struct(
+    kind="value",
+    name="my_value",
+    type=struct(kind="type", type="string", name="string"),
+    location=struct(kind="location", type="inline", name="inline"),
+    _lineage=[],
+))
+""",
+            },
+        )
+        configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
+
+        result = resolve_label_to_value(parse_label("@myroot//entities:my_value.raw"), ws)
+
+        assert isinstance(result, MlodyValueValue)
+        payload = json.loads(force_virtual_value(result.struct))
+        assert payload["kind"] == "value"
+        assert payload["name"] == "my_value"
+        assert payload["location"]["data"] == "FOO"
+        assert payload["location"]["attributes"] == {}
 
 
 # ---------------------------------------------------------------------------

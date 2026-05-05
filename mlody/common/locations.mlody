@@ -46,6 +46,11 @@ def _make_location_factory(loc_struct):
         if not kwargs:
             return loc_struct
 
+        inline_data = None
+        location_attributes = dict(normalized_kwargs)
+        if python.getattr(loc_struct, "type", None) == "inline" and "data" in location_attributes:
+            inline_data = location_attributes.pop("data")
+
         captured_kwargs = dict(normalized_kwargs)
         def extra_validator(value):
             # v1 unification: equality check per constrained attribute
@@ -63,8 +68,9 @@ def _make_location_factory(loc_struct):
 
         return extend_attrs(
             base=loc_struct,
-            extra_attributes=captured_kwargs,
+            extra_attributes=location_attributes,
             extra_validator=extra_validator,
+            data=inline_data,
         )
 
     return factory

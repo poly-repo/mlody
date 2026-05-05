@@ -259,7 +259,8 @@ def test_inline_location_with_data() -> None:
     ev = _eval('value(name="v", location=inline(data="hello"))')
     v = ev.registry.values.by_name["v"]
     assert v.location.type == "inline"
-    assert v.location.attributes["data"] == "hello"
+    assert v.location.data == "hello"
+    assert "data" not in v.location.attributes
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from common.python.starlarkish.core.struct import Struct
 
 from mlody.resolver.errors import (
     AmbiguousRefError,
@@ -16,7 +17,13 @@ from mlody.resolver.errors import (
     UnknownRefError,
     WorkspaceResolutionError,
 )
-from mlody.resolver.resolver import ResolvedRef, parse_label, resolve_sha, resolve_workspace
+from mlody.resolver.resolver import (
+    ResolvedRef,
+    configure_workspace,
+    parse_label,
+    resolve_sha,
+    resolve_workspace,
+)
 
 SHA_MAIN = "a" * 40
 SHA_TAG = "b" * 40
@@ -241,6 +248,67 @@ class TestResolveShаLocalFallback:
 # ---------------------------------------------------------------------------
 
 
+class TestConfigureWorkspace:
+    """Requirement: CLI config overrides are applied through workspace-aware setf."""
+
+    def test_inline_value_target_updates_inline_location_payload(self) -> None:
+        workspace = MagicMock()
+        location = Struct(
+            kind="location",
+            type="inline",
+            name="inline",
+            attributes={},
+            _allowed_attrs={},
+        )
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="cfg",
+            type=Struct(kind="type", type="string", name="string"),
+            location=location,
+            _lineage=[],
+        )
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            result = configure_workspace(
+                workspace,
+                ["@lexica//services/release/api/image:cfg=abc123"],
+            )
+
+        assert result is workspace
+        mock_setf.assert_called_once()
+        call = mock_setf.call_args
+        assert call.args[0] == "@lexica//services/release/api/image:cfg.location"
+        updated_location = call.args[1]
+        assert updated_location.data == "abc123"
+        assert updated_location.attributes == {}
+        assert call.kwargs["workspace"] is workspace
+
+    def test_non_inline_target_uses_direct_setf_assignment(self) -> None:
+        workspace = MagicMock()
+        workspace.resolve.return_value = "old"
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            result = configure_workspace(
+                workspace,
+                ["@lexica//services/release/api/image:image.config.commit_sha=new-api"],
+            )
+
+        assert result is workspace
+        mock_setf.assert_called_once_with(
+            "@lexica//services/release/api/image:image.config.commit_sha",
+            "new-api",
+            workspace=workspace,
+        )
+
+    def test_invalid_config_entry_raises_workspace_resolution_error(self) -> None:
+        workspace = MagicMock()
+
+        with pytest.raises(WorkspaceResolutionError, match="LABEL=VALUE"):
+            configure_workspace(workspace, ["@lexica//services/release/api/image:image"])
+
+        workspace.resolve.assert_not_called()
+
+
 class TestResolveWorkspaceCwdPath:
     """Requirement: resolve_workspace cwd passthrough."""
 
@@ -275,6 +343,28 @@ class TestResolveWorkspaceCwdPath:
             ws, sha = resolve_workspace("//models:bert", monorepo_root=tmp_path)
 
         assert sha is None
+
+    def test_config_overrides_are_applied_before_return(self, tmp_path: Path) -> None:
+        with (
+            patch("mlody.resolver.resolver.Workspace") as mock_ws_cls,
+            patch("mlody.resolver.resolver.configure_workspace") as mock_configure,
+        ):
+            mock_ws = MagicMock()
+            mock_ws_cls.return_value = mock_ws
+            mock_configure.return_value = mock_ws
+
+            ws, sha = resolve_workspace(
+                "@lexica//models:bert",
+                monorepo_root=tmp_path,
+                config=["@lexica//models:bert.config.token=abc123"],
+            )
+
+        assert sha is None
+        assert ws is mock_ws
+        mock_configure.assert_called_once_with(
+            mock_ws,
+            ["@lexica//models:bert.config.token=abc123"],
+        )
 
 
 class TestResolveWorkspaceCommittoidPath:

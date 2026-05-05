@@ -8,7 +8,7 @@ import pwd
 import shutil
 import socket
 from pathlib import Path
-from typing import Callable, NamedTuple
+from typing import Callable, Iterable, NamedTuple
 
 from mlody.core.workspace import Workspace
 from mlody.db.evaluations import open_db, write_evaluation
@@ -27,6 +27,7 @@ from mlody.resolver.errors import (
     CorruptCacheError,
     NoMlodyAtCommitError,
     UnknownRefError,
+    WorkspaceResolutionError,
 )
 from mlody.resolver.git_client import GitClient
 
@@ -144,6 +145,51 @@ def parse_label(label: str) -> tuple[str | None, str]:
     return (committoid, inner_label)
 
 
+def _parse_config_assignment(raw: str) -> tuple[str, str]:
+    """Parse one ``LABEL=VALUE`` override string."""
+    ref, sep, value = raw.partition("=")
+    ref = ref.strip()
+    if not sep or not ref:
+        msg = f"Invalid --with override {raw!r}; expected LABEL=VALUE."
+        raise WorkspaceResolutionError(msg)
+    return (ref, value)
+
+
+def _updated_inline_location(location: object, value: str) -> object:
+    """Return an inline location with its canonical payload updated."""
+    from mlody.common.struct import struct_like_updated  # noqa: PLC0415
+
+    raw_attributes = getattr(location, "attributes", None)
+    if hasattr(raw_attributes, "as_mapping"):
+        attributes = dict(raw_attributes.as_mapping())
+    elif isinstance(raw_attributes, dict):
+        attributes = dict(raw_attributes)
+    else:
+        attributes = {}
+    attributes.pop("data", None)
+    return struct_like_updated(location, data=value, attributes=attributes)
+
+
+def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspace:
+    """Apply ``--with LABEL=VALUE`` overrides and return the configured workspace."""
+    from mlody.core.setf import setf  # noqa: PLC0415
+
+    for raw in config:
+        ref, value = _parse_config_assignment(raw)
+        resolved = workspace.resolve(ref)
+        if getattr(resolved, "kind", None) == "value":
+            location = getattr(resolved, "location", None)
+            if getattr(location, "type", None) == "inline":
+                setf(
+                    f"{ref}.location",
+                    _updated_inline_location(location, value),
+                    workspace=workspace,
+                )
+                continue
+        setf(ref, value, workspace=workspace)
+    return workspace
+
+
 def resolve_sha(committoid: str, git_client: GitClient) -> ResolvedRef:
     """Resolve a committoid (branch, tag, short/full SHA) to a ResolvedRef.
 
@@ -190,10 +236,13 @@ def resolve_sha(committoid: str, git_client: GitClient) -> ResolvedRef:
     # Fall back to local remote-tracking refs — covers merged/deleted branches
     # that were fetched locally but no longer appear on the remote.
     local_pairs = git_client.local_remote_tracking_refs()
-    local_branch_shas = {sha for sha, ref in local_pairs if ref == f"refs/heads/{committoid}"}
+    local_branch_shas = {
+        sha for sha, ref in local_pairs if ref == f"refs/heads/{committoid}"
+    }
     if len(local_branch_shas) == 1:
         _logger.debug(
-            "Ref %r not found on remote; resolved from local remote-tracking ref", committoid
+            "Ref %r not found on remote; resolved from local remote-tracking ref",
+            committoid,
         )
         return ResolvedRef(local_branch_shas.pop(), False)
 
@@ -201,7 +250,8 @@ def resolve_sha(committoid: str, git_client: GitClient) -> ResolvedRef:
     local_sha = git_client.rev_parse_local(committoid)
     if local_sha:
         _logger.debug(
-            "Ref %r not found on remote; resolved from local repo (not landed)", committoid
+            "Ref %r not found on remote; resolved from local repo (not landed)",
+            committoid,
         )
         return ResolvedRef(local_sha, True)
 
@@ -240,7 +290,13 @@ def materialise(
             git_client.clone_remote(dest=dest, sha=full_sha)
 
         repo_url = git_client.remote_url()
-        write_metadata(cache_root, full_sha, requested_ref=committoid, repo_url=repo_url, local_only=local_only)
+        write_metadata(
+            cache_root,
+            full_sha,
+            requested_ref=committoid,
+            repo_url=repo_url,
+            local_only=local_only,
+        )
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
         raise
@@ -287,6 +343,7 @@ def resolve_workspace(
     label: str,
     monorepo_root: Path,
     workspace_root: Path | None = None,
+    config: list[str] = [],
     roots_file: Path | None = None,
     full_workspace: bool = False,
     print_fn: Callable[..., None] = print,
@@ -327,7 +384,7 @@ def resolve_workspace(
             workspace_root=ws_root if ws_root != monorepo_root else None,
         )
         ws.load(verbose=verbose)
-        return (ws, None)
+        return (configure_workspace(ws, config), None)
 
     client = git_client or GitClient(monorepo_root)
     root = cache_root or (Path.home() / _DEFAULT_CACHE_SUFFIX)
@@ -336,7 +393,14 @@ def resolve_workspace(
     resolved = resolve_sha(committoid, client)
     _logger.debug("Resolved %s to %s", committoid, resolved.sha)
 
-    dest = materialise(resolved.sha, monorepo_root, client, root, committoid, local_only=resolved.local_only)
+    dest = materialise(
+        resolved.sha,
+        monorepo_root,
+        client,
+        root,
+        committoid,
+        local_only=resolved.local_only,
+    )
 
     if value_description:
         from datetime import datetime, timezone
@@ -360,4 +424,4 @@ def resolve_workspace(
         ws.load(verbose=verbose)
     except FileNotFoundError:
         raise NoMlodyAtCommitError(committoid, resolved.sha) from None
-    return (ws, resolved.sha)
+    return (configure_workspace(ws, config), resolved.sha)

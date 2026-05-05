@@ -53,6 +53,7 @@ from mlody.resolver import (
     MlodyValueValue,
     MlodyVectorValue,
     MlodyWorkspaceValue,
+    configure_workspace,
     resolve_label_to_value,
     resolve_workspace,
 )
@@ -368,12 +369,7 @@ def _kitty_encode(
                 if no_cursor_movement:
                     placement_parts.append("C=1")
                 placement_parts.append(f"m={more}")
-                parts.append(
-                    "\x1b_G"
-                    + ",".join(placement_parts)
-                    + ";"
-                    f"{chunk}\x1b\\"
-                )
+                parts.append("\x1b_G" + ",".join(placement_parts) + f";{chunk}\x1b\\")
             else:
                 parts.append(f"\x1b_Gm={more};{chunk}\x1b\\")
 
@@ -478,7 +474,9 @@ def _prepare_cell(value: object, *, image_encoder=None) -> _PreparedCell:
         img = _to_pil_image(value)
         if img is not None:
             encoded = None
-            display_width = max(1, cell_len(f"<{img.format or 'image'} {img.width}×{img.height}>"))
+            display_width = max(
+                1, cell_len(f"<{img.format or 'image'} {img.width}×{img.height}>")
+            )
             display_height = 1
             if image_encoder is not None:
                 if _image_encoder_supports_rich_tables(image_encoder):
@@ -492,7 +490,9 @@ def _prepare_cell(value: object, *, image_encoder=None) -> _PreparedCell:
                             display_height
                             * img.width
                             / max(1, img.height)
-                            * float(getattr(image_encoder, "rich_table_cell_aspect", 1.0))
+                            * float(
+                                getattr(image_encoder, "rich_table_cell_aspect", 1.0)
+                            )
                         ),
                     )
                     try:
@@ -727,7 +727,9 @@ def _format_value(
                     if _contains_terminal_control(cell.encoded)
                     and _image_encoder_supports_rich_tables(image_encoder)
                     else _prepared_cell_display(cell)
-                    for cell in (row[column_name] for column_name in preview.column_names)
+                    for cell in (
+                        row[column_name] for column_name in preview.column_names
+                    )
                 ]
             )
 
@@ -752,14 +754,12 @@ def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
     inner = "    " * (_depth + 1)
 
     if hasattr(obj, "as_mapping"):
-        fields = {
-            k: v
-            for k, v in obj.as_mapping().items()
-            if not k.startswith("_")
-        }
+        fields = {k: v for k, v in obj.as_mapping().items() if not k.startswith("_")}
         if not fields:
             return "struct()"
-        parts = [f"{inner}{k}={_pretty_struct_str(v, _depth + 1)}" for k, v in fields.items()]
+        parts = [
+            f"{inner}{k}={_pretty_struct_str(v, _depth + 1)}" for k, v in fields.items()
+        ]
         return "struct(\n" + ",\n".join(parts) + f",\n{pad})"
 
     if isinstance(obj, list):
@@ -771,7 +771,9 @@ def _pretty_struct_str(obj: object, _depth: int = 0) -> str:
     if isinstance(obj, dict):
         if not obj:
             return "{}"
-        parts = [f"{inner}{k!r}: {_pretty_struct_str(v, _depth + 1)}" for k, v in obj.items()]
+        parts = [
+            f"{inner}{k!r}: {_pretty_struct_str(v, _depth + 1)}" for k, v in obj.items()
+        ]
         return "{\n" + ",\n".join(parts) + f",\n{pad}}}"
 
     if callable(obj) and not isinstance(obj, type):
@@ -914,23 +916,30 @@ def _render_spec_to_dom(spec: object) -> RichDomNode:
         rows = list(getattr(s, "rows", None) or [])
         code = getattr(s, "code", None)
         if rows:
-            nodes.append(table(
-                [str(getattr(s, "name", "")), ""],
-                [[text(str(r[0])), text(str(r[1]))] for r in rows],
-            ))
+            nodes.append(
+                table(
+                    [str(getattr(s, "name", "")), ""],
+                    [[text(str(r[0])), text(str(r[1]))] for r in rows],
+                )
+            )
         if code is not None:
             language = str(getattr(s, "language", "python") or "python")
             nodes.append(SyntaxNode(str(code), language=language))
         tabular_preview = getattr(s, "tabular_preview", None)
         if tabular_preview is not None:
             col_names, data_rows, _total_rows = tabular_preview
-            nodes.append(table(
-                col_names,
-                [
-                    [cell if hasattr(cell, "render") else text(str(cell)) for cell in row]
-                    for row in data_rows
-                ],
-            ))
+            nodes.append(
+                table(
+                    col_names,
+                    [
+                        [
+                            cell if hasattr(cell, "render") else text(str(cell))
+                            for cell in row
+                        ]
+                        for row in data_rows
+                    ],
+                )
+            )
     return panel(stack(*nodes) if nodes else text("(no content)"), title=title)
 
 
@@ -965,7 +974,9 @@ def _print_mlody_value(
             if methods:
                 try:
                     lines_text = value.abs_path.read_text().splitlines()
-                    snippet = "\n".join(lines_text[value.start_line - 1 : value.end_line])
+                    snippet = "\n".join(
+                        lines_text[value.start_line - 1 : value.end_line]
+                    )
                 except Exception:
                     snippet = f"(could not read {value.abs_path})"
                 sr_struct = Struct(
@@ -977,11 +988,16 @@ def _print_mlody_value(
                 )
                 try:
                     spec = dispatch("render_value", (sr_struct,), methods)
-                    _logger.debug("render_value: dispatch succeeded for source-range %r", value.filepath)
+                    _logger.debug(
+                        "render_value: dispatch succeeded for source-range %r",
+                        value.filepath,
+                    )
                     dom_executor.render(_render_spec_to_dom(spec))
                     return
                 except DispatchError:
-                    _logger.debug("render_value: no method for source-range, falling back")
+                    _logger.debug(
+                        "render_value: no method for source-range, falling back"
+                    )
         dom_executor.render(value.to_console_representation())
         return
 
@@ -1011,7 +1027,9 @@ def _print_mlody_value(
             except Exception:
                 pass
 
-        raw_json = _raw_json_blob(display_payload, name=getattr(value.struct, "name", None))
+        raw_json = _raw_json_blob(
+            display_payload, name=getattr(value.struct, "name", None)
+        )
         if raw_json is not None:
             extra_fields["_display_json"] = raw_json
 
@@ -1029,11 +1047,17 @@ def _print_mlody_value(
                 )
                 try:
                     spec = dispatch("render_value", (dispatch_struct,), methods)
-                    _logger.debug("render_value: multimethod dispatch succeeded for %r", value.struct)
+                    _logger.debug(
+                        "render_value: multimethod dispatch succeeded for %r",
+                        value.struct,
+                    )
                     dom_executor.render(_render_spec_to_dom(spec))
                     return
                 except DispatchError:
-                    _logger.debug("render_value: no matching method for %r, falling back", value.struct)
+                    _logger.debug(
+                        "render_value: no matching method for %r, falling back",
+                        value.struct,
+                    )
 
         if tabular_source is not None and _print_tabular_source(
             tabular_source,
@@ -1048,7 +1072,11 @@ def _print_mlody_value(
         raw_table: pa.Table | None = None
         if isinstance(value.value, pa.Table):
             raw_table = value.value
-        elif isinstance(value.value, list) and value.value and all(isinstance(r, dict) for r in value.value):
+        elif (
+            isinstance(value.value, list)
+            and value.value
+            and all(isinstance(r, dict) for r in value.value)
+        ):
             try:
                 raw_table = pa.Table.from_pylist(value.value)
             except (pa.ArrowInvalid, pa.ArrowTypeError, TypeError, ValueError):
@@ -1072,6 +1100,7 @@ def _print_mlody_value(
                 entity = getattr(value.label, "entity", None)
                 if entity_query is not None and entity is not None:
                     from mlody.core.label.label import Label as _Label  # noqa: PLC0415
+
                     base_label = _Label(
                         workspace=value.label.workspace,
                         workspace_query=value.label.workspace_query,
@@ -1088,7 +1117,9 @@ def _print_mlody_value(
                 dispatch_kwargs: dict[str, object] = {
                     "kind": "value",
                     "name": label_str,
-                    "_tabular_preview": _build_tabular_preview(raw_table, image_encoder=enc),
+                    "_tabular_preview": _build_tabular_preview(
+                        raw_table, image_encoder=enc
+                    ),
                 }
                 if type_struct is not None:
                     dispatch_kwargs["type"] = type_struct
@@ -1176,9 +1207,15 @@ def _maybe_print_dag_plan(workspace: Workspace, label: str) -> None:
 
 
 @cli.command()
+@click.option(
+    "--with",
+    "config",
+    multiple=True,
+    help="Extra value; may be repeated.",
+)
 @click.argument("targets", nargs=-1, required=True)
 @click.pass_context
-def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
+def show(ctx: click.Context, config: list[str], targets: tuple[str, ...]) -> None:
     """Resolve and display pipeline values.
 
     TARGETS: One or more Bazel-style target references. A target may be
@@ -1187,7 +1224,7 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
     """
     # Support legacy test injection of a pre-built workspace via ctx.obj
     if "workspace" in ctx.obj:
-        _show_with_legacy_workspace(ctx, targets)
+        _show_with_legacy_workspace(ctx, config, targets)
         return
 
     monorepo_root: Path = ctx.obj["monorepo_root"]
@@ -1204,6 +1241,7 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
                 target,
                 monorepo_root=monorepo_root,
                 workspace_root=workspace_root,
+                config=config,
                 roots_file=roots,
                 full_workspace=full_workspace,
                 verbose=verbose,
@@ -1275,7 +1313,9 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
 
                 print()
                 _error_sink: list[bool] = []
-                _print_mlody_value(mlody_value, workspace=workspace, _has_error=_error_sink)
+                _print_mlody_value(
+                    mlody_value, workspace=workspace, _has_error=_error_sink
+                )
                 if _error_sink:
                     has_error = True
         except WorkspaceLoadError as exc:
@@ -1299,7 +1339,11 @@ def show(ctx: click.Context, targets: tuple[str, ...]) -> None:
         sys.exit(1)
 
 
-def _show_with_legacy_workspace(ctx: click.Context, targets: tuple[str, ...]) -> None:
+def _show_with_legacy_workspace(
+    ctx: click.Context,
+    config: list[str],
+    targets: tuple[str, ...],
+) -> None:
     """Handle the legacy test injection path where ctx.obj['workspace'] is set.
 
     This path is used by existing tests that inject a pre-built workspace mock.
@@ -1307,6 +1351,18 @@ def _show_with_legacy_workspace(ctx: click.Context, targets: tuple[str, ...]) ->
     """
     workspace: Workspace = ctx.obj["workspace"]
     has_error = False
+
+    try:
+        workspace = configure_workspace(workspace, config)
+    except WorkspaceResolutionError as exc:
+        click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
+        sys.exit(1)
+    except KeyError as exc:
+        click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
+        sys.exit(1)
+    except AttributeError as exc:
+        click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
+        sys.exit(1)
 
     for target in targets:
         try:

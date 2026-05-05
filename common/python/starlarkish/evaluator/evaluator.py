@@ -55,6 +55,20 @@ from typing import Any, Callable
 
 import uuid_utils
 
+try:
+    from mlody.common.struct import (
+        is_struct_like as _is_struct_like,
+        struct_like_as_mapping as _struct_like_as_mapping,
+    )
+except ModuleNotFoundError:
+    def _is_struct_like(value: object) -> bool:
+        return isinstance(value, Struct)
+
+    def _struct_like_as_mapping(value: object) -> Any:
+        if isinstance(value, Struct):
+            return value.as_mapping()
+        raise TypeError(f"expected Struct-like value, got {type(value).__name__}")
+
 from common.python.starlarkish.core.struct import Struct, struct
 from common.python.starlarkish.evaluator.registry import Named, RegistryState
 
@@ -251,7 +265,8 @@ def _runtime_json_data(obj: object, *, _seen: set[int] | None = None) -> object:
         _seen = set()
 
     is_container_like = (
-        isinstance(obj, (Struct, dict, list, tuple, set))
+        _is_struct_like(obj)
+        or isinstance(obj, (dict, list, tuple, set))
         or _looks_like_workspace(obj)
         or hasattr(obj, "__dict__")
     )
@@ -262,9 +277,9 @@ def _runtime_json_data(obj: object, *, _seen: set[int] | None = None) -> object:
         _seen.add(obj_id)
 
     try:
-        if isinstance(obj, Struct):
+        if _is_struct_like(obj):
             result: dict[str, object] = {}
-            for key, value in obj.as_mapping().items():
+            for key, value in _struct_like_as_mapping(obj).items():
                 if key in {"raw", "_entity_type"}:
                     continue
                 result[str(key)] = _runtime_json_data(value, _seen=_seen)
@@ -562,7 +577,10 @@ class Evaluator:
         owner_snapshot: Struct | None = None
         owner_name = str(fields.get("name", ""))
         for field_name, field_spec in materialized_specs:
-            if field_name in fields:
+            # Refresh derived raw snapshots when an entity is re-decorated after
+            # mutation. The existing virtual child may still capture the old
+            # owner snapshot and would otherwise materialize stale JSON.
+            if field_name in fields and field_name != "raw":
                 continue
             fields[field_name] = self._make_materialized_child_value(
                 field_name=field_name,
