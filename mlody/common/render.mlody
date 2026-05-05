@@ -220,6 +220,85 @@ def _type_rows_with_unit(value):
     return rows
 
 
+def _type_kind_name(type_struct):
+    """Return the canonical root kind or fallback name for a type struct."""
+    if type_struct == None:
+        return None
+    root_kind = _root_kind_of(type_struct)
+    if root_kind != None:
+        return root_kind
+    return _name_of(type_struct)
+
+
+def _is_simple_scalar_type(type_struct):
+    """Return True for primitive scalar-like types rendered as a single value."""
+    type_kind = _type_kind_name(type_struct)
+    return (
+        type_kind == "string"
+        or type_kind == "integer"
+        or type_kind == "float"
+        or type_kind == "bool"
+    )
+
+
+def _vector_element_type(type_struct):
+    """Return the element type struct for a vector type, if declared."""
+    if type_struct == None:
+        return None
+    attrs = python.getattr(type_struct, "attributes", None)
+    if attrs != None and python.hasattr(attrs, "get"):
+        et = attrs.get("element_type", None)
+        if et != None:
+            return et
+    return python.getattr(type_struct, "element_type", None)
+
+
+def _tuple_element_types(type_struct):
+    """Return the ordered element type list for a tuple type, if declared."""
+    if type_struct == None:
+        return None
+    attrs = python.getattr(type_struct, "attributes", None)
+    if attrs == None or not python.hasattr(attrs, "get"):
+        return None
+    return attrs.get("_element_types", None)
+
+
+def _is_simple_tuple_type(type_struct):
+    """Return True for tuple types whose declared elements are all simple scalars."""
+    if _root_kind_of(type_struct) != "tuple":
+        return False
+    element_types = _tuple_element_types(type_struct)
+    if element_types == None or len(element_types) == 0:
+        return False
+    for element_type in element_types:
+        if not _is_simple_scalar_type(element_type):
+            return False
+    return True
+
+
+def _inline_value_payload(value):
+    """Return the canonical inline payload, preferring location.data over default."""
+    location = python.getattr(value, "location", None)
+    if python.getattr(location, "type", None) != "inline":
+        return None
+    inline_data = python.getattr(location, "data", None)
+    if inline_data != None:
+        return inline_data
+    default = python.getattr(value, "default", None)
+    if default != None:
+        return default
+    return None
+
+
+def _render_inline_payload_value(value, payload):
+    """Render a simple inline payload without type/location metadata."""
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [struct(name="Value", rows=[], code=str(payload), language="text")],
+    )
+
+
 # ---------------------------------------------------------------------------
 # render_value generic
 # ---------------------------------------------------------------------------
@@ -327,6 +406,11 @@ def _render_vector_value(ctx, value):
             title    = _value_title(value),
             sections = [struct(name="Data", rows=[], tabular_preview=preview)] + _source_section(value),
         )
+    inline_payload = _inline_value_payload(value)
+    if inline_payload != None:
+        element_type = _vector_element_type(python.getattr(value, "type", None))
+        if _is_simple_scalar_type(element_type):
+            return _render_inline_payload_value(value, inline_payload)
     return struct(
         kind     = "render_value_spec",
         title    = _value_title(value),
@@ -405,6 +489,24 @@ defmethod(
     [mm.value(type=mm.vector(element_type=mm.T("celebA-row")))],
     _render_celebA_vector,
 )
+
+
+# ---------------------------------------------------------------------------
+# Simple inline scalars and tuples — render payload only.
+# ---------------------------------------------------------------------------
+
+def _render_simple_inline_value(ctx, value):
+    payload = _inline_value_payload(value)
+    if payload == None:
+        return _render_default_value(ctx, value)
+    type_struct = python.getattr(value, "type", None)
+    if _is_simple_scalar_type(type_struct):
+        return _render_inline_payload_value(value, payload)
+    if _is_simple_tuple_type(type_struct):
+        return _render_inline_payload_value(value, payload)
+    return _render_default_value(ctx, value)
+
+defmethod(render_value, [mm.value(type=mm.ANY)], _render_simple_inline_value)
 
 
 # ---------------------------------------------------------------------------

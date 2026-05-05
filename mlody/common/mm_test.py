@@ -459,10 +459,17 @@ def test_composite_score_most_constrained_wins() -> None:
 # render_value — celebA-row vector renderer
 # ---------------------------------------------------------------------------
 
+def _dispatch_render_value(value_struct: object) -> object:
+    """Dispatch the built-in render_value generic for a single value struct."""
+    from mlody.core.multimethod import dispatch
+
+    ev = _run_with_render("pass")
+    methods = list(ev._method_registry.get("render_value", {}).get("methods", []))
+    return dispatch("render_value", (value_struct,), methods)
+
 
 def test_celebA_vector_renderer_two_column_preview() -> None:
     """render_value on a vector-of-celebA-row produces image + attributes columns."""
-    from mlody.core.multimethod import dispatch
     from common.python.starlarkish.core.struct import Struct
 
     element_type = Struct(kind="type", name="celebA-row", type_name="celebA-row")
@@ -481,9 +488,7 @@ def test_celebA_vector_renderer_two_column_preview() -> None:
         ),
     )
 
-    ev = _run_with_render("pass")
-    methods = list(ev._method_registry.get("render_value", {}).get("methods", []))
-    spec = dispatch("render_value", (value_struct,), methods)
+    spec = _dispatch_render_value(value_struct)
 
     assert spec.kind == "render_value_spec"
     assert len(spec.sections) == 1
@@ -496,7 +501,6 @@ def test_celebA_vector_renderer_two_column_preview() -> None:
 
 def test_celebA_vector_renderer_no_preview_when_absent() -> None:
     """render_value on a celebA-row vector with no _tabular_preview returns empty tabular."""
-    from mlody.core.multimethod import dispatch
     from common.python.starlarkish.core.struct import Struct
 
     element_type = Struct(kind="type", name="celebA-row", type_name="celebA-row")
@@ -507,10 +511,126 @@ def test_celebA_vector_renderer_no_preview_when_absent() -> None:
         type=type_struct,
     )
 
-    ev = _run_with_render("pass")
-    methods = list(ev._method_registry.get("render_value", {}).get("methods", []))
-    spec = dispatch("render_value", (value_struct,), methods)
+    spec = _dispatch_render_value(value_struct)
 
     assert spec.kind == "render_value_spec"
     assert len(spec.sections) == 1
     assert spec.sections[0].tabular_preview is None
+
+
+def test_inline_string_value_renders_payload_only() -> None:
+    """Inline primitive values render their payload with no metadata sections."""
+    from common.python.starlarkish.core.struct import Struct
+
+    value_struct = Struct(
+        kind="value",
+        name="greeting",
+        type=Struct(kind="type", name="string", type_name="string", _root_kind="string"),
+        location=Struct(kind="location", type="inline", data="hello", attributes={}),
+        default=None,
+    )
+
+    spec = _dispatch_render_value(value_struct)
+
+    assert spec.kind == "render_value_spec"
+    assert len(spec.sections) == 1
+    assert spec.sections[0].rows == []
+    assert spec.sections[0].code == "hello"
+    assert spec.sections[0].language == "text"
+
+
+def test_inline_string_value_uses_default_when_location_has_no_data() -> None:
+    """Defaulted inline primitives still render as bare values."""
+    from common.python.starlarkish.core.struct import Struct
+
+    value_struct = Struct(
+        kind="value",
+        name="greeting",
+        type=Struct(kind="type", name="string", type_name="string", _root_kind="string"),
+        location=Struct(kind="location", type="inline", attributes={}),
+        default="bonjour",
+    )
+
+    spec = _dispatch_render_value(value_struct)
+
+    assert spec.kind == "render_value_spec"
+    assert len(spec.sections) == 1
+    assert spec.sections[0].code == "bonjour"
+
+
+def test_inline_vector_of_simple_elements_renders_payload_only() -> None:
+    """Inline vectors of primitive elements render as the collection payload."""
+    from common.python.starlarkish.core.struct import Struct
+
+    string_type = Struct(kind="type", name="string", type_name="string", _root_kind="string")
+    vector_type = Struct(
+        kind="type",
+        name="vector",
+        type_name="vector",
+        _root_kind="vector",
+        attributes={"element_type": string_type},
+    )
+    value_struct = Struct(
+        kind="value",
+        name="labels",
+        type=vector_type,
+        location=Struct(kind="location", type="inline", data=["cat", "dog"], attributes={}),
+        default=None,
+    )
+
+    spec = _dispatch_render_value(value_struct)
+
+    assert spec.kind == "render_value_spec"
+    assert len(spec.sections) == 1
+    assert spec.sections[0].rows == []
+    assert spec.sections[0].code == "['cat', 'dog']"
+
+
+def test_inline_tuple_of_simple_elements_renders_payload_only() -> None:
+    """Inline tuples with primitive element declarations render as plain payload."""
+    from common.python.starlarkish.core.struct import Struct
+
+    integer_type = Struct(kind="type", name="integer", type_name="integer", _root_kind="integer")
+    bool_type = Struct(kind="type", name="bool", type_name="bool", _root_kind="bool")
+    tuple_type = Struct(
+        kind="type",
+        name="pair",
+        type_name="pair",
+        _root_kind="tuple",
+        attributes={"_element_types": [integer_type, bool_type]},
+    )
+    value_struct = Struct(
+        kind="value",
+        name="pair",
+        type=tuple_type,
+        location=Struct(kind="location", type="inline", data=(3, True), attributes={}),
+        default=None,
+    )
+
+    spec = _dispatch_render_value(value_struct)
+
+    assert spec.kind == "render_value_spec"
+    assert len(spec.sections) == 1
+    assert spec.sections[0].rows == []
+    assert spec.sections[0].code == "(3, True)"
+
+
+def test_non_inline_primitive_value_keeps_metadata_rendering() -> None:
+    """Primitive values stored outside inline locations still show metadata."""
+    from common.python.starlarkish.core.struct import Struct
+
+    value_struct = Struct(
+        kind="value",
+        name="greeting",
+        type=Struct(kind="type", name="string", type_name="string", _root_kind="string"),
+        location=Struct(kind="location", type="posix", attributes={"path": "/tmp/greeting.txt"}),
+        default=None,
+        representation=None,
+    )
+
+    spec = _dispatch_render_value(value_struct)
+
+    assert spec.kind == "render_value_spec"
+    assert len(spec.sections) == 2
+    assert spec.sections[0].name == "Type"
+    assert spec.sections[1].name == "Location"
