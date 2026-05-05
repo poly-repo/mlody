@@ -57,7 +57,7 @@ def test_integer_uses_attributes_field() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert hasattr(data, "attributes"), "expected .attributes field"
     assert not hasattr(data, "constraints"), "legacy .constraints must not exist"
     assert data.attributes == {"min": 0}  # type: ignore[attr-defined]
@@ -80,7 +80,7 @@ def test_allowed_attrs_is_dict() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     allowed = data._allowed_attrs  # type: ignore[attr-defined]
     assert isinstance(allowed, dict), (
         f"_allowed_attrs should be dict, got {type(allowed)}"
@@ -140,7 +140,7 @@ def test_typedef_stores_materialized_fields_on_type_struct() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     declared_fields = data.attributes["fields"]  # type: ignore[attr-defined]
     assert declared_fields[0].name == "info"
     assert callable(getattr(declared_fields[0], "materializer", None))
@@ -166,8 +166,8 @@ def test_typedef_with_attrs() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    assert "stepped_int" in ev._types_by_name
-    t = ev._types_by_name["stepped_int"]
+    assert "stepped_int" in ev.registry.types.by_name
+    t = ev.registry.types.by_name["stepped_int"]
     assert "step" in t._allowed_attrs  # type: ignore[attr-defined]
     assert t._allowed_attrs["step"] == "integer"  # type: ignore[attr-defined]
 
@@ -214,7 +214,7 @@ def test_typedef_attrs_inherit_base() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._types_by_name["bounded_int"]
+    t = ev.registry.types.by_name["bounded_int"]
     allowed = t._allowed_attrs  # type: ignore[attr-defined]
     # Inherited from integer
     assert "min" in allowed
@@ -241,7 +241,7 @@ def test_tier2_validation() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    pos_int = ev._types_by_name["pos_int"]
+    pos_int = ev.registry.types.by_name["pos_int"]
 
     # Valid integer passes
     assert pos_int.validator(42)  # type: ignore[attr-defined]
@@ -272,7 +272,7 @@ def test_typedef_factory_injected_in_scope() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    factory = ev._roots_by_name["r"].factory  # type: ignore[attr-defined]
+    factory = ev.registry.roots.by_name["r"].factory  # type: ignore[attr-defined]
     assert callable(factory)
 
 
@@ -293,7 +293,7 @@ def test_typedef_factory_no_kwargs_returns_type() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.kind == "type"  # type: ignore[attr-defined]
 
 
@@ -314,7 +314,7 @@ def test_typedef_factory_with_valid_kwargs() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.attributes["max"] == 17  # type: ignore[attr-defined]
     assert t.attributes["min"] == 0  # type: ignore[attr-defined]
 
@@ -336,7 +336,7 @@ def test_typedef_factory_combined_validator() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    child_age = ev._roots_by_name["r"].child_age  # type: ignore[attr-defined]
+    child_age = ev.registry.roots.by_name["r"].child_age  # type: ignore[attr-defined]
     # 17 is valid (at the boundary)
     assert child_age.validator(17)  # type: ignore[attr-defined]
     # 18 exceeds the narrowed max=17
@@ -412,7 +412,7 @@ def test_typedef_factory_inherits_chain_attrs() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.attributes["step"] == 2  # type: ignore[attr-defined]
     assert t.attributes["factor"] == 3  # type: ignore[attr-defined]
 
@@ -438,7 +438,7 @@ def test_attr_type_struct_direct() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    child = ev._types_by_name["child"]
+    child = ev.registry.types.by_name["child"]
     assert "birth_age" in child._allowed_attrs  # type: ignore[attr-defined]
 
 
@@ -462,7 +462,7 @@ def test_typedef_factory_cross_file_load() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "consumer.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.attributes["max"] == 50  # type: ignore[attr-defined]
 
 
@@ -491,7 +491,7 @@ def test_typedef_factory_distinct_across_files() -> None:
         ev.eval_file(root / "consumer.mlody")
 
     # score from team_a has max=100 in its attributes
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.attributes.get("max") == 100  # type: ignore[attr-defined]
 
 
@@ -512,7 +512,7 @@ def test_string_factory_via_typedef() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.kind == "type"  # type: ignore[attr-defined]
     assert data.attributes.get("pattern") == "[a-z]+"  # type: ignore[attr-defined]
 
@@ -534,7 +534,7 @@ def test_float_factory_enforces_constraints() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.kind == "type"  # type: ignore[attr-defined]
     assert data.validator(0.75)  # type: ignore[attr-defined]
 
@@ -565,7 +565,7 @@ def test_bool_factory_returns_type_struct() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.kind == "type"  # type: ignore[attr-defined]
     assert data.name == "bool"  # type: ignore[attr-defined]
 
@@ -587,7 +587,7 @@ def test_integer_no_kwargs_returns_type_struct() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.kind == "type"  # type: ignore[attr-defined]
     assert data.name == "integer"  # type: ignore[attr-defined]
     assert data.attributes == {}  # type: ignore[attr-defined]
@@ -610,7 +610,7 @@ def test_vector_factory_via_typedef() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.kind == "type"  # type: ignore[attr-defined]
     assert data.attributes["min_length"] == 1  # type: ignore[attr-defined]
     assert data.attributes["element_type"].name == "integer"  # type: ignore[attr-defined]
@@ -628,7 +628,7 @@ def test_vector_validator_accepts_valid_list() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator([1, 2, 3])  # type: ignore[attr-defined]
 
 
@@ -644,7 +644,7 @@ def test_vector_validator_rejects_wrong_element_type() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         data.validator([1, "oops", 3])  # type: ignore[attr-defined]
 
@@ -661,7 +661,7 @@ def test_vector_validator_enforces_min_length() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator([1, 2])  # type: ignore[attr-defined]
     with pytest.raises(ValueError):
         data.validator([1])  # type: ignore[attr-defined]
@@ -679,7 +679,7 @@ def test_vector_without_element_type_returns_valid_struct() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.kind == "type"  # type: ignore[attr-defined]
     assert data.name == "vector"  # type: ignore[attr-defined]
 
@@ -714,7 +714,7 @@ def test_tuple_factory_via_typedef() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.kind == "type"  # type: ignore[attr-defined]
     assert data.name == "tuple"  # type: ignore[attr-defined]
 
@@ -731,7 +731,7 @@ def test_tuple_validator_accepts_list() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator([1, "a", True])  # type: ignore[attr-defined]
 
 
@@ -747,7 +747,7 @@ def test_tuple_validator_rejects_dict() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         data.validator({"x": 1})  # type: ignore[attr-defined]
 
@@ -769,7 +769,7 @@ def test_positional_tuple_typedef() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._types_by_name["point"]
+    t = ev.registry.types.by_name["point"]
     assert t.kind == "type"  # type: ignore[attr-defined]
     assert t.name == "point"  # type: ignore[attr-defined]
 
@@ -786,7 +786,7 @@ def test_positional_tuple_validator_accepts_correct_value() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator([1.0, 2.5])  # type: ignore[attr-defined]
 
 
@@ -802,7 +802,7 @@ def test_positional_tuple_validator_rejects_wrong_length() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     with pytest.raises(ValueError, match="length"):
         t.validator([1.0])  # type: ignore[attr-defined]
 
@@ -819,7 +819,7 @@ def test_positional_tuple_validator_rejects_wrong_element_type() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         t.validator([1.0, "not-a-float"])  # type: ignore[attr-defined]
 
@@ -845,7 +845,7 @@ def test_typedef_predicate_valid_value() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator(4)  # type: ignore[attr-defined]
 
 
@@ -865,7 +865,7 @@ def test_typedef_predicate_rejects_odd() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     with pytest.raises(ValueError):
         t.validator(3)  # type: ignore[attr-defined]
 
@@ -886,7 +886,7 @@ def test_typedef_predicate_base_constraint_still_applies() -> None:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
 
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     with pytest.raises(ValueError):
         t.validator(0)  # type: ignore[attr-defined]
 
@@ -920,7 +920,7 @@ def test_map_accepts_string_keyed_dict() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator({"a": 1, "b": "x"})  # type: ignore[attr-defined]
 
 
@@ -935,7 +935,7 @@ def test_map_rejects_non_string_key_without_key_type() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         data.validator({1: "x"})  # type: ignore[attr-defined]
 
@@ -951,7 +951,7 @@ def test_map_rejects_non_dict() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         data.validator([1, 2, 3])  # type: ignore[attr-defined]
 
@@ -967,7 +967,7 @@ def test_map_value_type_accepts_valid() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator({"a": 1})  # type: ignore[attr-defined]
 
 
@@ -982,7 +982,7 @@ def test_map_value_type_rejects_wrong_value() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         data.validator({"a": "x"})  # type: ignore[attr-defined]
 
@@ -998,7 +998,7 @@ def test_map_key_type_and_value_type() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator({1: "a"})  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         data.validator({"a": "b"})  # type: ignore[attr-defined]
@@ -1020,7 +1020,7 @@ def test_map_fields_valid_dict_passes() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator({"x": 1.0, "y": 2.5})  # type: ignore[attr-defined]
 
 
@@ -1035,7 +1035,7 @@ def test_map_fields_missing_required_key_raises() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     with pytest.raises(ValueError, match="missing"):
         data.validator({"x": 1.0})  # type: ignore[attr-defined]
 
@@ -1051,7 +1051,7 @@ def test_map_fields_wrong_value_type_raises() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         data.validator({"x": 1.0, "y": "bad"})  # type: ignore[attr-defined]
 
@@ -1067,7 +1067,7 @@ def test_map_fields_extra_key_allowed_by_default() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator({"x": 1.0, "y": 2.5, "z": 0.0})  # type: ignore[attr-defined]
 
 
@@ -1082,7 +1082,7 @@ def test_map_fields_strict_rejects_extra_key() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator({"x": 1.0})  # type: ignore[attr-defined]
     with pytest.raises(ValueError, match="unexpected"):
         data.validator({"x": 1.0, "extra": "oops"})  # type: ignore[attr-defined]
@@ -1099,7 +1099,7 @@ def test_map_fields_optional_field_not_required() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator({"x": 1.0})  # type: ignore[attr-defined]
     assert data.validator({"x": 1.0, "label": "A"})  # type: ignore[attr-defined]
 
@@ -1115,7 +1115,7 @@ def test_map_fields_with_integer_key_type() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.validator({0: "hello", 1: 3.14})  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         data.validator({"a": "hello", "b": 3.14})  # type: ignore[attr-defined]
@@ -1140,8 +1140,8 @@ def test_typedef_fields_registers_named_type() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    assert "point2d" in ev._types_by_name
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    assert "point2d" in ev.registry.types.by_name
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.kind == "type"  # type: ignore[attr-defined]
 
 
@@ -1159,7 +1159,7 @@ def test_typedef_fields_validator_accepts_valid() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator({"x": 1.0, "y": 2.5})  # type: ignore[attr-defined]
 
 
@@ -1177,7 +1177,7 @@ def test_typedef_fields_extra_key_allowed_by_default() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator({"x": 1.0, "y": 2.5, "z": 0.0})  # type: ignore[attr-defined]
 
 
@@ -1200,7 +1200,7 @@ def test_typedef_fields_strict_rejects_extra_key() -> None:
     with InMemoryFS(files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator({"x": 1.0, "y": 2.0})  # type: ignore[attr-defined]
     assert t.validator({"x": 1.0, "y": 2.0, "label": "A"})  # type: ignore[attr-defined]
     with pytest.raises(ValueError, match="unexpected"):
@@ -1222,7 +1222,7 @@ def test_canonical_stored_on_type_struct() -> None:
         )
         builtins.register("root", struct(name="r", t=email_address()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert hasattr(t, "canonical"), "type struct should have .canonical"
     assert t.canonical("  USER@EXAMPLE.COM  ") == "user@example.com"  # type: ignore[attr-defined]
 
@@ -1241,7 +1241,7 @@ def test_canonical_inherited_by_derived_type() -> None:
         )
         builtins.register("root", struct(name="r", t=gmail_address()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert hasattr(t, "canonical"), "derived type should inherit .canonical"
     assert t.canonical("  ME@GMAIL.COM  ") == "me@gmail.com"  # type: ignore[attr-defined]
 
@@ -1256,7 +1256,7 @@ def test_canonical_can_return_none() -> None:
         )
         builtins.register("root", struct(name="r", t=hex_prefix()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.canonical("abc123") is None  # type: ignore[attr-defined]
     assert t.canonical("a" * 40) == "a" * 40  # type: ignore[attr-defined]
 
@@ -1276,7 +1276,7 @@ def test_canonical_override_in_derived_type() -> None:
         )
         builtins.register("root", struct(name="r", t=upper_hex()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     full_hash = "abcd" * 10
     assert t.canonical(full_hash) == full_hash.upper()  # type: ignore[attr-defined]
     assert t.canonical("short") is None  # type: ignore[attr-defined]
@@ -1292,7 +1292,7 @@ def test_canonical_on_fields_typedef() -> None:
         )
         builtins.register("root", struct(name="r", t=point2d()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert hasattr(t, "canonical"), "fields typedef should store .canonical"
     result = t.canonical({"x": 1.123456, "y": 2.987654})  # type: ignore[attr-defined]
     assert result == {"x": 1.12, "y": 2.99}
@@ -1315,7 +1315,7 @@ def test_abstract_flag_on_hierarchy_roots() -> None:
             string=string(),
         ))
     """)
-    r = ev._roots_by_name["r"]  # type: ignore[attr-defined]
+    r = ev.registry.roots.by_name["r"]  # type: ignore[attr-defined]
     assert r.any.abstract is True  # type: ignore[attr-defined]
     assert r.scalar.abstract is True  # type: ignore[attr-defined]
     assert r.aggregate.abstract is True  # type: ignore[attr-defined]
@@ -1337,7 +1337,7 @@ def test_primitive_validators_unchanged_after_hierarchy() -> None:
             map_t=map(),
         ))
     """)
-    r = ev._roots_by_name["r"]  # type: ignore[attr-defined]
+    r = ev.registry.roots.by_name["r"]  # type: ignore[attr-defined]
     assert r.int_t.validator(42)  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         r.int_t.validator("not-int")  # type: ignore[attr-defined]
@@ -1375,7 +1375,7 @@ def test_abstract_type_not_inherited_by_concrete() -> None:
     ev = _eval("""\
         builtins.register("root", struct(name="r", int_t=integer(), scalar_t=scalar()))
     """)
-    r = ev._roots_by_name["r"]  # type: ignore[attr-defined]
+    r = ev.registry.roots.by_name["r"]  # type: ignore[attr-defined]
     assert r.scalar_t.abstract is True  # type: ignore[attr-defined]
     assert r.int_t.abstract is False  # type: ignore[attr-defined]
 
@@ -1387,9 +1387,9 @@ def test_abstract_type_not_inherited_by_concrete() -> None:
 
 
 def test_struct_typedef_registered() -> None:
-    """After loading types.mlody, 'record' is registered in ev._types_by_name."""
+    """After loading types.mlody, 'record' is registered in ev.registry.types.by_name."""
     ev = _eval("")
-    assert "record" in ev._types_by_name
+    assert "record" in ev.registry.types.by_name
 
 
 def test_struct_validates_dict_with_fields() -> None:
@@ -1398,7 +1398,7 @@ def test_struct_validates_dict_with_fields() -> None:
         t = record(fields=[field(name="x", type=float()), field(name="y", type=float())])
         builtins.register("root", struct(name="r", t=t))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator({"x": 1.0, "y": 2.5})  # type: ignore[attr-defined]
 
 
@@ -1408,7 +1408,7 @@ def test_struct_rejects_missing_required_field() -> None:
         t = record(fields=[field(name="x", type=float()), field(name="y", type=float())])
         builtins.register("root", struct(name="r", t=t))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     with pytest.raises(ValueError, match="missing"):
         t.validator({"x": 1.0})  # type: ignore[attr-defined]
 
@@ -1419,22 +1419,22 @@ def test_struct_strict_rejects_extra_key() -> None:
         t = record(fields=[field(name="x", type=float())], strict=True)
         builtins.register("root", struct(name="r", t=t))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator({"x": 1.0})  # type: ignore[attr-defined]
     with pytest.raises(ValueError, match="unexpected"):
         t.validator({"x": 1.0, "extra": "oops"})  # type: ignore[attr-defined]
 
 
 def test_mlody_folder_typedef_registered() -> None:
-    """After loading types.mlody, 'mlody-folder' is registered in ev._types_by_name."""
+    """After loading types.mlody, 'mlody-folder' is registered in ev.registry.types.by_name."""
     ev = _eval("")
-    assert "mlody-folder" in ev._types_by_name
+    assert "mlody-folder" in ev.registry.types.by_name
 
 
 def test_mlody_source_typedef_registered() -> None:
-    """After loading types.mlody, 'mlody-source' is registered in ev._types_by_name."""
+    """After loading types.mlody, 'mlody-source' is registered in ev.registry.types.by_name."""
     ev = _eval("")
-    assert "mlody-source" in ev._types_by_name
+    assert "mlody-source" in ev.registry.types.by_name
 
 
 def test_deferred_label_element_type_resolution() -> None:
@@ -1443,7 +1443,7 @@ def test_deferred_label_element_type_resolution() -> None:
         t = vector(element_type=":string")
         builtins.register("root", struct(name="r", t=t))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator(["hello", "world"])  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         t.validator([1, 2])  # type: ignore[attr-defined]
@@ -1452,7 +1452,7 @@ def test_deferred_label_element_type_resolution() -> None:
 def test_mlody_source_entities_accepts_dict() -> None:
     """mlody-source validator accepts a dict for the entities field."""
     ev = _eval("")
-    src_type = ev._types_by_name["mlody-source"]
+    src_type = ev.registry.types.by_name["mlody-source"]
     assert src_type.validator({"entities": {}})
     assert src_type.validator({"entities": {"action/train:run": object()}})
 
@@ -1460,7 +1460,7 @@ def test_mlody_source_entities_accepts_dict() -> None:
 def test_mlody_source_entities_rejects_non_dict() -> None:
     """mlody-source validator rejects a non-dict value for entities."""
     ev = _eval("")
-    src_type = ev._types_by_name["mlody-source"]
+    src_type = ev.registry.types.by_name["mlody-source"]
     with pytest.raises((TypeError, ValueError)):
         src_type.validator({"entities": []})
 
@@ -1468,7 +1468,7 @@ def test_mlody_source_entities_rejects_non_dict() -> None:
 def test_mlody_folder_files_accepts_mlody_source_dicts() -> None:
     """mlody-folder validator accepts a files list of valid mlody-source dicts."""
     ev = _eval("")
-    folder_type = ev._types_by_name["mlody-folder"]
+    folder_type = ev.registry.types.by_name["mlody-folder"]
     valid_source = {"entities": {}}
     assert folder_type.validator({"subfolders": [], "files": [valid_source]})
 
@@ -1476,7 +1476,7 @@ def test_mlody_folder_files_accepts_mlody_source_dicts() -> None:
 def test_mlody_folder_subfolders_accepts_nested_folder() -> None:
     """mlody-folder.subfolders resolves :mlody-folder lazily and validates recursively."""
     ev = _eval("")
-    folder_type = ev._types_by_name["mlody-folder"]
+    folder_type = ev.registry.types.by_name["mlody-folder"]
     inner = {"subfolders": [], "files": []}
     outer = {"subfolders": [inner], "files": []}
     assert folder_type.validator(outer)
@@ -1493,7 +1493,7 @@ def test_bool_accepts_python_true_false() -> None:
     ev = _eval("""\
         builtins.register("root", struct(name="r", t=bool()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator(True)  # type: ignore[attr-defined]
     assert t.validator(False)  # type: ignore[attr-defined]
 
@@ -1503,7 +1503,7 @@ def test_bool_accepts_truthy_strings() -> None:
     ev = _eval("""\
         builtins.register("root", struct(name="r", t=bool()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     for s in ("true", "yes", "1", "TRUE", "Yes", "YES", "True"):
         assert t.validator(s), f"expected bool validator to accept {s!r}"  # type: ignore[attr-defined]
 
@@ -1513,7 +1513,7 @@ def test_bool_accepts_falsy_strings() -> None:
     ev = _eval("""\
         builtins.register("root", struct(name="r", t=bool()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     for s in ("false", "no", "0", "FALSE", "No", "False"):
         assert t.validator(s), f"expected bool validator to accept {s!r}"  # type: ignore[attr-defined]
 
@@ -1523,7 +1523,7 @@ def test_bool_accepts_int_zero_one() -> None:
     ev = _eval("""\
         builtins.register("root", struct(name="r", t=bool()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator(0)  # type: ignore[attr-defined]
     assert t.validator(1)  # type: ignore[attr-defined]
 
@@ -1533,7 +1533,7 @@ def test_bool_rejects_other_int() -> None:
     ev = _eval("""\
         builtins.register("root", struct(name="r", t=bool()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     for v in (2, -1, 42):
         with pytest.raises(TypeError):
             t.validator(v)  # type: ignore[attr-defined]
@@ -1544,7 +1544,7 @@ def test_bool_rejects_other_string() -> None:
     ev = _eval("""\
         builtins.register("root", struct(name="r", t=bool()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     for s in ("maybe", "y", "", "on", "off"):
         with pytest.raises(TypeError):
             t.validator(s)  # type: ignore[attr-defined]
@@ -1555,7 +1555,7 @@ def test_bool_canonical_normalises_to_python_bool() -> None:
     ev = _eval("""\
         builtins.register("root", struct(name="r", t=bool()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert hasattr(t, "canonical"), "bool type struct must have .canonical"
     # Truthy inputs map to True
     assert t.canonical("yes") is True  # type: ignore[attr-defined]
@@ -1583,7 +1583,7 @@ def test_repr_factory_creates_struct() -> None:
         )
         builtins.register("root", struct(name="r", data=r))
     """)
-    data = ev._roots_by_name["r"].data  # type: ignore[attr-defined]
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
     assert data.kind == "repr"  # type: ignore[attr-defined]
     assert data.name == "parsed"  # type: ignore[attr-defined]
     assert hasattr(data, "type")  # type: ignore[attr-defined]
@@ -1610,7 +1610,7 @@ def test_typedef_representations_string_accepted() -> None:
         )
         builtins.register("root", struct(name="r", t=email()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator("user@domain.com")  # type: ignore[attr-defined]
 
 
@@ -1634,7 +1634,7 @@ def test_typedef_representations_struct_coerced() -> None:
         )
         builtins.register("root", struct(name="r", t=email()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     assert t.validator({"user": "alice", "domain": "example.com"})  # type: ignore[attr-defined]
 
 
@@ -1657,7 +1657,7 @@ def test_typedef_representations_invalid_raises() -> None:
         )
         builtins.register("root", struct(name="r", t=email()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     with pytest.raises(TypeError, match="email"):
         t.validator(42)  # type: ignore[attr-defined]
 
@@ -1683,7 +1683,7 @@ def test_typedef_representations_order() -> None:
         )
         builtins.register("root", struct(name="r", t=label()))
     """)
-    t = ev._roots_by_name["r"].t  # type: ignore[attr-defined]
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
     # String passes canonical check
     assert t.validator("hello")  # type: ignore[attr-defined]
     # Integer matches first repr
@@ -1695,17 +1695,17 @@ def test_typedef_representations_order() -> None:
 def test_mlody_descriptor_types_are_registered() -> None:
     ev = _eval("")
 
-    assert "mlody-source-range" in ev._types_by_name
-    assert "mlody-value" in ev._types_by_name
-    assert "mlody-task" in ev._types_by_name
-    assert "mlody-action" in ev._types_by_name
-    assert "mlody-root" in ev._types_by_name
+    assert "mlody-source-range" in ev.registry.types.by_name
+    assert "mlody-value" in ev.registry.types.by_name
+    assert "mlody-task" in ev.registry.types.by_name
+    assert "mlody-action" in ev.registry.types.by_name
+    assert "mlody-root" in ev.registry.types.by_name
 
 
 def test_mlody_descriptor_types_declare_source_range_field() -> None:
     ev = _eval("")
 
-    source_range_type = ev._types_by_name["mlody-source-range"]
+    source_range_type = ev.registry.types.by_name["mlody-source-range"]
     source_range_fields = source_range_type.attributes["fields"]  # type: ignore[attr-defined]
     assert [field.name for field in source_range_fields] == [
         "filepath",
@@ -1714,7 +1714,7 @@ def test_mlody_descriptor_types_declare_source_range_field() -> None:
     ]
 
     for type_name in ("mlody-value", "mlody-task", "mlody-action", "mlody-root"):
-        descriptor = ev._types_by_name[type_name]
+        descriptor = ev.registry.types.by_name[type_name]
         fields = descriptor.attributes["fields"]  # type: ignore[attr-defined]
         assert fields[0].name == "_source_range"
         assert fields[0].type.name == "mlody-source-range"
@@ -1722,12 +1722,12 @@ def test_mlody_descriptor_types_declare_source_range_field() -> None:
         assert fields[1].type.name == "string"
         assert callable(getattr(fields[1], "materializer", None))
 
-    task_descriptor = ev._types_by_name["mlody-task"]
+    task_descriptor = ev.registry.types.by_name["mlody-task"]
     task_fields = task_descriptor.attributes["fields"]  # type: ignore[attr-defined]
     assert [field.name for field in task_fields] == ["_source_range", "raw", "_hash"]
     assert task_fields[2].type.name == "string"
     assert callable(getattr(task_fields[2], "materializer", None))
 
-    workspace_descriptor = ev._types_by_name["mlody-workspace"]
+    workspace_descriptor = ev.registry.types.by_name["mlody-workspace"]
     workspace_fields = workspace_descriptor.attributes["fields"]  # type: ignore[attr-defined]
     assert [field.name for field in workspace_fields] == ["_source_range", "raw", "info"]

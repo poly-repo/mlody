@@ -329,7 +329,7 @@ def test_action_with_container_implementation_stores_struct() -> None:
         '  implementation=container(build=bazel(target="//x:img")),\n'
         ')\n'
     )
-    a = ev._actions_by_name["train"]
+    a = ev.registry.actions.by_name["train"]
     assert a.implementation.kind == "implementation"
     assert a.implementation.type == "container"
 

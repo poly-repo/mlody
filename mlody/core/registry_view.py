@@ -1,8 +1,8 @@
 """Evaluator-facing registry wrapper used by the mlody Python runtime.
 
 This module is the only production code allowed to touch evaluator internals
-such as ``_roots_by_name``, ``_module_globals``, ``_types_by_name``, and
-``all``.
+such as ``registry.roots.by_name``, ``_module_globals``,
+``registry.types.by_name``, and ``registry.all``.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class RegistryView:
 
     def build_root_infos(self) -> dict[str, RootInfo]:
         root_infos: dict[str, RootInfo] = {}
-        for _key, root_obj in self._evaluator.roots.items():
+        for _key, root_obj in self._evaluator.registry.roots.by_key.items():
             name = root_obj.name
             root_infos[name] = RootInfo(
                 name=name,
@@ -57,16 +57,16 @@ class RegistryView:
             path=root_path,
             description=description,
         )
-        self._evaluator._roots_by_name[root_name] = self._evaluator.decorate_registered_value(
+        self._evaluator.registry.roots.by_name[root_name] = self._evaluator.decorate_registered_value(
             "root",
             placeholder,
         )
 
     def has_root(self, root_name: str) -> bool:
-        return root_name in self._evaluator._roots_by_name
+        return root_name in self._evaluator.registry.roots.by_name
 
     def available_root_names(self) -> tuple[str, ...]:
-        return tuple(sorted(self._evaluator._roots_by_name))
+        return tuple(sorted(self._evaluator.registry.roots.by_name))
 
     def propagate_globals_as_persistent_injections(
         self, file_path: Path, names: list[str]
@@ -83,31 +83,31 @@ class RegistryView:
                 self._evaluator._persistent_injections[name] = file_globals[name]
 
     def root_value(self, root_name: str) -> object:
-        return self._evaluator._roots_by_name[root_name]
+        return self._evaluator.registry.roots.by_name[root_name]
 
     def root_mapping(self) -> Mapping[str, object]:
-        return self._evaluator._roots_by_name
+        return self._evaluator.registry.roots.by_name
 
     def root_values_snapshot(self) -> dict[str, object]:
-        return dict(self._evaluator._roots_by_name)
+        return dict(self._evaluator.registry.roots.by_name)
 
     def task_values_snapshot(self) -> dict[str, object]:
-        return dict(self._evaluator._tasks_by_name)
+        return dict(self._evaluator.registry.tasks.by_name)
 
     def action_values_snapshot(self) -> dict[str, object]:
-        return dict(self._evaluator._actions_by_name)
+        return dict(self._evaluator.registry.actions.by_name)
 
     def value_values_snapshot(self) -> dict[str, object]:
-        return dict(self._evaluator._values_by_name)
+        return dict(self._evaluator.registry.values.by_name)
 
     def set_root_value(self, root_name: str, value: object) -> None:
-        self._evaluator._roots_by_name[root_name] = self._evaluator.decorate_registered_value(
+        self._evaluator.registry.roots.by_name[root_name] = self._evaluator.decorate_registered_value(
             "root",
             value,
         )
 
     def type_by_name(self, type_name: str) -> object | None:
-        return self._evaluator._types_by_name.get(type_name)
+        return self._evaluator.registry.types.by_name.get(type_name)
 
     def ensure_module_loaded(self, file_path: Path) -> None:
         if not self.is_loaded(file_path):
@@ -131,7 +131,7 @@ class RegistryView:
         self,
     ) -> tuple[tuple[tuple[object, object, object], object], ...]:
         items: list[tuple[tuple[object, object, object], object]] = []
-        for key, value in self._evaluator.all.items():
+        for key, value in self._evaluator.registry.all.items():
             if isinstance(key, tuple) and len(key) == 3:
                 items.append((key, value))
         return tuple(items)
@@ -144,7 +144,7 @@ class RegistryView:
         inferred_kind = key[0] if isinstance(key[0], str) else None
         if inferred_kind is not None:
             value = self._evaluator.decorate_registered_value(inferred_kind, value)
-        self._evaluator.all[key] = value
+        self._evaluator.registry.all[key] = value
 
     def set_workspace_attribute(self, attribute_name: str, value: object) -> None:
         if self._workspace_attribute_writer is None:
@@ -157,7 +157,7 @@ class RegistryView:
     def debug_dump(self) -> dict[str, object]:
         return {
             str(key): value.to_dict() if hasattr(value, "to_dict") else value
-            for key, value in self._evaluator.all.items()
+            for key, value in self._evaluator.registry.all.items()
         }
 
     def match_registry_entity_label(

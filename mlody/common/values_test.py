@@ -69,8 +69,8 @@ def _resolve_and_validate(ev: Evaluator) -> None:
 def test_value_with_direct_structs_registers_correctly() -> None:
     """TC-001: value(name='x', type=integer(), location=s3()) → kind='value'."""
     ev = _eval('value(name="x", type=integer(), location=s3())')
-    assert "x" in ev._values_by_name
-    v = ev._values_by_name["x"]
+    assert "x" in ev.registry.values.by_name
+    v = ev.registry.values.by_name["x"]
     assert v.kind == "value"
     assert v.name == "x"
 
@@ -78,7 +78,7 @@ def test_value_with_direct_structs_registers_correctly() -> None:
 def test_value_stores_type_and_location_name() -> None:
     """TC-001: value struct holds .type.name and .location.name."""
     ev = _eval('value(name="x", type=integer(), location=s3())')
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.type.name == "integer"
     assert v.location.name == "s3"
 
@@ -91,7 +91,7 @@ def test_value_stores_type_and_location_name() -> None:
 def test_value_string_type_label_resolves_to_type_struct() -> None:
     """TC-002: type='integer' (string) resolves to the integer type struct."""
     ev = _eval('value(name="y", type="integer", location=s3())')
-    v = ev._values_by_name["y"]
+    v = ev.registry.values.by_name["y"]
     assert v.type.kind == "type"
     assert v.type.name == "integer"
 
@@ -104,7 +104,7 @@ def test_value_string_type_label_resolves_to_type_struct() -> None:
 def test_value_string_location_label_resolves_to_location_struct() -> None:
     """TC-003: location='s3' (string) resolves to the s3 location struct."""
     ev = _eval('value(name="z", type=integer(), location="s3")')
-    v = ev._values_by_name["z"]
+    v = ev.registry.values.by_name["z"]
     assert v.location.kind == "location"
     assert v.location.name == "s3"
 
@@ -112,7 +112,7 @@ def test_value_string_location_label_resolves_to_location_struct() -> None:
 def test_value_string_freshness_label_resolves_to_freshness_struct() -> None:
     """freshness='always' (string) resolves to the always freshness struct."""
     ev = _eval('value(name="z", type=integer(), freshness="always")')
-    v = ev._values_by_name["z"]
+    v = ev.registry.values.by_name["z"]
     assert v.freshness.kind == "freshness"
     assert v.freshness.name == "always"
 
@@ -125,7 +125,7 @@ def test_value_string_freshness_label_resolves_to_freshness_struct() -> None:
 def test_value_stores_constrained_type_struct() -> None:
     """TC-004: type=integer(max=100) stores the constrained struct."""
     ev = _eval('value(name="bounded", type=integer(max=100), location=s3())')
-    v = ev._values_by_name["bounded"]
+    v = ev.registry.values.by_name["bounded"]
     assert v.type.kind == "type"
     assert v.type.attributes.get("max") == 100
 
@@ -138,7 +138,7 @@ def test_value_stores_constrained_type_struct() -> None:
 def test_value_stores_constrained_location_struct() -> None:
     """TC-005: location=s3(bucket='prod') stores the constrained struct."""
     ev = _eval('value(name="prod_data", type=integer(), location=s3(bucket="prod"))')
-    v = ev._values_by_name["prod_data"]
+    v = ev.registry.values.by_name["prod_data"]
     assert v.location.kind == "location"
     assert v.location.attributes.get("bucket") == "prod"
 
@@ -146,7 +146,7 @@ def test_value_stores_constrained_location_struct() -> None:
 def test_value_stores_constrained_freshness_struct() -> None:
     """freshness=ttl(duration='P1D') stores the constrained struct."""
     ev = _eval('value(name="prod_data", type=integer(), freshness=ttl(duration="P1D"))')
-    v = ev._values_by_name["prod_data"]
+    v = ev.registry.values.by_name["prod_data"]
     assert v.freshness.kind == "freshness"
     assert v.freshness.attributes.get("duration") == "P1D"
 
@@ -215,14 +215,14 @@ def test_value_location_struct_as_freshness_raises_type_error() -> None:
 def test_value_has_empty_lineage_on_creation() -> None:
     """TC-010: a new value has _lineage == []."""
     ev = _eval('value(name="v", type=integer(), location=s3())')
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert v._lineage == []
 
 
 def test_value_lineage_is_a_list() -> None:
     """TC-010: _lineage is a list, not None or missing."""
     ev = _eval('value(name="v", type=integer(), location=s3())')
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert isinstance(v._lineage, list)
 
 
@@ -233,7 +233,7 @@ def test_value_lineage_is_a_list() -> None:
 
 def test_value_allows_missing_location() -> None:
     ev = _eval('value(name="v", type=integer())')
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert v.type.kind == "type"
     assert v.location.type == "inline"
     assert v.freshness.type == "always"
@@ -241,7 +241,7 @@ def test_value_allows_missing_location() -> None:
 
 def test_value_allows_missing_type() -> None:
     ev = _eval('value(name="v", location=s3())')
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert v.type.name == "nothing"
     assert v.location.kind == "location"
     assert v.freshness.type == "always"
@@ -249,7 +249,7 @@ def test_value_allows_missing_type() -> None:
 
 def test_both_defaults_applied() -> None:
     ev = _eval('value(name="v")')
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert v.type.name == "nothing"
     assert v.location.type == "inline"
     assert v.freshness.type == "always"
@@ -257,7 +257,7 @@ def test_both_defaults_applied() -> None:
 
 def test_inline_location_with_data() -> None:
     ev = _eval('value(name="v", location=inline(data="hello"))')
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert v.location.type == "inline"
     assert v.location.attributes["data"] == "hello"
 
@@ -279,20 +279,20 @@ def test_inline_location_with_data() -> None:
 )
 def test_value_stores_default_builtin_types(expr: str, expected: object) -> None:
     ev = _eval(f'value(name="v", type=integer(), location=inline(), default={expr})')
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert v.default == expected
 
 
 def test_value_stores_dict_literal_default() -> None:
     ev = _eval('value(name="v", type=integer(), location=inline(), default={"k": "v"})')
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     # In starlarkish, dict literals are represented as Struct values.
     assert getattr(v.default, "k", None) == "v"
 
 
 def test_value_stores_tuple_literal_default() -> None:
     ev = _eval('value(name="v", type=integer(), location=inline(), default=(1, 2))')
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     # Tuples are normalized to list in runtime values.
     assert v.default == [1, 2]
 
@@ -307,7 +307,7 @@ def test_value_with_representation_json_carries_representation_struct() -> None:
     and result.representation.name == 'json'.
     """
     ev = _eval('value(name="x", type=integer(), location=s3(), representation=json())')
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is not None
     assert v.representation.kind == "representation"
     assert v.representation.name == "json"
@@ -315,7 +315,7 @@ def test_value_with_representation_json_carries_representation_struct() -> None:
 
 def test_value_with_representation_text_defaults_markup_to_none() -> None:
     ev = _eval('value(name="x", type=integer(), location=s3(), representation=text())')
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is not None
     assert v.representation.kind == "representation"
     assert v.representation.name == "text"
@@ -326,7 +326,7 @@ def test_value_with_representation_text_accepts_markdown_markup() -> None:
     ev = _eval(
         'value(name="x", type=integer(), location=s3(), representation=text(markup="markdown"))'
     )
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is not None
     assert v.representation.name == "text"
     assert v.representation.markup == "markdown"
@@ -344,7 +344,7 @@ def test_value_with_representation_parquet_defaults() -> None:
         'typedef(name="row_schema", base=record(fields=[field(name="id", type=integer())]))\n'
         'value(name="x", type=integer(), location=s3(), representation=parquet(schema=row_schema()))'
     )
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is not None
     assert v.representation.name == "parquet"
     assert v.representation.multifile is False
@@ -360,7 +360,7 @@ def test_value_with_representation_parquet_supports_string_schema_ref() -> None:
         'typedef(name="row_schema", base=record(fields=[field(name="id", type=integer())]))\n'
         'value(name="x", type=integer(), location=s3(), representation=parquet(schema="row_schema"))'
     )
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is not None
     assert v.representation.name == "parquet"
     assert v.representation.schema.name == "row_schema"
@@ -383,7 +383,7 @@ def test_value_with_representation_parquet_accepts_bounds_and_multifile() -> Non
         '  ),\n'
         ')\n'
     )
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is not None
     assert v.representation.name == "parquet"
     assert v.representation.multifile is True
@@ -425,7 +425,7 @@ def test_value_with_representation_parquet_rejects_invalid_total_bounds() -> Non
 
 def test_value_with_representation_csv_defaults() -> None:
     ev = _eval('value(name="x", type=integer(), location=s3(), representation=csv())')
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is not None
     assert v.representation.name == "csv"
     assert v.representation.separator == ","
@@ -439,7 +439,7 @@ def test_value_with_representation_csv_accepts_optional_record_schema() -> None:
         'typedef(name="row_schema", base=record(fields=[field(name="id", type=integer())]))\n'
         'value(name="x", type=integer(), location=s3(), representation=csv(schema=row_schema()))'
     )
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is not None
     assert v.representation.name == "csv"
     assert v.representation.schema.name == "row_schema"
@@ -455,7 +455,7 @@ def test_value_with_representation_csv_accepts_string_schema_and_options() -> No
         '  representation=csv(schema="row_schema", separator="|", header_required=False, multifile=True),\n'
         ')\n'
     )
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is not None
     assert v.representation.name == "csv"
     assert v.representation.schema.name == "row_schema"
@@ -493,7 +493,7 @@ def test_value_with_representation_csv_rejects_empty_separator() -> None:
 def test_value_without_representation_has_representation_none() -> None:
     """5.2: value() without representation attr → result.representation is None."""
     ev = _eval('value(name="x", type=integer(), location=s3())')
-    v = ev._values_by_name["x"]
+    v = ev.registry.values.by_name["x"]
     assert v.representation is None
 
 
@@ -519,14 +519,14 @@ def test_value_source_string_label_stored_verbatim() -> None:
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", type=string(), location=s3(), source=":upstream")\n'
     )
-    src = ev._values_by_name["v"].source
+    src = ev.registry.values.by_name["v"].source
     assert src == ":upstream"
 
 
 def test_value_source_unknown_string_stored_verbatim() -> None:
     """TC-016a: unknown label string is kept as-is (resolved lazily by DAG builder)."""
     ev = _eval('value(name="v", type=integer(), location=s3(), source=":nonexistent")')
-    assert ev._values_by_name["v"].source == ":nonexistent"
+    assert ev.registry.values.by_name["v"].source == ":nonexistent"
 
 
 def test_value_source_as_value_struct() -> None:
@@ -535,7 +535,7 @@ def test_value_source_as_value_struct() -> None:
         'upstream = value(name="upstream", type=integer(), location=s3())\n'
         'value(name="downstream", type=string(), location=s3(), source=upstream)\n'
     )
-    src = ev._values_by_name["downstream"].source
+    src = ev.registry.values.by_name["downstream"].source
     assert src.kind == "value"
     assert src.name == "upstream"
 
@@ -549,7 +549,7 @@ def test_value_source_wrong_kind_raises_type_error() -> None:
 def test_value_source_defaults_to_none() -> None:
     """TC-016d: value() without source has source=None."""
     ev = _eval('value(name="v", type=integer(), location=s3())')
-    assert ev._values_by_name["v"].source is None
+    assert ev.registry.values.by_name["v"].source is None
 
 
 def test_value_source_stores_context_policy() -> None:
@@ -557,7 +557,7 @@ def test_value_source_stores_context_policy() -> None:
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", type=string(), location=s3(), source=":upstream")\n'
     )
-    value = ev._values_by_name["v"]
+    value = ev.registry.values.by_name["v"]
     assert value._context_attr_policies["source"] == (
         "standalone",
         "task.inputs",
@@ -588,7 +588,7 @@ def test_value_source_with_sql_suffix_produces_derived_location() -> None:
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
     )
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert v.location is not None
     assert v.location.type == "derived"
 
@@ -599,7 +599,7 @@ def test_value_source_with_sql_suffix_derived_location_has_source_ref() -> None:
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
     )
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     loc = v.location
     assert loc.attributes.get("source_ref") == ":upstream"
 
@@ -610,7 +610,7 @@ def test_value_source_with_sql_suffix_derived_location_has_sql_fragment() -> Non
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
     )
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     loc = v.location
     assert loc.attributes.get("sql_fragment") == "WHERE split='train'"
 
@@ -621,7 +621,7 @@ def test_value_source_with_sql_suffix_derived_location_has_duckdb_dialect() -> N
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
     )
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     loc = v.location
     assert loc.attributes.get("dialect") == "duckdb"
 
@@ -632,7 +632,7 @@ def test_value_source_with_sql_suffix_derived_location_has_output_path() -> None
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
     )
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     loc = v.location
     output_path = loc.attributes.get("output_path")
     assert isinstance(output_path, str)
@@ -655,7 +655,7 @@ def test_value_source_with_sql_suffix_deterministic_output_path() -> None:
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", source=":upstream[@sql WHERE split=\'train\']")\n'
     )
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert v.location.attributes.get("output_path") == expected_path
 
 
@@ -669,8 +669,8 @@ def test_value_source_with_sql_suffix_different_fragment_different_path() -> Non
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", source=":upstream[@sql WHERE split=\'test\']")\n'
     )
-    path1 = ev1._values_by_name["v"].location.attributes.get("output_path")
-    path2 = ev2._values_by_name["v"].location.attributes.get("output_path")
+    path1 = ev1.registry.values.by_name["v"].location.attributes.get("output_path")
+    path2 = ev2.registry.values.by_name["v"].location.attributes.get("output_path")
     assert path1 != path2
 
 
@@ -689,7 +689,7 @@ def test_value_source_without_sql_suffix_location_unaffected() -> None:
         'value(name="upstream", type=integer(), location=s3())\n'
         'value(name="v", source="upstream")\n'
     )
-    v = ev._values_by_name["v"]
+    v = ev.registry.values.by_name["v"]
     assert v.location.type == "inline"
 
 
@@ -707,7 +707,7 @@ def test_value_sql_derived_inherits_type_from_record_source() -> None:
         'value(name="base", type=splits(), location=s3())\n'
         'value(name="derived", source=":base[@sql WHERE Bald=True]")\n'
     )
-    v = ev._values_by_name["derived"]
+    v = ev.registry.values.by_name["derived"]
     assert v.type is not None
     assert v.type.name == "splits"
 
@@ -721,7 +721,7 @@ def test_value_sql_derived_source_paths_extracted_from_source_location() -> None
         'value(name="base", type=integer(), location=posix(path="data/*.parquet"))\n'
         "value(name=\"derived\", source=\":base[@sql WHERE split='train']\")\n"
     )
-    loc = ev._values_by_name["derived"].location
+    loc = ev.registry.values.by_name["derived"].location
     assert loc is not None
     assert loc.type == "derived"
     assert loc.attributes.get("source_paths") == ["data/*.parquet"]
@@ -734,7 +734,7 @@ def test_value_query_source_is_valid_when_standalone() -> None:
     )
 
     _resolve_and_validate(ev)
-    assert ev._values_by_name["derived"].location.type == "derived"
+    assert ev.registry.values.by_name["derived"].location.type == "derived"
 
 
 def test_value_remote_csv_source_with_sql_suffix_produces_derived_location() -> None:
@@ -749,7 +749,7 @@ def test_value_remote_csv_source_with_sql_suffix_produces_derived_location() -> 
     )
 
     _resolve_and_validate(ev)
-    assert ev._values_by_name["high_paid"].location.type == "derived"
+    assert ev.registry.values.by_name["high_paid"].location.type == "derived"
 
 
 def test_value_remote_csv_query_source_stashes_hidden_source_value() -> None:
@@ -763,7 +763,7 @@ def test_value_remote_csv_query_source_stashes_hidden_source_value() -> None:
         'value(name="high_paid", source=":raw_employees[@sql WHERE salary > 100000]")\n'
     )
 
-    value = ev._values_by_name["high_paid"]
+    value = ev.registry.values.by_name["high_paid"]
     assert value.source == ":raw_employees"
     assert value._source_value.name == "raw_employees"
     assert value._source_value.location.type == "remote"
@@ -776,7 +776,7 @@ def test_value_plain_source_stashes_hidden_source_value_when_resolvable() -> Non
         'location=posix(path="data/raw_employees.csv"), source=":raw_employees")\n'
     )
 
-    value = ev._values_by_name["raw_employees_local"]
+    value = ev.registry.values.by_name["raw_employees_local"]
     assert value.source == ":raw_employees"
     assert value._source_value.name == "raw_employees"
     assert value._source_value.location.type == "s3"
@@ -789,21 +789,21 @@ def test_value_plain_forward_source_does_not_require_lookup_success() -> None:
         'value(name="raw_employees", type=integer(), location=s3())\n'
     )
 
-    value = ev._values_by_name["raw_employees_local"]
+    value = ev.registry.values.by_name["raw_employees_local"]
     assert value.source == ":raw_employees"
     assert not hasattr(value, "_source_value")
 
 
 def test_value_stores_group_and_context_policy() -> None:
     ev = _eval('value(name="artifact", type=string(), location=s3(), group="train")')
-    value = ev._values_by_name["artifact"]
+    value = ev.registry.values.by_name["artifact"]
     assert value.group == "train"
     assert value._context_attr_policies == {"group": ("task.outputs",)}
 
 
 def test_value_stores_constraint_and_context_policy() -> None:
     ev = _eval('value(name="cfg", type=string(), location=inline(), constraint="x > 0")')
-    value = ev._values_by_name["cfg"]
+    value = ev.registry.values.by_name["cfg"]
     assert value.constraint == "x > 0"
     assert value._context_attr_policies == {
         "constraint": ("task.config", "task.action.config")
@@ -812,13 +812,13 @@ def test_value_stores_constraint_and_context_policy() -> None:
 
 def test_value_without_unit_defaults_to_none() -> None:
     ev = _eval('value(name="distance", type=float(), location=inline())')
-    value = ev._values_by_name["distance"]
+    value = ev.registry.values.by_name["distance"]
     assert value.unit is None
 
 
 def test_value_parses_unit_for_numeric_type() -> None:
     ev = _eval('value(name="distance", type=float(), location=inline(), unit="m / s")')
-    value = ev._values_by_name["distance"]
+    value = ev.registry.values.by_name["distance"]
     assert value.unit is not None
     assert value.unit.to_string() == "m / s"
 
@@ -828,7 +828,7 @@ def test_value_parses_unit_for_numeric_typedef() -> None:
         'typedef(name="distance", base=float(min=0.0))\n'
         'value(name="run", type=distance(), location=inline(), unit="km")'
     )
-    value = ev._values_by_name["run"]
+    value = ev.registry.values.by_name["run"]
     assert value.unit is not None
     assert value.unit.to_string() == "km"
 
@@ -874,5 +874,5 @@ def test_value_with_contextual_attr_requires_materialized_context() -> None:
 def test_value_attaches_declared_entity_type() -> None:
     ev = _eval('value(name="artifact", type=string(), location=inline())')
 
-    value = ev._values_by_name["artifact"]
+    value = ev.registry.values.by_name["artifact"]
     assert value._entity_type.name == "mlody-value"

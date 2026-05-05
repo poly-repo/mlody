@@ -74,8 +74,8 @@ def test_action_registers_with_kind_action() -> None:
         'value(name="out", type=integer(), location=s3())\n'
         'action(name="my_action", inputs=["inp"], outputs=["out"], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n'
     )
-    assert "my_action" in ev._actions_by_name
-    a = ev._actions_by_name["my_action"]
+    assert "my_action" in ev.registry.actions.by_name
+    a = ev.registry.actions.by_name["my_action"]
     assert a.kind == "action"
     assert a.name == "my_action"
 
@@ -91,7 +91,7 @@ def test_action_stores_inputs_and_outputs() -> None:
         'value(name="out", type=string(), location=s3())\n'
         'action(name="a", inputs=["inp"], outputs=["out"], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n'
     )
-    a = ev._actions_by_name["a"]
+    a = ev.registry.actions.by_name["a"]
     assert a.inputs[0].name == "inp"
     assert a.outputs[0].name == "out"
 
@@ -106,7 +106,7 @@ def test_action_string_value_label_resolves() -> None:
         'value(name="my_val", type=integer(), location=s3())\n'
         'action(name="a", inputs=["my_val"], outputs=[], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n'
     )
-    a = ev._actions_by_name["a"]
+    a = ev.registry.actions.by_name["a"]
     assert a.inputs[0].name == "my_val"
     assert a.inputs[0].kind == "value"
 
@@ -118,7 +118,7 @@ def test_action_string_value_label_resolves() -> None:
 
 def test_action_empty_inputs_and_outputs_allowed() -> None:
     ev = _eval('action(name="empty", inputs=[], outputs=[], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n')
-    a = ev._actions_by_name["empty"]
+    a = ev.registry.actions.by_name["empty"]
     assert a.inputs == []
     assert a.outputs == []
 
@@ -143,7 +143,7 @@ def test_action_config_value_refs_stored() -> None:
         'value(name="cfg", type=integer(), location=s3())\n'
         'action(name="a", inputs=[], outputs=[], config=["cfg"], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n'
     )
-    a = ev._actions_by_name["a"]
+    a = ev.registry.actions.by_name["a"]
     assert len(a.config) == 1
     assert a.config[0].name == "cfg"
 
@@ -193,7 +193,7 @@ def test_action_implementation_stores_container_struct() -> None:
         '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
         ')\n'
     )
-    a = ev._actions_by_name["a"]
+    a = ev.registry.actions.by_name["a"]
     assert a.implementation.kind == "implementation"
     assert a.implementation.type == "container"
 
@@ -218,7 +218,7 @@ def test_action_requirements_default_to_empty_list() -> None:
     ev = _eval(
         'action(name="a", inputs=[], outputs=[], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n'
     )
-    a = ev._actions_by_name["a"]
+    a = ev.registry.actions.by_name["a"]
     assert a.requirements == []
 
 
@@ -243,7 +243,7 @@ def test_action_requirements_stored_for_supported_kinds() -> None:
         '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
         ')\n'
     )
-    a = ev._actions_by_name["a"]
+    a = ev.registry.actions.by_name["a"]
     assert len(a.requirements) == 5
     assert a.requirements[0].requirement == "memory"
     assert a.requirements[3].requirement == "cpu"
@@ -285,7 +285,7 @@ def test_action_cpu_requirement_defaults_type_to_star() -> None:
         '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
         ')\n'
     )
-    a = ev._actions_by_name["a"]
+    a = ev.registry.actions.by_name["a"]
     assert len(a.requirements) == 1
     assert a.requirements[0].requirement == "cpu"
     assert a.requirements[0].type == "*"
@@ -301,7 +301,7 @@ def test_action_gpu_requirement_defaults_type_to_star() -> None:
         '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
         ')\n'
     )
-    a = ev._actions_by_name["a"]
+    a = ev.registry.actions.by_name["a"]
     assert len(a.requirements) == 1
     assert a.requirements[0].requirement == "gpu"
     assert a.requirements[0].type == "*"
@@ -317,7 +317,7 @@ def test_unused_top_level_action_with_contextual_constraint_is_allowed() -> None
         '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
         ')\n'
     )
-    assert ev._actions_by_name["templated"].config[0].constraint == "x > 0"
+    assert ev.registry.actions.by_name["templated"].config[0].constraint == "x > 0"
 
 
 def test_direct_top_level_action_input_with_source_is_rejected() -> None:
@@ -379,5 +379,5 @@ def test_action_attaches_declared_entity_type() -> None:
         'action(name="my_action", inputs=["inp"], outputs=["out"], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n'
     )
 
-    action_value = ev._actions_by_name["my_action"]
+    action_value = ev.registry.actions.by_name["my_action"]
     assert action_value._entity_type.name == "mlody-action"

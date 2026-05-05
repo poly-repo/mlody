@@ -115,7 +115,7 @@ class TestValidateNameValidAlphanumericUnderscore:
             my_rule = rule(implementation=_impl, kind="representation")
             my_rule(name="valid_name_123")
         """)
-        result = ev.all.get(("representation", "test", "valid_name_123"))
+        result = ev.registry.all.get(("representation", "test", "valid_name_123"))
         assert result is not None
         assert result.name == "valid_name_123"
 
@@ -245,7 +245,7 @@ class TestMergeAttrsEmptyDict:
         """)
         # Evaluator stores representations under key (kind, stem, name).
         # _stem is the relative path of the file that registered it, sans suffix.
-        thing = ev.all.get(("representation", "test", "myname"))
+        thing = ev.registry.all.get(("representation", "test", "myname"))
         assert thing is not None
         assert thing.name == "myname"
         assert thing.description == ""
@@ -269,7 +269,7 @@ class TestMergeNonConflictingAttrs:
             )
             r(name="mything", extra="hello")
         """)
-        thing = ev.all.get(("representation", "test", "mything"))
+        thing = ev.registry.all.get(("representation", "test", "mything"))
         assert thing is not None
         assert thing.name == "mything"
         assert thing.extra == "hello"

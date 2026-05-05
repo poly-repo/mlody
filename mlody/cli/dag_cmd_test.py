@@ -5,7 +5,7 @@ mlody/openspec/changes/dag-label-filter/REQUIREMENTS.md and design.md, and
 mlody/openspec/changes/dag-gui/REQUIREMENTS.md and design.md.
 
 Workspace content is provided via a patched Workspace factory that returns
-a MagicMock whose evaluator.tasks dict is populated with simple Struct-like
+a MagicMock whose evaluator.registry.tasks.by_key dict is populated with simple Struct-like
 objects.  build_dag and ancestors_subgraph are exercised for real — no mocking
 of internal DAG logic.
 """
@@ -73,13 +73,13 @@ def _make_task_struct(
 
 
 def _make_workspace_mock(tasks: dict[str, SimpleNamespace]) -> MagicMock:
-    """Return a Workspace mock whose evaluator.tasks yields the given task structs.
+    """Return a Workspace mock whose evaluator.registry.tasks.by_key yields the given task structs.
 
     The dict key must follow the evaluator convention: ``"{stem}:{name}"``.
     build_dag derives the node_id as ``"task/{stem}:{name}"``.
     """
     evaluator = MagicMock()
-    evaluator.tasks = tasks
+    evaluator.registry.tasks.by_key = tasks
     ws = MagicMock()
     ws.evaluator = evaluator
     return ws

@@ -5,6 +5,7 @@ o_py_library(
     srcs = [
         "__init__.py",
         "evaluator.py",
+        "registry.py",
         "testing.py",
     ],
     visibility = ["//:__subpackages__"],

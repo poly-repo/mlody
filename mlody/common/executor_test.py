@@ -239,7 +239,7 @@ def test_task_with_executor_stores_executor_struct() -> None:
         '  executor=kubernetes(namespace="prod"),\n'
         ')\n'
     )
-    t = ev._tasks_by_name["t"]
+    t = ev.registry.tasks.by_name["t"]
     assert t.executor.kind == "executor"
     assert t.executor.type == "kubernetes"
     assert t.executor.namespace == "prod"
@@ -265,7 +265,7 @@ def test_task_without_executor_is_valid() -> None:
         '  action="act",\n'
         ')\n'
     )
-    t = ev._tasks_by_name["t"]
+    t = ev.registry.tasks.by_name["t"]
     assert t.executor is None
 
 

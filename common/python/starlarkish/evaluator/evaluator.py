@@ -37,8 +37,8 @@ Core Concepts:
 
 - **Registration**: Scripts communicate results back to the host system via
   ``builtins.register(kind: str, thing: Struct)``.  The ``Evaluator`` instance
-  collects registered objects in its internal state (e.g. ``self.roots``),
-  accessible after evaluation completes.
+  collects registered objects in its internal registry state
+  (e.g. ``self.registry.roots.by_key``), accessible after evaluation completes.
 """
 
 import ast
@@ -51,11 +51,12 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 import uuid_utils
 
 from common.python.starlarkish.core.struct import Struct, struct
+from common.python.starlarkish.evaluator.registry import Named, RegistryState
 
 _log = logging.getLogger(__name__)
 _ENTITY_DESCRIPTOR_TYPE_NAMES = {
@@ -65,6 +66,32 @@ _ENTITY_DESCRIPTOR_TYPE_NAMES = {
     "action": "mlody-action",
 }
 _MISSING = object()
+_LEGACY_REGISTRY_ATTRS = {
+    "roots": ("roots", "by_key"),
+    "_roots_by_name": ("roots", "by_name"),
+    "types": ("types", "by_key"),
+    "_types_by_name": ("types", "by_name"),
+    "locations": ("locations", "by_key"),
+    "_locations_by_name": ("locations", "by_name"),
+    "freshnesses": ("freshnesses", "by_key"),
+    "_freshnesses_by_name": ("freshnesses", "by_name"),
+    "representations": ("representations", "by_key"),
+    "_representations_by_name": ("representations", "by_name"),
+    "values": ("values", "by_key"),
+    "_values_by_name": ("values", "by_name"),
+    "actions": ("actions", "by_key"),
+    "_actions_by_name": ("actions", "by_name"),
+    "tasks": ("tasks", "by_key"),
+    "_tasks_by_name": ("tasks", "by_name"),
+    "implementations": ("implementations", "by_key"),
+    "_implementations_by_name": ("implementations", "by_name"),
+    "build_refs": ("build_refs", "by_key"),
+    "_build_refs_by_name": ("build_refs", "by_name"),
+    "executors": ("executors", "by_key"),
+    "_executors_by_name": ("executors", "by_name"),
+    "generics": ("generics", "by_key"),
+    "_generics_by_name": ("generics", "by_name"),
+}
 
 
 def _declared_child_specs(value_type: object) -> tuple[object, ...]:
@@ -121,13 +148,6 @@ def _validate_loads_at_top(script_content: str, file_path: Path) -> None:
             )
         if not is_load:
             past_loads = True
-
-
-class Named(Protocol):
-    """A protocol for objects with a 'name' attribute."""
-
-    name: str
-
 
 def _sandbox_type(obj: object) -> str:
     """Starlark-compatible type() — returns a type-name string, never a type object.
@@ -252,7 +272,9 @@ def _runtime_json_data(obj: object, *, _seen: set[int] | None = None) -> object:
                 "monorepo_root": str(getattr(obj, "_monorepo_root", "")),
                 "workspace_root": str(getattr(obj, "_workspace_root", "")),
                 "full_workspace": bool(getattr(obj, "_full_workspace", False)),
-                "root_infos": _runtime_json_data(getattr(obj, "root_infos", {}), _seen=_seen),
+                "root_infos": _runtime_json_data(
+                    getattr(obj, "root_infos", {}), _seen=_seen
+                ),
                 "info": _runtime_json_data(getattr(obj, "info", None), _seen=_seen),
             }
         if hasattr(obj, "__dict__"):
@@ -376,41 +398,14 @@ class Evaluator:
         self.loaded_files: set[Path] = set()
         self._eval_stack: list[Path] = []
         self.root_path: Path = root
-        self.roots: dict[str, Named] = dict()
-        self.types: dict[str, Named] = dict()
-        self.locations: dict[str, Named] = dict()
-        self.freshnesses: dict[str, Named] = dict()
-        self.representations: dict[str, Named] = dict()
-        self.values: dict[str, Named] = dict()
-        self._roots_by_name: dict[str, Named] = {}
-        self._types_by_name: dict[str, Named] = {}
-        self._locations_by_name: dict[str, Named] = {}
-        self._freshnesses_by_name: dict[str, Named] = {}
-        self._representations_by_name: dict[str, Named] = {}
-        self._values_by_name: dict[str, Named] = {}
-        self.actions: dict[str, Named] = {}
-        self._actions_by_name: dict[str, Named] = {}
-        self.tasks: dict[str, Named] = {}
-        self._tasks_by_name: dict[str, Named] = {}
-        self.implementations: dict[str, Named] = {}
-        self._implementations_by_name: dict[str, Named] = {}
-        self.build_refs: dict[str, Named] = {}
-        self._build_refs_by_name: dict[str, Named] = {}
-        self.executors: dict[str, Named] = {}
-        self._executors_by_name: dict[str, Named] = {}
-        self.generics: dict[str, Named] = {}
-        self._generics_by_name: dict[str, Named] = {}
+        self.registry = RegistryState()
         # Structure per generic name: {"arity": int | None, "methods": list[Struct]}
         self._method_registry: dict[str, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
-        self.all: dict[str, Named] = {}
         for _pname in ["integer", "string", "bool", "float"]:
             _sentinel: Named = Struct(  # type: ignore[assignment]
                 kind="type", type=_pname, name=_pname, attributes={}, _allowed_attrs={}
             )
-            self.types[_pname] = _sentinel  # bare key — no file ctx at init time
-            self._types_by_name[_pname] = _sentinel
-            #            self.all[f"type/{_pname}"] = _sentinel
-            self.all[("type", None, _pname)] = _sentinel
+            self.registry.register("type", _pname, _sentinel)  # bare key — no file ctx at init time
         self._module_globals: dict[Path, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
         # Names injected sandbox-wide: seeded into every new file's sandbox_globals.
         # workspace_loader populates this after evaluating mm.mlody so that `mm`
@@ -435,9 +430,23 @@ class Evaluator:
                     path_to_load = self.root_path / path_to_load
                 self._execute_file(path_to_load)
 
+    def __getattr__(self, name: str) -> Any:  # pyright: ignore[reportExplicitAny]
+        """Expose legacy registry dict names while the rest of the tree migrates."""
+        if name == "all":
+            return self.registry.all
+        registry_attr = _LEGACY_REGISTRY_ATTRS.get(name)
+        if registry_attr is None:
+            msg = f"{type(self).__name__!r} object has no attribute {name!r}"
+            raise AttributeError(msg)
+        bucket_name, mapping_name = registry_attr
+        return getattr(getattr(self.registry, bucket_name), mapping_name)
+
     def _decorate_source_range(self, value: Struct) -> Struct:
-        source_range_type = self._types_by_name.get("mlody-source-range")
-        if source_range_type is None or getattr(value, "_entity_type", None) is source_range_type:
+        source_range_type = self.registry.types.by_name.get("mlody-source-range")
+        if (
+            source_range_type is None
+            or getattr(value, "_entity_type", None) is source_range_type
+        ):
             return value
         return Struct(**value.as_mapping(), _entity_type=source_range_type)
 
@@ -452,12 +461,18 @@ class Evaluator:
         if kind == "value":
             for spec in _declared_child_specs(fields.get("type")):
                 name = getattr(spec, "name", None)
-                if isinstance(name, str) and callable(getattr(spec, "materializer", None)):
+                if isinstance(name, str) and callable(
+                    getattr(spec, "materializer", None)
+                ):
                     specs.append((name, spec))
                     seen.add(name)
 
         descriptor_name = _ENTITY_DESCRIPTOR_TYPE_NAMES.get(kind)
-        descriptor = self._types_by_name.get(descriptor_name) if descriptor_name is not None else None
+        descriptor = (
+            self.registry.types.by_name.get(descriptor_name)
+            if descriptor_name is not None
+            else None
+        )
         for spec in _declared_child_specs(descriptor):
             name = getattr(spec, "name", None)
             if (
@@ -489,7 +504,9 @@ class Evaluator:
                 return existing
             owner = owner_provider()
             if owner is None:
-                raise RuntimeError(f"materialized field {field_name!r} owner not initialised")
+                raise RuntimeError(
+                    f"materialized field {field_name!r} owner not initialised"
+                )
             cached_value["value"] = materializer(owner)
             return cached_value["value"]
 
@@ -515,7 +532,7 @@ class Evaluator:
         changed = False
         descriptor_name = _ENTITY_DESCRIPTOR_TYPE_NAMES.get(kind)
         if descriptor_name is not None:
-            descriptor = self._types_by_name.get(descriptor_name)
+            descriptor = self.registry.types.by_name.get(descriptor_name)
             if descriptor is not None and fields.get("_entity_type") is not descriptor:
                 fields["_entity_type"] = descriptor
                 changed = True
@@ -559,32 +576,32 @@ class Evaluator:
             "start_line": start_line,
             "end_line": end_line,
         }
-        source_range_type = self._types_by_name.get("mlody-source-range")
+        source_range_type = self.registry.types.by_name.get("mlody-source-range")
         if source_range_type is not None:
             fields["_entity_type"] = source_range_type
         return Struct(**fields)
 
     def _refresh_declared_entity_types(self) -> None:
-        registry_mappings: tuple[tuple[dict[Any, Any], str], ...] = (
-            (self.roots, "root"),
-            (self._roots_by_name, "root"),
-            (self.values, "value"),
-            (self._values_by_name, "value"),
-            (self.tasks, "task"),
-            (self._tasks_by_name, "task"),
-            (self.actions, "action"),
-            (self._actions_by_name, "action"),
+        registry_buckets = (
+            (self.registry.roots, "root"),
+            (self.registry.values, "value"),
+            (self.registry.tasks, "task"),
+            (self.registry.actions, "action"),
         )
-        for mapping, kind in registry_mappings:
-            for key, value in list(mapping.items()):
-                mapping[key] = self.decorate_registered_value(kind, value)
+        for bucket, kind in registry_buckets:
+            for mapping in (bucket.by_key, bucket.by_name):
+                for key, value in list(mapping.items()):
+                    mapping[key] = self.decorate_registered_value(kind, value)
 
-        for key, value in list(self.all.items()):
+        for key, value in list(self.registry.all.items()):
             if not (isinstance(key, tuple) and len(key) == 3):
                 continue
             registered_kind = key[0]
-            if isinstance(registered_kind, str) and registered_kind in _ENTITY_DESCRIPTOR_TYPE_NAMES:
-                self.all[key] = self.decorate_registered_value(registered_kind, value)
+            if (
+                isinstance(registered_kind, str)
+                and registered_kind in _ENTITY_DESCRIPTOR_TYPE_NAMES
+            ):
+                self.registry.all[key] = self.decorate_registered_value(registered_kind, value)
 
         for module_globals in self._module_globals.values():
             for name, value in list(module_globals.items()):
@@ -614,47 +631,7 @@ class Evaluator:
 
         thing = self.decorate_registered_value(kind, thing)
 
-        if kind == "root":
-            self.roots[key] = thing
-            self._roots_by_name[thing.name] = thing
-        elif kind == "type":
-            self.types[key] = thing
-            self._types_by_name[thing.name] = thing
-        elif kind == "location":
-            self.locations[key] = thing
-            self._locations_by_name[thing.name] = thing
-        elif kind == "freshness":
-            self.freshnesses[key] = thing
-            self._freshnesses_by_name[thing.name] = thing
-        elif kind == "representation":
-            self.representations[key] = thing
-            self._representations_by_name[thing.name] = thing
-        elif kind == "value":
-            self.values[key] = thing
-            self._values_by_name[thing.name] = thing
-        elif kind == "action":
-            self.actions[key] = thing
-            self._actions_by_name[thing.name] = thing
-        elif kind == "task":
-            self.tasks[key] = thing
-            self._tasks_by_name[thing.name] = thing
-        elif kind == "implementation":
-            self.implementations[key] = thing
-            self._implementations_by_name[thing.name] = thing
-        elif kind == "build_ref":
-            self.build_refs[key] = thing
-            self._build_refs_by_name[thing.name] = thing
-        elif kind == "executor":
-            self.executors[key] = thing
-            self._executors_by_name[thing.name] = thing
-        elif kind == "generic":
-            self.generics[key] = thing
-            self._generics_by_name[thing.name] = thing
-        else:
-            raise ValueError(
-                f"Unknown registration kind {kind!r}. Supported kinds: 'root', 'type', 'location', 'freshness', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor', 'generic'."
-            )
-        self.all[(kind, _stem, thing.name)] = thing
+        self.registry.register(kind, key, thing)
         if kind == "type":
             self._refresh_declared_entity_types()
         _log.debug("Registered %r as %s", key, kind)
@@ -663,82 +640,10 @@ class Evaluator:
         # Strip leading ':' so local-reference syntax (":foo") resolves like "foo".
         if name.startswith(":"):
             name = name[1:]
-        if kind == "type":
-            if name not in self._types_by_name:
-                raise NameError(
-                    f"No type {name!r}. Available: {sorted(self._types_by_name)}"
-                )
-            return self._types_by_name[name]
-        elif kind == "root":
-            if name not in self._roots_by_name:
-                raise NameError(
-                    f"No root {name!r}. Available: {sorted(self._roots_by_name)}"
-                )
-            return self._roots_by_name[name]
-        elif kind == "location":
-            if name not in self._locations_by_name:
-                raise NameError(
-                    f"No location {name!r}. Available: {sorted(self._locations_by_name)}"
-                )
-            return self._locations_by_name[name]
-        elif kind == "freshness":
-            if name not in self._freshnesses_by_name:
-                raise NameError(
-                    f"No freshness {name!r}. Available: {sorted(self._freshnesses_by_name)}"
-                )
-            return self._freshnesses_by_name[name]
-        elif kind == "representation":
-            if name not in self._representations_by_name:
-                raise NameError(
-                    f"No representation {name!r}. Available: {sorted(self._representations_by_name)}"
-                )
-            return self._representations_by_name[name]
-        elif kind == "value":
-            if name not in self._values_by_name:
-                raise NameError(
-                    f"No value {name!r}. Available: {sorted(self._values_by_name)}"
-                )
-            return self._values_by_name[name]
-        elif kind == "action":
-            if name not in self._actions_by_name:
-                raise NameError(
-                    f"No action {name!r}. Available: {sorted(self._actions_by_name)}"
-                )
-            return self._actions_by_name[name]
-        elif kind == "task":
-            if name not in self._tasks_by_name:
-                raise NameError(
-                    f"No task {name!r}. Available: {sorted(self._tasks_by_name)}"
-                )
-            return self._tasks_by_name[name]
-        elif kind == "implementation":
-            if name not in self._implementations_by_name:
-                raise NameError(
-                    f"No implementation {name!r}. Available: {sorted(self._implementations_by_name)}"
-                )
-            return self._implementations_by_name[name]
-        elif kind == "build_ref":
-            if name not in self._build_refs_by_name:
-                raise NameError(
-                    f"No build_ref {name!r}. Available: {sorted(self._build_refs_by_name)}"
-                )
-            return self._build_refs_by_name[name]
-        elif kind == "executor":
-            if name not in self._executors_by_name:
-                raise NameError(
-                    f"No executor {name!r}. Available: {sorted(self._executors_by_name)}"
-                )
-            return self._executors_by_name[name]
-        elif kind == "generic":
-            if name not in self._generics_by_name:
-                raise NameError(
-                    f"No generic {name!r}. Available: {sorted(self._generics_by_name)}"
-                )
-            return self._generics_by_name[name]
-        else:
-            raise ValueError(
-                f"Unknown lookup kind {kind!r}. Supported: 'root', 'type', 'location', 'freshness', 'representation', 'value', 'action', 'task', 'implementation', 'build_ref', 'executor', 'generic'."
-            )
+        registry = self.registry.for_kind(kind, operation="lookup")
+        if name not in registry.by_name:
+            raise NameError(f"No {kind} {name!r}. Available: {sorted(registry.by_name)}")
+        return registry.by_name[name]
 
     def _load(
         self,
@@ -777,12 +682,13 @@ class Evaluator:
             colon = rest.index(":")
             package = rest[:colon]
             filename = rest[colon + 1 :]
-            if root_name not in self._roots_by_name:
+            root_registry = self.registry.roots.by_name
+            if root_name not in root_registry:
                 raise NameError(
                     f"load() references unknown root @{root_name!r}; "
-                    f"available: {sorted(self._roots_by_name)}"
+                    f"available: {sorted(root_registry)}"
                 )
-            root_obj = self._roots_by_name[root_name]
+            root_obj = root_registry[root_name]
             root_rel_path: str = getattr(root_obj, "path", "")  # pyright: ignore[reportAny]
             if not isinstance(root_rel_path, str):
                 raise TypeError(
@@ -928,7 +834,9 @@ class Evaluator:
                 return list(entry["methods"])  # type: ignore[index]
 
             def _dispatch_method(
-                name: str, args: Any, methods: list[Any]  # pyright: ignore[reportExplicitAny]
+                name: str,
+                args: Any,
+                methods: list[Any],  # pyright: ignore[reportExplicitAny]
             ) -> Any:  # pyright: ignore[reportExplicitAny]
                 # Lazy import so that targets without a dep on mlody.core.multimethod
                 # can still use the evaluator (e.g. rule_test, which has no mm dispatch).
@@ -975,7 +883,7 @@ class Evaluator:
         Evaluates a script and any scripts it loads.
 
         The results of the evaluation are stored in the evaluator's state
-        (e.g., `self.roots`).
+        (e.g., `self.registry.roots.by_key`).
 
         Args:
             entrypoint_file: The path to the root script to execute.
@@ -999,8 +907,9 @@ class Evaluator:
                 return self._lookup("action", v)
             return v  # type: ignore[return-value]
 
+        actions = self.registry.actions
         # Resolve actions: string labels in inputs/outputs/config → value structs
-        for key, entity in list(self.actions.items()):
+        for key, entity in list(actions.by_key.items()):
             fields = dict(entity.as_mapping())
             fields["inputs"] = [_resolve_value(v) for v in fields.get("inputs", [])]
             fields["outputs"] = [_resolve_value(v) for v in fields.get("outputs", [])]
@@ -1008,12 +917,11 @@ class Evaluator:
             if isinstance(_config, list):
                 fields["config"] = [_resolve_value(v) for v in _config]
             new_entity = Struct(**fields)
-            self.actions[key] = new_entity
-            self._actions_by_name[entity.name] = new_entity
-            self.all[f"action/{key}"] = new_entity
+            self.registry.register("action", key, new_entity)
 
+        tasks = self.registry.tasks
         # Resolve tasks: string labels in inputs/outputs/config/action → entity structs
-        for key, entity in list(self.tasks.items()):
+        for key, entity in list(tasks.by_key.items()):
             fields = dict(entity.as_mapping())
             fields["inputs"] = [_resolve_value(v) for v in fields.get("inputs", [])]
             fields["outputs"] = [_resolve_value(v) for v in fields.get("outputs", [])]
@@ -1022,6 +930,4 @@ class Evaluator:
                 fields["config"] = [_resolve_value(v) for v in _config]
             fields["action"] = _resolve_action(fields.get("action"))
             new_entity = Struct(**fields)
-            self.tasks[key] = new_entity
-            self._tasks_by_name[entity.name] = new_entity
-            self.all[f"task/{key}"] = new_entity
+            self.registry.register("task", key, new_entity)

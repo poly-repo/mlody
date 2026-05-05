@@ -212,13 +212,13 @@ class TestTwoPhaseLoading:
         ws.load()
 
         # models.mlody registers "bert" as a root; key is path-qualified
-        assert "mlody/teams/lexica/models:bert" in ws.evaluator.roots
+        assert "mlody/teams/lexica/models:bert" in ws.evaluator.registry.roots.by_key
 
     def test_registered_roots_get_declared_entity_type(self, project: Path) -> None:
         ws = Workspace(monorepo_root=project)
         ws.load()
 
-        root_value = ws.evaluator._roots_by_name["lexica"]  # type: ignore[attr-defined]
+        root_value = ws.evaluator.registry.roots.by_name["lexica"]  # type: ignore[attr-defined]
         assert root_value._entity_type.name == "mlody-root"  # type: ignore[attr-defined]
 
     def test_phase2_skips_already_loaded_files(self, fs: FakeFilesystem, project: Path) -> None:
@@ -288,7 +288,7 @@ class TestTwoPhaseLoading:
         )
         ws = Workspace(monorepo_root=project)
         ws.load()
-        assert "mlody/common/sandbox:sandbox_only" not in ws.evaluator.roots
+        assert "mlody/common/sandbox:sandbox_only" not in ws.evaluator.registry.roots.by_key
 
     def test_full_workspace_loads_sandbox_mlody(
         self, fs: FakeFilesystem, project: Path
@@ -304,7 +304,7 @@ class TestTwoPhaseLoading:
         )
         ws = Workspace(monorepo_root=project, full_workspace=True)
         ws.load()
-        assert "mlody/common/sandbox:sandbox_only" in ws.evaluator.roots
+        assert "mlody/common/sandbox:sandbox_only" in ws.evaluator.registry.roots.by_key
 
     def test_workspace_load_raises_on_context_restricted_value_violation(
         self, fs: FakeFilesystem, project: Path
@@ -364,9 +364,9 @@ builtins.register("task", Struct(
             skipped_mlody_paths=["mlody/common/skipme/..."],
         )
         ws.load()
-        assert "mlody/common/skipme/a:skip_a" not in ws.evaluator.roots
-        assert "mlody/common/skipme/nested/b:skip_b" not in ws.evaluator.roots
-        assert "mlody/common/keep:keep" in ws.evaluator.roots
+        assert "mlody/common/skipme/a:skip_a" not in ws.evaluator.registry.roots.by_key
+        assert "mlody/common/skipme/nested/b:skip_b" not in ws.evaluator.registry.roots.by_key
+        assert "mlody/common/keep:keep" in ws.evaluator.registry.roots.by_key
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +616,7 @@ builtins.register("root", Struct(
         ws = Workspace(monorepo_root=project)
         ws.load()
 
-        result = ws.evaluator._roots_by_name["builtins_result"]  # type: ignore[attr-defined]
+        result = ws.evaluator.registry.roots.by_name["builtins_result"]  # type: ignore[attr-defined]
         assert result.before == ""  # type: ignore[attr-defined]
         assert result.after == "release"  # type: ignore[attr-defined]
         assert result.source_line == 321  # type: ignore[attr-defined]
@@ -749,7 +749,7 @@ class TestWorkspaceLoadError:
         with pytest.raises(WorkspaceLoadError):
             ws.load()
         # models.mlody was processed; "bert" root should be registered
-        assert "mlody/teams/lexica/models:bert" in ws.evaluator.roots
+        assert "mlody/teams/lexica/models:bert" in ws.evaluator.registry.roots.by_key
 
 
 class TestStdoutSafety:

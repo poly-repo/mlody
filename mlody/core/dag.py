@@ -155,7 +155,7 @@ def _iter_tasks(
     ``node_id`` is ``"task/{stem}:{name}"``, derived from the ``tasks``
     dict key (which is already ``"{stem}:{name}"``).
     """
-    for tasks_key, task_struct in evaluator.tasks.items():
+    for tasks_key, task_struct in evaluator.registry.tasks.by_key.items():
         yield f"task/{tasks_key}", task_struct
 
 
@@ -185,7 +185,7 @@ def _collect_edges(
 
     triples: list[tuple[str, str, Edge]] = []
 
-    for tasks_key, task_struct in evaluator.tasks.items():
+    for tasks_key, task_struct in evaluator.registry.tasks.by_key.items():
         consumer_node_id = f"task/{tasks_key}"
 
         for port_val in (  # type: ignore[attr-defined]

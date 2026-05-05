@@ -78,7 +78,7 @@ class WorkspaceAttributeAnchor(BaseAnchor):
 
 @dataclass(frozen=True, kw_only=True)
 class RegistryEntityAnchor(BaseAnchor):
-    """Anchor for a registry-backed entity stored in ``evaluator.all``."""
+    """Anchor for a registry-backed entity stored in ``evaluator.registry.all``."""
 
     registry_key: tuple[object, object, object]
 

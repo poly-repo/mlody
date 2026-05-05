@@ -1,0 +1,122 @@
+"""Registry containers for evaluator-managed entities."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Protocol
+
+SUPPORTED_REGISTRATION_KINDS = (
+    "root",
+    "type",
+    "location",
+    "freshness",
+    "representation",
+    "value",
+    "action",
+    "task",
+    "implementation",
+    "build_ref",
+    "executor",
+    "generic",
+)
+
+
+class Named(Protocol):
+    """A protocol for objects with a 'name' attribute."""
+
+    name: str
+
+
+@dataclass(slots=True)
+class NamedRegistry:
+    """Store evaluator entities by file-qualified key, name, and aggregate key."""
+
+    kind: str
+    _aggregate_sink: Callable[[object, Named], None]
+    by_key: dict[str, Named] = field(default_factory=dict)
+    by_name: dict[str, Named] = field(default_factory=dict)
+
+    def register(self, key: str, thing: Named) -> None:
+        self.by_key[key] = thing
+        self.by_name[thing.name] = thing
+        stem = key.rsplit(":", 1)[0] if ":" in key else None
+        self._aggregate_sink((self.kind, stem, thing.name), thing)
+
+
+@dataclass(slots=True)
+class RegistryState:
+    """Grouped evaluator registries keyed by entity kind."""
+
+    all: dict[object, Named] = field(default_factory=dict)
+    roots: NamedRegistry = field(init=False)
+    types: NamedRegistry = field(init=False)
+    locations: NamedRegistry = field(init=False)
+    freshnesses: NamedRegistry = field(init=False)
+    representations: NamedRegistry = field(init=False)
+    values: NamedRegistry = field(init=False)
+    actions: NamedRegistry = field(init=False)
+    tasks: NamedRegistry = field(init=False)
+    implementations: NamedRegistry = field(init=False)
+    build_refs: NamedRegistry = field(init=False)
+    executors: NamedRegistry = field(init=False)
+    generics: NamedRegistry = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.roots = self._make_registry("root")
+        self.types = self._make_registry("type")
+        self.locations = self._make_registry("location")
+        self.freshnesses = self._make_registry("freshness")
+        self.representations = self._make_registry("representation")
+        self.values = self._make_registry("value")
+        self.actions = self._make_registry("action")
+        self.tasks = self._make_registry("task")
+        self.implementations = self._make_registry("implementation")
+        self.build_refs = self._make_registry("build_ref")
+        self.executors = self._make_registry("executor")
+        self.generics = self._make_registry("generic")
+
+    def register(self, kind: str, key: str, thing: Named) -> None:
+        self.for_kind(kind).register(key, thing)
+
+    def _make_registry(self, kind: str) -> NamedRegistry:
+        return NamedRegistry(kind=kind, _aggregate_sink=self._store_all)
+
+    def _store_all(self, key: object, thing: Named) -> None:
+        self.all[key] = thing
+
+    def for_kind(self, kind: str, *, operation: str = "registration") -> NamedRegistry:
+        match kind:
+            case "root":
+                return self.roots
+            case "type":
+                return self.types
+            case "location":
+                return self.locations
+            case "freshness":
+                return self.freshnesses
+            case "representation":
+                return self.representations
+            case "value":
+                return self.values
+            case "action":
+                return self.actions
+            case "task":
+                return self.tasks
+            case "implementation":
+                return self.implementations
+            case "build_ref":
+                return self.build_refs
+            case "executor":
+                return self.executors
+            case "generic":
+                return self.generics
+            case _:
+                supported = ", ".join(repr(item) for item in SUPPORTED_REGISTRATION_KINDS)
+                if operation == "lookup":
+                    raise ValueError(
+                        f"Unknown lookup kind {kind!r}. Supported: {supported}."
+                    )
+                raise ValueError(
+                    f"Unknown {operation} kind {kind!r}. Supported kinds: {supported}."
+                )

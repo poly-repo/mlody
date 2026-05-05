@@ -2543,7 +2543,7 @@ def _lookup_entity(
     stem: str,
     name: str,
 ) -> tuple[str, object] | None:
-    """Scan ``workspace.evaluator.all`` for ``(kind, stem, name)``.
+    """Scan ``workspace.evaluator.registry.all`` for ``(kind, stem, name)``.
 
     Returns ``(kind, struct)`` on the first match, or ``None`` if not found.
 
@@ -2551,7 +2551,7 @@ def _lookup_entity(
     ``starlarkish/evaluator/evaluator.py`` and used by ``workspace.resolve()``.
     Coupling note: see design.md §R-002 for the accepted trade-off.
     """
-    for key, value in workspace.evaluator.all.items():
+    for key, value in workspace.evaluator.registry.all.items():
         if (
             isinstance(key, tuple)
             and len(key) == 3
@@ -2614,7 +2614,7 @@ def resolve_label_to_value(
         if label.attribute_path is not None:
             from mlody.core.virtual_value import make_virtual_value  # noqa: PLC0415
 
-            ws_type = workspace.evaluator._types_by_name.get("mlody-workspace")  # type: ignore[attr-defined]
+            ws_type = workspace.evaluator.registry.types.by_name.get("mlody-workspace")  # type: ignore[attr-defined]
             if ws_type is None:
                 return MlodyUnresolvedValue(
                     label=label,

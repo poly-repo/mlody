@@ -97,7 +97,7 @@ def test_mm_available_in_user_file_without_explicit_load(fs: FakeFilesystem) -> 
 
     evaluator = registry._evaluator
     # The user file ran successfully, which means mm was in its scope.
-    assert "result" in evaluator._roots_by_name
+    assert "result" in evaluator.registry.roots.by_name
 
 
 def test_mm_not_evaluated_twice_when_already_loaded(fs: FakeFilesystem) -> None:

@@ -226,8 +226,8 @@ def test_generic_returns_callable() -> None:
 def test_generic_registered_in_evaluator() -> None:
     """The struct with kind='generic' and name='render' is in ev.generics."""
     ev = _run_with_mm("render = mm.generic('render')")
-    assert "render" in ev._generics_by_name
-    g_struct = ev._generics_by_name["render"]
+    assert "render" in ev.registry.generics.by_name
+    g_struct = ev.registry.generics.by_name["render"]
     assert getattr(g_struct, "kind") == "generic"
     assert getattr(g_struct, "name") == "render"
 
@@ -235,7 +235,7 @@ def test_generic_registered_in_evaluator() -> None:
 def test_generic_with_description_stored() -> None:
     """generic(description=...) stores description in the registered struct."""
     ev = _run_with_mm("render = mm.generic('render', description='Render output')")
-    g_struct = ev._generics_by_name["render"]
+    g_struct = ev.registry.generics.by_name["render"]
     assert getattr(g_struct, "description") == "Render output"
 
 
