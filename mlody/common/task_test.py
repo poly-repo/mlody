@@ -10,6 +10,7 @@ import pytest
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 import mlody
+from mlody.common.struct import Struct
 from mlody.core.workspace import force
 from mlody.core.value_context_validation import (
     ContextRestrictedValueValidationError,
@@ -136,8 +137,8 @@ def test_task_stores_action_inputs_outputs() -> None:
     )
     t = ev.registry.tasks.by_name["t"]
     assert t.action.name == "act"
-    assert t.inputs[0].name == "inp"
-    assert t.outputs[0].name == "out"
+    assert t.inputs["inp"].name == "inp"
+    assert t.outputs["out"].name == "out"
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +152,8 @@ def test_task_config_defaults_to_empty_list() -> None:
         'task(name="t", inputs=[], outputs=[], action="act")\n'
     )
     t = ev.registry.tasks.by_name["t"]
-    assert t.config == []
+    assert isinstance(t.config, Struct)
+    assert len(t.config) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +169,7 @@ def test_task_config_value_refs_stored() -> None:
     )
     t = ev.registry.tasks.by_name["t"]
     assert len(t.config) == 1
-    assert t.config[0].name == "cfg"
+    assert t.config["cfg"].name == "cfg"
 
 
 # ---------------------------------------------------------------------------
@@ -202,8 +204,8 @@ def test_task_string_value_labels_in_inputs_resolve() -> None:
         'task(name="t", inputs=["inp"], outputs=[], action="act")\n'
     )
     t = ev.registry.tasks.by_name["t"]
-    assert t.inputs[0].name == "inp"
-    assert t.inputs[0].kind == "value"
+    assert t.inputs["inp"].name == "inp"
+    assert t.inputs["inp"].kind == "value"
 
 
 # ---------------------------------------------------------------------------
@@ -217,8 +219,10 @@ def test_task_empty_inputs_outputs_allowed() -> None:
         'task(name="t", inputs=[], outputs=[], action="act")\n'
     )
     t = ev.registry.tasks.by_name["t"]
-    assert t.inputs == []
-    assert t.outputs == []
+    assert isinstance(t.inputs, Struct)
+    assert isinstance(t.outputs, Struct)
+    assert len(t.inputs) == 0
+    assert len(t.outputs) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +240,7 @@ def test_forward_reference() -> None:
     t = ev.registry.tasks.by_name["t"]
     a = ev.registry.actions.by_name["a"]
     assert t.action is a
-    assert t.inputs[0] is ev.registry.values.by_name["x"]
+    assert t.inputs["x"] is ev.registry.values.by_name["x"]
 
 
 # ---------------------------------------------------------------------------
@@ -261,11 +265,11 @@ def test_task_and_action_ports_stored_independently() -> None:
     )
     t = ev.registry.tasks.by_name["t"]
     # Task's port has s3 location (type defaults to nothing since not specified)
-    assert t.inputs[0].location.type == "s3"
-    assert t.inputs[0].type.name == "nothing"
+    assert t.inputs["inp"].location.type == "s3"
+    assert t.inputs["inp"].type.name == "nothing"
     # Action's port retains its own explicit type and location unchanged
-    assert t.action.inputs[0].type.type == "integer"
-    assert t.action.inputs[0].location.type == "posix"
+    assert t.action.inputs["inp"].type.type == "integer"
+    assert t.action.inputs["inp"].location.type == "posix"
 
 
 # ---------------------------------------------------------------------------
@@ -315,9 +319,9 @@ def test_task_action_string_ref_resolves_and_ports_stay_separate() -> None:
     )
     t = ev.registry.tasks.by_name["t"]
     # Task's port retains its own defaults (nothing/inline)
-    assert t.inputs[0].type.name == "nothing"
+    assert t.inputs["inp"].type.name == "nothing"
     # Action's port (resolved from string ref) retains its explicit type
-    assert t.action.inputs[0].type.type == "integer"
+    assert t.action.inputs["inp"].type.type == "integer"
 
 
 # ---------------------------------------------------------------------------
@@ -341,8 +345,8 @@ def test_task_and_action_with_identical_port_specs_coexist() -> None:
         ')\n'
     )
     t = ev.registry.tasks.by_name["t"]
-    assert t.outputs[0].location.type == "posix"
-    assert t.action.outputs[0].location.type == "posix"
+    assert t.outputs["model"].location.type == "posix"
+    assert t.action.outputs["model"].location.type == "posix"
 
 
 # ---------------------------------------------------------------------------
@@ -366,9 +370,9 @@ def test_task_port_representation_independent_from_action_port() -> None:
         ')\n'
     )
     t = ev.registry.tasks.by_name["t"]
-    assert t.outputs[0].representation is not None
-    assert t.outputs[0].representation.name == "json"
-    assert t.action.outputs[0].representation is None
+    assert t.outputs["out"].representation is not None
+    assert t.outputs["out"].representation.name == "json"
+    assert t.action.outputs["out"].representation is None
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +415,7 @@ def test_task_output_value_accepts_group_and_scoped_value_preserves_it() -> None
         '  action=action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy")),\n'
         ')\n'
     )
-    task_value = ev.registry.tasks.by_name["train"].outputs[0]
+    task_value = ev.registry.tasks.by_name["train"].outputs["artifact"]
     scoped_value = ev.registry.values.by_name["train.artifact"]
     assert task_value.group == "bundle"
     assert scoped_value.group == "bundle"
@@ -427,7 +431,7 @@ def test_task_output_value_preserves_unit_on_scoped_clone() -> None:
         '  action=action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy")),\n'
         ')\n'
     )
-    task_value = ev.registry.tasks.by_name["train"].outputs[0]
+    task_value = ev.registry.tasks.by_name["train"].outputs["distance"]
     scoped_value = ev.registry.values.by_name["train.distance"]
     assert task_value.unit is not None
     assert task_value.unit.to_string() == "km"
@@ -462,7 +466,7 @@ def test_task_config_value_accepts_constraint() -> None:
         '  action=action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy")),\n'
         ')\n'
     )
-    assert ev.registry.tasks.by_name["train"].config[0].constraint == "x > 0"
+    assert ev.registry.tasks.by_name["train"].config["cfg"].constraint == "x > 0"
 
 
 def test_task_output_value_with_constraint_raises_context_validation_error() -> None:
@@ -487,7 +491,7 @@ def test_task_input_value_accepts_source() -> None:
         'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
         'task(name="train", inputs=[value(name="artifact", type=string(), location=s3(), source=":upstream")], outputs=[], action="act")\n'
     )
-    assert ev.registry.tasks.by_name["train"].inputs[0].source == ":upstream"
+    assert ev.registry.tasks.by_name["train"].inputs["artifact"].source == ":upstream"
 
 
 def test_task_config_value_accepts_source() -> None:
@@ -496,7 +500,7 @@ def test_task_config_value_accepts_source() -> None:
         'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
         'task(name="train", inputs=[], outputs=[], config=[value(name="cfg", type=string(), location=inline(), source=":upstream")], action="act")\n'
     )
-    assert ev.registry.tasks.by_name["train"].config[0].source == ":upstream"
+    assert ev.registry.tasks.by_name["train"].config["cfg"].source == ":upstream"
 
 
 def test_task_output_value_with_source_raises_context_validation_error() -> None:
@@ -519,8 +523,8 @@ def test_shared_source_value_is_valid_when_used_only_in_task_inputs_and_config()
         'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
         'task(name="train", inputs=["artifact"], outputs=[], config=["artifact"], action="act")\n'
     )
-    assert ev.registry.tasks.by_name["train"].inputs[0].source == ":upstream"
-    assert ev.registry.tasks.by_name["train"].config[0].source == ":upstream"
+    assert ev.registry.tasks.by_name["train"].inputs["artifact"].source == ":upstream"
+    assert ev.registry.tasks.by_name["train"].config["artifact"].source == ":upstream"
 
 
 def test_shared_source_value_fails_when_reused_in_task_outputs() -> None:
@@ -548,7 +552,7 @@ def test_task_action_input_value_accepts_source() -> None:
         ')\n'
         'task(name="train", inputs=[], outputs=[], action="act")\n'
     )
-    assert ev.registry.tasks.by_name["train"].action.inputs[0].source == ":upstream"
+    assert ev.registry.tasks.by_name["train"].action.inputs["artifact"].source == ":upstream"
 
 
 def test_task_action_config_value_accepts_source() -> None:
@@ -563,7 +567,7 @@ def test_task_action_config_value_accepts_source() -> None:
         ')\n'
         'task(name="train", inputs=[], outputs=[], action="act")\n'
     )
-    assert ev.registry.tasks.by_name["train"].action.config[0].source == ":upstream"
+    assert ev.registry.tasks.by_name["train"].action.config["cfg"].source == ":upstream"
 
 
 def test_task_action_output_value_with_source_raises_context_validation_error() -> None:
@@ -590,7 +594,7 @@ def test_shared_group_value_is_valid_when_used_only_in_task_outputs() -> None:
         'action(name="act", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
         'task(name="train", inputs=[], outputs=["artifact"], action="act")\n'
     )
-    assert ev.registry.tasks.by_name["train"].outputs[0].group == "bundle"
+    assert ev.registry.tasks.by_name["train"].outputs["artifact"].group == "bundle"
 
 
 def test_shared_group_value_fails_when_reused_in_allowed_and_disallowed_contexts() -> None:
@@ -620,7 +624,7 @@ def test_top_level_action_constraint_is_valid_via_task_action_config() -> None:
         ')\n'
         'task(name="train", inputs=[], outputs=[], action="act")\n'
     )
-    assert ev.registry.tasks.by_name["train"].action.config[0].constraint == "x > 0"
+    assert ev.registry.tasks.by_name["train"].action.config["cfg"].constraint == "x > 0"
 
 
 def test_task_action_input_with_constraint_raises_context_validation_error() -> None:

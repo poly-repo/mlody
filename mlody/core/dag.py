@@ -159,6 +159,20 @@ def _iter_tasks(
         yield f"task/{tasks_key}", task_struct
 
 
+def _iter_port_values(container: object) -> tuple[object, ...]:
+    """Return port objects from list- or mapping-shaped port collections."""
+    if container is None:
+        return ()
+    as_mapping = getattr(container, "as_mapping", None)
+    if callable(as_mapping):
+        return tuple(as_mapping().values())
+    if isinstance(container, dict):
+        return tuple(container.values())
+    if isinstance(container, (list, tuple)):
+        return tuple(container)
+    return ()
+
+
 def _collect_edges(
     evaluator: Evaluator,
     tasks_index: dict[str, tuple[str, object]],
@@ -178,7 +192,7 @@ def _collect_edges(
     # Reverse index: output value name → producer node_id, for O(1) lookup.
     _output_to_producer: dict[str, str] = {}
     for _task_name, (prod_node_id, prod_struct) in tasks_index.items():
-        for v in getattr(prod_struct, "outputs", []):  # type: ignore[attr-defined]
+        for v in _iter_port_values(getattr(prod_struct, "outputs", [])):  # type: ignore[attr-defined]
             v_name = getattr(v, "name", "")
             if v_name:
                 _output_to_producer[v_name] = prod_node_id
@@ -188,9 +202,9 @@ def _collect_edges(
     for tasks_key, task_struct in evaluator.registry.tasks.by_key.items():
         consumer_node_id = f"task/{tasks_key}"
 
-        for port_val in (  # type: ignore[attr-defined]
-            *getattr(task_struct, "outputs", []),
-            *getattr(task_struct, "inputs", []),
+        for port_val in (
+            *_iter_port_values(getattr(task_struct, "outputs", [])),  # type: ignore[attr-defined]
+            *_iter_port_values(getattr(task_struct, "inputs", [])),  # type: ignore[attr-defined]
         ):
             source_val = getattr(port_val, "source", None)  # type: ignore[attr-defined]
             dst_path: str = getattr(port_val, "name", "")
@@ -255,10 +269,12 @@ def build_dag(workspace: Workspace) -> networkx.MultiDiGraph:
         action_obj = getattr(task_struct, "action", None)  # type: ignore[attr-defined]
         action_name: str = getattr(action_obj, "name", str(action_obj))  # type: ignore[attr-defined]
         input_ports = tuple(
-            getattr(v, "name", "") for v in getattr(task_struct, "inputs", [])  # type: ignore[attr-defined]
+            getattr(v, "name", "")
+            for v in _iter_port_values(getattr(task_struct, "inputs", []))  # type: ignore[attr-defined]
         )
         output_ports = tuple(
-            getattr(v, "name", "") for v in getattr(task_struct, "outputs", [])  # type: ignore[attr-defined]
+            getattr(v, "name", "")
+            for v in _iter_port_values(getattr(task_struct, "outputs", []))  # type: ignore[attr-defined]
         )
         task_node = TaskNode(
             node_id=node_id,

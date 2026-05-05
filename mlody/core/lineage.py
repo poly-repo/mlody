@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mlody.common.struct import Struct
+from mlody.common.struct import Struct, is_struct_like
 
 from mlody.core.place import AssignmentMode
 
@@ -31,7 +31,7 @@ def build_lineage_event(
 def append_lineage(value: object, event: object, *, mode: AssignmentMode) -> object:
     """Append a lineage event to a value and return the updated value."""
     _ = mode
-    if isinstance(value, Struct):
+    if is_struct_like(value):
         lineage = list(value.get("_lineage", []))
         lineage.append(event)
         return value.updated(_lineage=lineage)

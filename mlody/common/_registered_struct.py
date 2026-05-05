@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import MISSING, fields
-from typing import ClassVar, TypeVar
+from typing import Any, ClassVar, TypeVar
 
-from mlody.common.struct import Struct
+from mlody.common.struct import Struct, struct_like_as_mapping, struct_like_updated
 
 _WrappedStruct = TypeVar("_WrappedStruct")
 
@@ -23,21 +23,73 @@ class RegisteredStructBase:
         # checks, then remove this property.
         return type(self)._KIND
 
+    def as_mapping(self) -> dict[str, object]:
+        """Expose wrapper fields through the same API as evaluator Struct values."""
+        return {
+            "kind": self.kind,
+            **{
+                field_info.name: getattr(self, field_info.name)
+                for field_info in fields(self)
+                if hasattr(self, field_info.name)
+            },
+        }
 
-def populate_from_struct(instance: object, value: Struct) -> None:
-    """Populate a dataclass instance from an evaluator ``Struct``.
+    def get(self, name: str, default: Any = None) -> Any:
+        """Return a field value with an optional default for missing names."""
+        return self.as_mapping().get(name, default)
+
+    def items(self) -> object:
+        """Iterate wrapper fields without exposing internal dataclass machinery."""
+        return self.as_mapping().items()
+
+    def updated(self, **changes: object) -> object:
+        """Return a shallow copy with selected dataclass fields replaced."""
+        return struct_like_updated(self, **changes)
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-friendly dictionary, recursing into nested wrappers."""
+
+        def _convert(value: object) -> object:
+            if isinstance(value, Struct):
+                return value.to_dict()
+            if isinstance(value, RegisteredStructBase):
+                return value.to_dict()
+            if isinstance(value, dict):
+                return {str(key): _convert(child) for key, child in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [_convert(child) for child in value]
+            return value
+
+        return {
+            "kind": self.kind,
+            **{
+                field_info.name: _convert(getattr(self, field_info.name))
+                for field_info in fields(self)
+                if hasattr(self, field_info.name)
+            },
+        }
+
+    def __repr__(self) -> str:
+        items = ", ".join(f"{name}={value!r}" for name, value in self.as_mapping().items())
+        return f"{type(self).__name__}({items})"
+
+
+def populate_from_struct(instance: object, value: object) -> None:
+    """Populate a dataclass instance from an evaluator Struct-like value.
 
     The struct must not expose fields that the dataclass does not declare.
     Required dataclass fields must either be present on the struct or provide
     a default/default_factory on the dataclass definition.
     """
 
-    if not isinstance(value, Struct):
+    if isinstance(value, Struct):
+        mapping = value.as_mapping()
+    elif isinstance(value, RegisteredStructBase):
+        mapping = value.as_mapping()
+    else:
         raise TypeError(
-            f"{type(instance).__name__} expects a Struct, got {type(value)!r}.",
+            f"{type(instance).__name__} expects a Struct-like value, got {type(value)!r}.",
         )
-
-    mapping = value.as_mapping()
     dataclass_fields = tuple(fields(type(instance)))
     field_names = {field_info.name for field_info in dataclass_fields}
     allowed_compat_fields: set[str] = set()
@@ -74,11 +126,7 @@ def populate_from_struct(instance: object, value: Struct) -> None:
         if field_info.name in mapping:
             object.__setattr__(instance, field_info.name, mapping[field_info.name])
             continue
-        if field_info.default is not MISSING:
-            object.__setattr__(instance, field_info.name, field_info.default)
-            continue
-        if field_info.default_factory is not MISSING:
-            object.__setattr__(instance, field_info.name, field_info.default_factory())
+        if field_info.default is not MISSING or field_info.default_factory is not MISSING:
             continue
         missing_required.append(field_info.name)
 
@@ -94,22 +142,26 @@ def coerce_named_struct_collection(
     *,
     wrapper: type[_WrappedStruct],
     field_name: str,
-) -> dict[str, _WrappedStruct]:
-    """Normalize a port collection to a name-keyed dict of wrapped structs."""
+) -> Struct:
+    """Normalize a port collection to a name-keyed Struct of wrapped structs."""
 
     if value is None:
-        return {}
+        return Struct()
     if isinstance(value, Struct):
         items = value.as_mapping().items()
-        return {
+        return Struct(
+            **{
             name: _wrap_struct_item(item, wrapper=wrapper, field_name=field_name)
             for name, item in items
-        }
+            }
+        )
     if isinstance(value, dict):
-        return {
+        return Struct(
+            **{
             str(name): _wrap_struct_item(item, wrapper=wrapper, field_name=field_name)
             for name, item in value.items()
-        }
+            }
+        )
     if isinstance(value, (list, tuple)):
         wrapped: dict[str, _WrappedStruct] = {}
         for item in value:
@@ -124,7 +176,7 @@ def coerce_named_struct_collection(
                     f"{field_name} contains duplicate item name {item_name!r}.",
                 )
             wrapped[item_name] = wrapped_item
-        return wrapped
+        return Struct(**wrapped)
     raise TypeError(
         f"{field_name} expects a Struct, dict, list, or tuple of Struct values; "
         f"got {type(value)!r}.",
@@ -144,3 +196,34 @@ def _wrap_struct_item(
             f"{field_name} expects Struct elements, got {type(item)!r}.",
         )
     return wrapper(item)
+
+
+def wrap_registered_struct(kind: str, value: object) -> object:
+    """Wrap a registered evaluator Struct in its typed dataclass when possible."""
+    wrapper = _wrapper_for_kind(kind)
+    if wrapper is None:
+        return value
+    if isinstance(value, wrapper):
+        return value
+    if not isinstance(value, Struct):
+        return value
+    try:
+        return wrapper(value)
+    except (TypeError, ValueError):
+        # Keep legacy or partially migrated shapes working until the remaining
+        # callers are updated to construct the typed wrappers consistently.
+        return value
+
+
+def _wrapper_for_kind(kind: str) -> type[object] | None:
+    from mlody.common.action import RegisteredAction
+    from mlody.common.root import RegisteredRoot
+    from mlody.common.task import RegisteredTask
+    from mlody.common.value import RegisteredValue
+
+    return {
+        "root": RegisteredRoot,
+        "value": RegisteredValue,
+        "action": RegisteredAction,
+        "task": RegisteredTask,
+    }.get(kind)

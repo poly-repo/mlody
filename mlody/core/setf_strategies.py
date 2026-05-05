@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mlody.common.struct import Struct
+from mlody.common.struct import is_struct_like
 
 from mlody.core.place import AssignmentMode, Place
 from mlody.core.traversal_runtime import replace_child, step_segment
@@ -22,8 +22,10 @@ class StructFieldSetter:
     def preflight(self, place: Place, new_value: object, *, mode: AssignmentMode) -> None:
         _ = (new_value, mode)
         segment = _terminal_segment(place)
-        if not isinstance(place.owner, Struct):
-            raise TypeError(f"expected Struct owner, got {type(place.owner).__name__}")
+        if not (is_struct_like(place.owner) or isinstance(place.owner, dict)):
+            raise TypeError(
+                f"expected Struct-like or dict owner, got {type(place.owner).__name__}"
+            )
         if not isinstance(segment, FieldSegment):
             raise TypeError(f"expected FieldSegment, got {type(segment).__name__}")
         _ = step_segment(place.owner, segment)
@@ -83,15 +85,17 @@ class DictKeySetter:
         segment = _terminal_segment(place)
         if not isinstance(place.owner, dict):
             raise TypeError(f"expected dict owner, got {type(place.owner).__name__}")
-        if not isinstance(segment, KeySegment):
-            raise TypeError(f"expected KeySegment, got {type(segment).__name__}")
+        if not isinstance(segment, (FieldSegment, KeySegment)):
+            raise TypeError(
+                f"expected FieldSegment or KeySegment, got {type(segment).__name__}"
+            )
         _ = step_segment(place.owner, segment)
 
     def commit(self, place: Place, new_value: object, *, mode: AssignmentMode) -> object:
         _ = mode
         self.preflight(place, new_value, mode="copy")
         segment = _terminal_segment(place)
-        assert isinstance(segment, KeySegment)
+        assert isinstance(segment, (FieldSegment, KeySegment))
         return replace_child(place.owner, segment, new_value)
 
 

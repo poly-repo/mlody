@@ -14,16 +14,16 @@ from mlody.common.struct import Struct
 from mlody.common.value import RegisteredValue
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False, eq=False)
 class RegisteredAction(RegisteredStructBase):
     """Mirror the shape of registered action structs."""
 
     _KIND: ClassVar[str] = "action"
 
     name: str
-    inputs: dict[str, RegisteredValue]
-    outputs: dict[str, RegisteredValue]
-    config: dict[str, RegisteredValue]
+    inputs: Struct
+    outputs: Struct
+    config: Struct
     requirements: list[object]
     implementation: object
     _entity_type: object | None = None

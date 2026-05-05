@@ -9,7 +9,7 @@ from mlody.common._registered_struct import RegisteredStructBase, populate_from_
 from mlody.common.struct import Struct
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False, eq=False)
 class RegisteredValue(RegisteredStructBase):
     """Mirror the shape of registered value structs."""
 

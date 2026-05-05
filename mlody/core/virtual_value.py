@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Callable
 
-from common.python.starlarkish.core.struct import Struct
+from mlody.common.struct import Struct, is_struct_like, struct_like_as_mapping
 from mlody.core.traversal_runtime import step_named_child
 
 
@@ -27,7 +27,7 @@ _STRING_TYPE = Struct(
 
 
 def _is_virtual_value_struct(obj: object) -> bool:
-    if not isinstance(obj, Struct):
+    if not is_struct_like(obj):
         return False
     if getattr(obj, "kind", None) != "value":
         return False
@@ -63,7 +63,7 @@ def _runtime_json_data(obj: object, *, _seen: set[int] | None = None) -> object:
     if _seen is None:
         _seen = set()
 
-    is_container_like = isinstance(obj, (Struct, dict, list, tuple, set))
+    is_container_like = is_struct_like(obj) or isinstance(obj, (dict, list, tuple, set))
     obj_id = id(obj)
     if is_container_like:
         if obj_id in _seen:
@@ -71,9 +71,9 @@ def _runtime_json_data(obj: object, *, _seen: set[int] | None = None) -> object:
         _seen.add(obj_id)
 
     try:
-        if isinstance(obj, Struct):
+        if is_struct_like(obj):
             result: dict[str, object] = {}
-            for key, value in obj.as_mapping().items():
+            for key, value in struct_like_as_mapping(obj).items():
                 if key in {"raw", "_entity_type"}:
                     continue
                 result[str(key)] = _runtime_json_data(value, _seen=_seen)
@@ -107,7 +107,7 @@ def _synthetic_raw_attribute() -> Struct:
 
 def is_virtual_value(value: object) -> bool:
     """Return True when *value* is a typed virtual value Struct."""
-    if not isinstance(value, Struct):
+    if not is_struct_like(value):
         return False
     if getattr(value, "kind", None) != "value":
         return False
@@ -119,7 +119,6 @@ def force_virtual_value(value: object) -> object:
     """Materialize a virtual value Struct; return all other inputs unchanged."""
     if not is_virtual_value(value):
         return value
-    assert isinstance(value, Struct)
     loc = getattr(value, "location", None)
     assert loc is not None
     materializer = getattr(loc, "materializer", None)
@@ -232,7 +231,7 @@ def lookup_runtime_attribute(value: object, segment: str) -> object | None:
         if entity_attr is not None:
             return entity_attr
 
-    if segment == "raw" and isinstance(value, Struct):
+    if segment == "raw" and is_struct_like(value):
         return _synthetic_raw_attribute()
 
     return None
@@ -324,7 +323,7 @@ def synthesize_runtime_child(
         return None
     declared_materializer = getattr(attr_spec, "materializer", None)
     if not callable(declared_materializer):
-        if isinstance(value, Struct) or not hasattr(value, segment):
+        if is_struct_like(value) or not hasattr(value, segment):
             return None
     child_type = getattr(attr_spec, "type", _SENTINEL)
     if child_type is _SENTINEL or child_type is None:
@@ -344,7 +343,7 @@ def step_virtual_value(value: Struct, segment: str) -> Struct:
     return traverse_virtual_value(value, (segment,), _child_label(value, segment))
 
 
-def iter_virtual_children(value: Struct) -> tuple[tuple[str, Struct], ...]:
+def iter_virtual_children(value: object) -> tuple[tuple[str, Struct], ...]:
     """Return the declared virtual children of *value* as typed child values."""
     if not is_virtual_value(value):
         return ()

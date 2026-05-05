@@ -9,6 +9,7 @@ import pytest
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 import mlody
+from mlody.common.struct import Struct
 from mlody.core.value_context_validation import (
     ContextRestrictedValueValidationError,
     validate_context_restricted_values_evaluator,
@@ -92,8 +93,8 @@ def test_action_stores_inputs_and_outputs() -> None:
         'action(name="a", inputs=["inp"], outputs=["out"], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n'
     )
     a = ev.registry.actions.by_name["a"]
-    assert a.inputs[0].name == "inp"
-    assert a.outputs[0].name == "out"
+    assert a.inputs["inp"].name == "inp"
+    assert a.outputs["out"].name == "out"
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +108,8 @@ def test_action_string_value_label_resolves() -> None:
         'action(name="a", inputs=["my_val"], outputs=[], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n'
     )
     a = ev.registry.actions.by_name["a"]
-    assert a.inputs[0].name == "my_val"
-    assert a.inputs[0].kind == "value"
+    assert a.inputs["my_val"].name == "my_val"
+    assert a.inputs["my_val"].kind == "value"
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +120,10 @@ def test_action_string_value_label_resolves() -> None:
 def test_action_empty_inputs_and_outputs_allowed() -> None:
     ev = _eval('action(name="empty", inputs=[], outputs=[], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n')
     a = ev.registry.actions.by_name["empty"]
-    assert a.inputs == []
-    assert a.outputs == []
+    assert isinstance(a.inputs, Struct)
+    assert isinstance(a.outputs, Struct)
+    assert len(a.inputs) == 0
+    assert len(a.outputs) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +148,7 @@ def test_action_config_value_refs_stored() -> None:
     )
     a = ev.registry.actions.by_name["a"]
     assert len(a.config) == 1
-    assert a.config[0].name == "cfg"
+    assert a.config["cfg"].name == "cfg"
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +320,7 @@ def test_unused_top_level_action_with_contextual_constraint_is_allowed() -> None
         '  implementation=container(build=bazel(target="//mlody/common:action_lib"))\n'
         ')\n'
     )
-    assert ev.registry.actions.by_name["templated"].config[0].constraint == "x > 0"
+    assert ev.registry.actions.by_name["templated"].config["cfg"].constraint == "x > 0"
 
 
 def test_direct_top_level_action_input_with_source_is_rejected() -> None:

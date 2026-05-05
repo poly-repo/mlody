@@ -14,17 +14,17 @@ from mlody.common.struct import Struct
 from mlody.common.value import RegisteredValue
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False, eq=False)
 class RegisteredTask(RegisteredStructBase):
     """Mirror the shape of registered task structs."""
 
     _KIND: ClassVar[str] = "task"
 
     name: str
-    inputs: dict[str, RegisteredValue]
-    outputs: dict[str, RegisteredValue]
+    inputs: Struct
+    outputs: Struct
     action: object
-    config: dict[str, RegisteredValue]
+    config: Struct
     executor: object | None = None
     _entity_type: object | None = None
     _source_range: object | None = None

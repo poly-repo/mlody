@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import ItemsView
+from collections.abc import ItemsView, Mapping
+from dataclasses import fields, is_dataclass
 from typing import Any
 
 from common.python.starlarkish.core.struct import Struct as Struct
 from common.python.starlarkish.core.struct import struct as struct
 
 _MISSING = object()
+
+
+def _is_dataclass_instance(value: object) -> bool:
+    return is_dataclass(value) and not isinstance(value, type)
 
 
 def _struct_get(self: Struct, name: str, default: Any = None) -> Any:
@@ -26,6 +31,72 @@ def _struct_updated(self: Struct, **changes: Any) -> Struct:
     updated_fields = dict(self.as_mapping())
     updated_fields.update(changes)
     return Struct(**updated_fields)
+
+
+def _struct_getitem(self: Struct, key: str) -> Any:
+    """Allow mapping-style access for Struct values."""
+    return self.as_mapping()[key]
+
+
+def _struct_iter(self: Struct) -> object:
+    """Iterate over field names like a mapping."""
+    return iter(self.as_mapping())
+
+
+def _struct_len(self: Struct) -> int:
+    """Return the number of fields stored on the Struct."""
+    return len(self.as_mapping())
+
+
+def _struct_contains(self: Struct, key: object) -> bool:
+    """Return True when *key* names a stored field."""
+    return key in self.as_mapping()
+
+
+def is_struct_like(value: object) -> bool:
+    """Return True for immutable record-like values used in mlody traversal."""
+    return isinstance(value, Struct) or _is_dataclass_instance(value)
+
+
+def struct_like_as_mapping(value: object) -> Mapping[str, Any]:
+    """Return a shallow field mapping for Structs and dataclass wrappers."""
+    if isinstance(value, Struct):
+        return value.as_mapping()
+    if _is_dataclass_instance(value):
+        mapping_fn = getattr(value, "as_mapping", None)
+        if callable(mapping_fn):
+            return mapping_fn()
+        return {
+            field_info.name: getattr(value, field_info.name)
+            for field_info in fields(value)
+            if hasattr(value, field_info.name)
+        }
+    raise TypeError(f"expected Struct-like value, got {type(value).__name__}")
+
+
+def struct_like_updated(value: object, **changes: Any) -> object:
+    """Return a copy of a Struct-like value with ``changes`` applied."""
+    if isinstance(value, Struct):
+        return value.updated(**changes)
+    if not _is_dataclass_instance(value):
+        raise TypeError(f"expected Struct-like value, got {type(value).__name__}")
+
+    field_infos = tuple(fields(value))
+    field_names = {field_info.name for field_info in field_infos}
+    unknown = sorted(name for name in changes if name not in field_names)
+    if unknown:
+        raise AttributeError(
+            f"{type(value).__name__} does not declare dataclass fields for {unknown!r}."
+        )
+
+    clone = object.__new__(type(value))
+    for field_info in field_infos:
+        if field_info.name in changes:
+            object.__setattr__(clone, field_info.name, changes[field_info.name])
+            continue
+        if hasattr(value, field_info.name):
+            object.__setattr__(clone, field_info.name, getattr(value, field_info.name))
+    return clone
 
 
 class _FieldAwareMethod:
@@ -58,5 +129,23 @@ if not hasattr(Struct, "items"):
 if not hasattr(Struct, "updated"):
     setattr(Struct, "updated", _FieldAwareMethod("updated", _struct_updated))
 
+if not hasattr(Struct, "__getitem__"):
+    setattr(Struct, "__getitem__", _struct_getitem)
 
-__all__ = ["Struct", "struct"]
+if not hasattr(Struct, "__iter__"):
+    setattr(Struct, "__iter__", _struct_iter)
+
+if not hasattr(Struct, "__len__"):
+    setattr(Struct, "__len__", _struct_len)
+
+if not hasattr(Struct, "__contains__"):
+    setattr(Struct, "__contains__", _struct_contains)
+
+
+__all__ = [
+    "Struct",
+    "is_struct_like",
+    "struct",
+    "struct_like_as_mapping",
+    "struct_like_updated",
+]

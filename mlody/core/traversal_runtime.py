@@ -1,10 +1,10 @@
-"""Shared runtime traversal helpers for Structs, sequences, dicts, and virtual values."""
+"""Shared runtime traversal helpers for Struct-like values, sequences, dicts, and virtual values."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from mlody.common.struct import Struct
+from mlody.common.struct import Struct, is_struct_like, struct_like_as_mapping, struct_like_updated
 from mlody.core.traversal_grammar import FieldSegment, IndexSegment, KeySegment, SliceSegment
 
 
@@ -44,17 +44,18 @@ def _synthesized_runtime_child(value: object, name: str) -> object | None:
 
 
 class _VirtualValueAdapter:
-    """Traversal behavior for declared virtual children on typed value Structs."""
+    """Traversal behavior for declared virtual children on typed value entities."""
 
     def step_named_child(self, value: object, name: str) -> object:
-        assert isinstance(value, Struct)
-        if name in value.as_mapping():
-            return value.as_mapping()[name]
+        assert is_struct_like(value)
+        mapping = struct_like_as_mapping(value)
+        if name in mapping:
+            return mapping[name]
         _, step_virtual_value, _ = _virtual_value_helpers()
         return step_virtual_value(value, name)
 
     def step_segment(self, value: object, segment: object) -> object:
-        assert isinstance(value, Struct)
+        assert is_struct_like(value)
         if not isinstance(segment, FieldSegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
@@ -63,34 +64,34 @@ class _VirtualValueAdapter:
         return step_virtual_value(value, segment.name)
 
     def iter_children(self, value: object) -> tuple[tuple[object, object], ...]:
-        assert isinstance(value, Struct)
+        assert is_struct_like(value)
         _, _, iter_virtual_children = _virtual_value_helpers()
         return tuple(
             (FieldSegment(name), child) for name, child in iter_virtual_children(value)
         )
 
     def replace_child(self, value: object, segment: object, new_child: object) -> object:
-        assert isinstance(value, Struct)
+        assert is_struct_like(value)
         if not isinstance(segment, FieldSegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
             )
-        return value.updated(**{segment.name: new_child})
+        return struct_like_updated(value, **{segment.name: new_child})
 
     def has_named_child(self, value: object, name: str) -> bool:
-        assert isinstance(value, Struct)
-        if name in value.as_mapping():
+        assert is_struct_like(value)
+        if name in struct_like_as_mapping(value):
             return True
         _, _, iter_virtual_children = _virtual_value_helpers()
         return any(child_name == name for child_name, _ in iter_virtual_children(value))
 
 
 class _StructAdapter:
-    """Traversal behavior for concrete Struct fields."""
+    """Traversal behavior for concrete Struct-like fields."""
 
     def step_named_child(self, value: object, name: str) -> object:
-        assert isinstance(value, Struct)
-        mapping = value.as_mapping()
+        assert is_struct_like(value)
+        mapping = struct_like_as_mapping(value)
         if name not in mapping:
             synthesized = _synthesized_runtime_child(value, name)
             if synthesized is not None:
@@ -99,7 +100,7 @@ class _StructAdapter:
         return mapping[name]
 
     def step_segment(self, value: object, segment: object) -> object:
-        assert isinstance(value, Struct)
+        assert is_struct_like(value)
         if not isinstance(segment, FieldSegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
@@ -107,9 +108,10 @@ class _StructAdapter:
         return self.step_named_child(value, segment.name)
 
     def iter_children(self, value: object) -> tuple[tuple[object, object], ...]:
-        assert isinstance(value, Struct)
-        children = [(FieldSegment(name), child) for name, child in value.as_mapping().items()]
-        seen = {name for name, _child in value.as_mapping().items()}
+        assert is_struct_like(value)
+        mapping = struct_like_as_mapping(value)
+        children = [(FieldSegment(name), child) for name, child in mapping.items()]
+        seen = set(mapping)
         from mlody.core.virtual_value import iter_declared_attributes  # noqa: PLC0415
 
         for attr_spec in iter_declared_attributes(getattr(value, "type", None)):
@@ -130,16 +132,16 @@ class _StructAdapter:
         return tuple(children)
 
     def replace_child(self, value: object, segment: object, new_child: object) -> object:
-        assert isinstance(value, Struct)
+        assert is_struct_like(value)
         if not isinstance(segment, FieldSegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
             )
-        return value.updated(**{segment.name: new_child})
+        return struct_like_updated(value, **{segment.name: new_child})
 
     def has_named_child(self, value: object, name: str) -> bool:
-        assert isinstance(value, Struct)
-        return name in value.as_mapping() or _synthesized_runtime_child(value, name) is not None
+        assert is_struct_like(value)
+        return name in struct_like_as_mapping(value) or _synthesized_runtime_child(value, name) is not None
 
 
 class _SequenceAdapter:
@@ -193,10 +195,15 @@ class _DictAdapter:
     """Traversal behavior for dict values with string keys."""
 
     def step_named_child(self, value: object, name: str) -> object:
-        raise AttributeError(name)
+        assert isinstance(value, dict)
+        if name not in value:
+            raise AttributeError(name)
+        return value[name]
 
     def step_segment(self, value: object, segment: object) -> object:
         assert isinstance(value, dict)
+        if isinstance(segment, FieldSegment):
+            return self.step_named_child(value, segment.name)
         if not isinstance(segment, KeySegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
@@ -211,6 +218,10 @@ class _DictAdapter:
 
     def replace_child(self, value: object, segment: object, new_child: object) -> object:
         assert isinstance(value, dict)
+        if isinstance(segment, FieldSegment):
+            updated = dict(value)
+            updated[segment.name] = new_child
+            return updated
         if not isinstance(segment, KeySegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
@@ -268,8 +279,10 @@ def step_named_child(value: object, name: str) -> object:
     """Traverse a named child using the current runtime semantics."""
     if _is_virtual_value(value):
         return _VIRTUAL_VALUE_ADAPTER.step_named_child(value, name)
-    if isinstance(value, Struct):
+    if is_struct_like(value):
         return _STRUCT_ADAPTER.step_named_child(value, name)
+    if isinstance(value, dict):
+        return _DICT_ADAPTER.step_named_child(value, name)
     if isinstance(value, (list, tuple)):
         return _SEQUENCE_ADAPTER.step_named_child(value, name)
     return _OBJECT_ADAPTER.step_named_child(value, name)
@@ -280,8 +293,10 @@ def step_segment(value: object, segment: object) -> object:
     if isinstance(segment, FieldSegment):
         if _is_virtual_value(value):
             return _VIRTUAL_VALUE_ADAPTER.step_segment(value, segment)
-        if isinstance(value, Struct):
+        if is_struct_like(value):
             return _STRUCT_ADAPTER.step_segment(value, segment)
+        if isinstance(value, dict):
+            return _DICT_ADAPTER.step_segment(value, segment)
         return _OBJECT_ADAPTER.step_segment(value, segment)
 
     if isinstance(segment, IndexSegment):
@@ -312,25 +327,27 @@ def iter_children(value: object) -> tuple[tuple[object, object], ...]:
     """Return the immediate traversable children of *value*."""
     if _is_virtual_value(value):
         return _VIRTUAL_VALUE_ADAPTER.iter_children(value)
-    if isinstance(value, Struct):
+    if is_struct_like(value):
         return _STRUCT_ADAPTER.iter_children(value)
-    if isinstance(value, (list, tuple)):
-        return _SEQUENCE_ADAPTER.iter_children(value)
     if isinstance(value, dict):
         return _DICT_ADAPTER.iter_children(value)
+    if isinstance(value, (list, tuple)):
+        return _SEQUENCE_ADAPTER.iter_children(value)
     return _OBJECT_ADAPTER.iter_children(value)
 
 
 def replace_child(value: object, segment: object, new_child: object) -> object:
     """Return *value* with *segment* replaced by *new_child*."""
     if isinstance(segment, FieldSegment):
-        if not isinstance(value, Struct):
-            raise TypeError(
-                f"FieldSegment requires a Struct, got {type(value).__name__}"
-            )
         if _is_virtual_value(value):
             return _VIRTUAL_VALUE_ADAPTER.replace_child(value, segment, new_child)
-        return _STRUCT_ADAPTER.replace_child(value, segment, new_child)
+        if is_struct_like(value):
+            return _STRUCT_ADAPTER.replace_child(value, segment, new_child)
+        if isinstance(value, dict):
+            return _DICT_ADAPTER.replace_child(value, segment, new_child)
+        raise TypeError(
+            f"FieldSegment requires a Struct-like value or dict, got {type(value).__name__}"
+        )
 
     if isinstance(segment, IndexSegment):
         if not isinstance(value, list):
@@ -356,10 +373,10 @@ def has_named_child(value: object, name: str) -> bool:
     """Return True when *value* exposes *name* as a traversable child."""
     if _is_virtual_value(value):
         return _VIRTUAL_VALUE_ADAPTER.has_named_child(value, name)
-    if isinstance(value, Struct):
+    if is_struct_like(value):
         return _STRUCT_ADAPTER.has_named_child(value, name)
-    if isinstance(value, (list, tuple)):
-        return _SEQUENCE_ADAPTER.has_named_child(value, name)
     if isinstance(value, dict):
         return _DICT_ADAPTER.has_named_child(value, name)
+    if isinstance(value, (list, tuple)):
+        return _SEQUENCE_ADAPTER.has_named_child(value, name)
     return _OBJECT_ADAPTER.has_named_child(value, name)

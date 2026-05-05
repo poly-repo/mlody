@@ -9,7 +9,7 @@ from typing import Any, Callable, cast
 
 from rich.console import Console
 
-from mlody.common.struct import Struct
+from mlody.common.struct import Struct, is_struct_like
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from mlody.common.context import build_ctx
 from mlody.core.anchor import (
@@ -194,7 +194,7 @@ class Workspace:
     def _annotate_resolved_value(value: object, label: str) -> object:
         if is_virtual_value(value):
             return value
-        if isinstance(value, Struct):
+        if is_struct_like(value):
             return value.updated(_resolved_label=label)
         return value
 
@@ -324,22 +324,23 @@ class Workspace:
         )
 
     @staticmethod
-    def _convert_single_entity(entity: Struct) -> Struct:
-        """Convert ``inputs``, ``outputs``, and ``config`` port lists to named Structs.
+    def _convert_single_entity(entity: object) -> object:
+        """Convert ``inputs``, ``outputs``, and ``config`` port lists to named mappings.
 
-        Returns a new ``Struct`` with those three fields replaced by ``Struct``
-        objects keyed by element ``name``.  All other fields are preserved
-        unchanged.
+        Returns a new entity with those three fields replaced by ``Struct`` or
+        ``dict`` objects keyed by element ``name``. All other fields are
+        preserved unchanged.
 
-        Idempotent: if a field is already a ``Struct`` it is left as-is.
+        Idempotent: if a field is already a named ``Struct`` or ``dict`` it is
+        left as-is.
         Raises ``ValueError`` if any element lacks a ``name`` or if duplicate
         names appear within the same list.
         """
-        # Recursively convert an embedded action Struct before reconstructing
+        # Recursively convert an embedded action entity before reconstructing
         # the outer entity, so that task.action.outputs.X traversal works.
         action_field = getattr(entity, "action", None)
         if (
-            isinstance(action_field, Struct)
+            is_struct_like(action_field)
             and getattr(action_field, "kind", None) == "action"
         ):
             action_field = Workspace._convert_single_entity(action_field)
@@ -347,10 +348,10 @@ class Workspace:
         entity_kind = getattr(entity, "kind", "<unknown>")
         entity_name = getattr(entity, "name", "<unknown>")
 
-        def _convert_port(field_name: str) -> Struct:
+        def _convert_port(field_name: str) -> object:
             lst: object = getattr(entity, field_name, None)
-            # Idempotency: already a Struct — leave it unchanged.
-            if isinstance(lst, Struct):
+            # Idempotency: already a named mapping — leave it unchanged.
+            if isinstance(lst, (Struct, dict)):
                 return lst
             # Treat None or empty list as an empty Struct.
             if not lst:
@@ -396,9 +397,9 @@ class Workspace:
         ``action`` entity via ``_convert_single_entity``, and stages the
         updates before writing them back.
         """
-        staging: dict[object, Struct] = {}
+        staging: dict[object, object] = {}
         for key, value in self._registry.iter_registry_items():
-            if not isinstance(value, Struct):
+            if not is_struct_like(value):
                 continue
             if getattr(value, "kind", None) not in ("task", "action"):
                 continue

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mlody.common.struct import Struct
+from mlody.common.struct import Struct, is_struct_like
 
 from mlody.core.anchor import Anchor
 from mlody.core.label import parse_label as parse_ref_label
@@ -163,8 +163,15 @@ def _make_direct_place(
     selector = PathExpression(segments=prefix)
     if isinstance(segment, FieldSegment) and is_virtual_value(owner):
         strategy = VirtualValueFieldSetter()
-    elif isinstance(segment, FieldSegment) and isinstance(owner, Struct):
+    elif isinstance(segment, FieldSegment) and (
+        is_struct_like(owner) or isinstance(owner, dict)
+    ):
         strategy = StructFieldSetter()
+    elif (
+        isinstance(segment, (FieldSegment, KeySegment))
+        and isinstance(owner, dict)
+    ):
+        strategy = DictKeySetter()
     elif isinstance(segment, IndexSegment) and isinstance(owner, list):
         strategy = ListIndexSetter()
     elif isinstance(segment, KeySegment) and isinstance(owner, dict):

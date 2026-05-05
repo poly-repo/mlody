@@ -94,6 +94,15 @@ _LEGACY_REGISTRY_ATTRS = {
 }
 
 
+def _wrap_registered_value(kind: str, value: object) -> object:
+    try:
+        from mlody.common._registered_struct import wrap_registered_struct  # noqa: PLC0415
+    except ModuleNotFoundError:
+        return value
+
+    return wrap_registered_struct(kind, value)
+
+
 def _declared_child_specs(value_type: object) -> tuple[object, ...]:
     """Return merged declared child specs for a type, including legacy aliases."""
     attrs = getattr(value_type, "attributes", None)
@@ -405,7 +414,11 @@ class Evaluator:
             _sentinel: Named = Struct(  # type: ignore[assignment]
                 kind="type", type=_pname, name=_pname, attributes={}, _allowed_attrs={}
             )
-            self.registry.register("type", _pname, _sentinel)  # bare key — no file ctx at init time
+            self.registry.register(
+                "type",
+                _pname,
+                self.decorate_registered_value("type", _sentinel),
+            )  # bare key — no file ctx at init time
         self._module_globals: dict[Path, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
         # Names injected sandbox-wide: seeded into every new file's sandbox_globals.
         # workspace_loader populates this after evaluating mm.mlody so that `mm`
@@ -490,7 +503,7 @@ class Evaluator:
         *,
         field_name: str,
         field_spec: object,
-        owner_provider: Callable[[], Struct | None],
+        owner_provider: Callable[[], object | None],
         label_prefix: str,
     ) -> Struct:
         cached_value: dict[str, object] = {"value": _MISSING}
@@ -525,10 +538,11 @@ class Evaluator:
         )
 
     def decorate_registered_value(self, kind: str, value: Any) -> Any:  # pyright: ignore[reportExplicitAny]
-        if not isinstance(value, Struct):
+        mapping_fn = getattr(value, "as_mapping", None)
+        if not callable(mapping_fn):
             return value
 
-        fields = dict(value.as_mapping())
+        fields = dict(mapping_fn())
         changed = False
         descriptor_name = _ENTITY_DESCRIPTOR_TYPE_NAMES.get(kind)
         if descriptor_name is not None:
@@ -559,8 +573,8 @@ class Evaluator:
             changed = True
 
         if not changed:
-            return value
-        owner_snapshot = Struct(**fields)
+            return _wrap_registered_value(kind, value)
+        owner_snapshot = _wrap_registered_value(kind, Struct(**fields))
         return owner_snapshot
 
     def _make_source_range_struct(
@@ -902,32 +916,67 @@ class Evaluator:
                 return self._lookup("value", v)
             return v  # type: ignore[return-value]
 
+        def _resolve_mapping_value(v: object) -> object:
+            if not isinstance(v, str):
+                return v
+            try:
+                return self._lookup("value", v)
+            except NameError:
+                # Legacy dict/Struct-based config values may store arbitrary
+                # string literals rather than value labels.
+                return v
+
         def _resolve_action(v: object) -> Named:
             if isinstance(v, str):
                 return self._lookup("action", v)
+            if hasattr(v, "as_mapping"):
+                action_fields = dict(v.as_mapping())  # type: ignore[union-attr]
+                action_fields["inputs"] = _resolve_port_collection(
+                    action_fields.get("inputs", [])
+                )
+                action_fields["outputs"] = _resolve_port_collection(
+                    action_fields.get("outputs", [])
+                )
+                action_fields["config"] = _resolve_port_collection(
+                    action_fields.get("config", [])
+                )
+                return self.decorate_registered_value("action", Struct(**action_fields))
             return v  # type: ignore[return-value]
+
+        def _resolve_port_collection(values: object) -> object:
+            if isinstance(values, dict):
+                return {
+                    str(name): _resolve_mapping_value(value)
+                    for name, value in values.items()
+                }
+            if isinstance(values, Struct):
+                return Struct(
+                    **{
+                        str(name): _resolve_mapping_value(value)
+                        for name, value in values.as_mapping().items()
+                    }
+                )
+            if isinstance(values, (list, tuple)):
+                return [_resolve_value(value) for value in values]
+            return values
 
         actions = self.registry.actions
         # Resolve actions: string labels in inputs/outputs/config → value structs
         for key, entity in list(actions.by_key.items()):
             fields = dict(entity.as_mapping())
-            fields["inputs"] = [_resolve_value(v) for v in fields.get("inputs", [])]
-            fields["outputs"] = [_resolve_value(v) for v in fields.get("outputs", [])]
-            _config = fields.get("config", [])
-            if isinstance(_config, list):
-                fields["config"] = [_resolve_value(v) for v in _config]
-            new_entity = Struct(**fields)
+            fields["inputs"] = _resolve_port_collection(fields.get("inputs", []))
+            fields["outputs"] = _resolve_port_collection(fields.get("outputs", []))
+            fields["config"] = _resolve_port_collection(fields.get("config", []))
+            new_entity = self.decorate_registered_value("action", Struct(**fields))
             self.registry.register("action", key, new_entity)
 
         tasks = self.registry.tasks
         # Resolve tasks: string labels in inputs/outputs/config/action → entity structs
         for key, entity in list(tasks.by_key.items()):
             fields = dict(entity.as_mapping())
-            fields["inputs"] = [_resolve_value(v) for v in fields.get("inputs", [])]
-            fields["outputs"] = [_resolve_value(v) for v in fields.get("outputs", [])]
-            _config = fields.get("config", [])
-            if isinstance(_config, list):
-                fields["config"] = [_resolve_value(v) for v in _config]
+            fields["inputs"] = _resolve_port_collection(fields.get("inputs", []))
+            fields["outputs"] = _resolve_port_collection(fields.get("outputs", []))
+            fields["config"] = _resolve_port_collection(fields.get("config", []))
             fields["action"] = _resolve_action(fields.get("action"))
-            new_entity = Struct(**fields)
+            new_entity = self.decorate_registered_value("task", Struct(**fields))
             self.registry.register("task", key, new_entity)

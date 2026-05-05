@@ -6,8 +6,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Iterable
 
-from common.python.starlarkish.core.struct import Struct
 from common.python.starlarkish.evaluator.evaluator import Evaluator
+from mlody.common.struct import Struct, is_struct_like
 
 from mlody.core.registry_view import RegistryView
 
@@ -42,7 +42,7 @@ class ContextRestrictedValueValidationError(Exception):
 
 @dataclass(frozen=True)
 class _ObservedBinding:
-    value: Struct
+    value: object
     actual_context: str
     task_name: str
     slot_path: str
@@ -80,12 +80,12 @@ def collect_context_restricted_value_violations(
     items: Iterable[RegistryItem],
 ) -> tuple[ContextRestrictedValueViolation, ...]:
     """Return contextual value violations for resolved registry items."""
-    registry_values: list[Struct] = []
-    tasks: list[Struct] = []
-    actions: list[Struct] = []
+    registry_values: list[object] = []
+    tasks: list[object] = []
+    actions: list[object] = []
 
     for _key, entity in items:
-        if not isinstance(entity, Struct):
+        if not is_struct_like(entity):
             continue
         entity_kind = getattr(entity, "kind", None)
         if entity_kind == "value":
@@ -112,21 +112,21 @@ def collect_context_restricted_value_violations_from_entities(
     registry_values = [
         value
         for value in values
-        if isinstance(value, Struct) and getattr(value, "kind", None) == "value"
+        if is_struct_like(value) and getattr(value, "kind", None) == "value"
     ]
     task_values = [
         task
         for task in tasks
-        if isinstance(task, Struct) and getattr(task, "kind", None) == "task"
+        if is_struct_like(task) and getattr(task, "kind", None) == "task"
     ]
     action_values = [
         action
         for action in actions
-        if isinstance(action, Struct) and getattr(action, "kind", None) == "action"
+        if is_struct_like(action) and getattr(action, "kind", None) == "action"
     ]
 
     observed_by_value_key: dict[ValueKey, list[_ObservedBinding]] = defaultdict(list)
-    policy_values: dict[ValueKey, Struct] = {}
+    policy_values: dict[ValueKey, object] = {}
 
     for action in action_values:
         action_name = _entity_name(action)
@@ -183,7 +183,7 @@ def collect_context_restricted_value_violations_from_entities(
         )
 
         action = getattr(task, "action", None)
-        if isinstance(action, Struct) and getattr(action, "kind", None) == "action":
+        if is_struct_like(action) and getattr(action, "kind", None) == "action":
             _record_bindings(
                 observed_by_value_key,
                 policy_values,
@@ -261,12 +261,12 @@ def collect_context_restricted_value_violations_from_entities(
 
 def _record_bindings(
     observed_by_value_key: dict[ValueKey, list[_ObservedBinding]],
-    policy_values: dict[ValueKey, Struct],
+    policy_values: dict[ValueKey, object],
     *,
     task_name: str,
     context_name: str,
     slot_field: str,
-    container: Struct,
+    container: object,
 ) -> None:
     for index, value in enumerate(_iter_slot_values(container, slot_field)):
         policies = _context_policies(value)
@@ -284,22 +284,28 @@ def _record_bindings(
         )
 
 
-def _iter_slot_values(container: Struct, field_name: str) -> tuple[Struct, ...]:
+def _iter_slot_values(container: object, field_name: str) -> tuple[object, ...]:
     raw_values = getattr(container, field_name, None)
-    if not isinstance(raw_values, (list, tuple)):
+    if isinstance(raw_values, dict):
+        values = tuple(raw_values.values())
+    elif is_struct_like(raw_values):
+        values = tuple(raw_values.as_mapping().values())
+    elif isinstance(raw_values, (list, tuple)):
+        values = tuple(raw_values)
+    else:
         return ()
     return tuple(
         value
-        for value in raw_values
-        if isinstance(value, Struct) and getattr(value, "kind", None) == "value"
+        for value in values
+        if is_struct_like(value) and getattr(value, "kind", None) == "value"
     )
 
 
-def _context_policies(value: Struct) -> dict[str, tuple[str, ...]]:
+def _context_policies(value: object) -> dict[str, tuple[str, ...]]:
     raw_policies = getattr(value, "_context_attr_policies", None)
     if raw_policies is None:
         return {}
-    if isinstance(raw_policies, Struct):
+    if is_struct_like(raw_policies):
         items = raw_policies.as_mapping().items()
     elif isinstance(raw_policies, dict):
         items = raw_policies.items()
@@ -336,18 +342,18 @@ def _skip_direct_action_binding(
     )
 
 
-def _is_scoped_clone(value: Struct) -> bool:
+def _is_scoped_clone(value: object) -> bool:
     name = getattr(value, "name", None)
     return isinstance(name, str) and "." in name
 
 
-def _entity_name(value: Struct) -> str:
+def _entity_name(value: object) -> str:
     name = getattr(value, "name", None)
     return name if isinstance(name, str) and name else "<unnamed>"
 
 
 def _value_key(
-    value: Struct,
+    value: object,
     policies: dict[str, tuple[str, ...]] | None = None,
 ) -> ValueKey:
     active_policies = policies if policies is not None else _context_policies(value)

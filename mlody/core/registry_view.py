@@ -144,6 +144,14 @@ class RegistryView:
         inferred_kind = key[0] if isinstance(key[0], str) else None
         if inferred_kind is not None:
             value = self._evaluator.decorate_registered_value(inferred_kind, value)
+            bucket = self._evaluator.registry.for_kind(inferred_kind, operation="update")
+            stem = key[1] if isinstance(key[1], str) else None
+            name = key[2] if isinstance(key[2], str) else None
+            by_key_name = f"{stem}:{name}" if stem and name else name
+            if by_key_name is not None:
+                bucket.by_key[by_key_name] = value
+            if name is not None:
+                bucket.by_name[name] = value
         self._evaluator.registry.all[key] = value
 
     def set_workspace_attribute(self, attribute_name: str, value: object) -> None:
