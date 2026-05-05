@@ -92,9 +92,22 @@ o_py_test(
 o_py_library(
     name = "common_lib",
     srcs = [
+        "_registered_struct.py",
+        "action.py",
+        "build_ref.py",
         "__init__.py",
         "context.py",
+        "executor.py",
+        "freshness.py",
+        "generic.py",
+        "implementation.py",
+        "location.py",
+        "representation.py",
+        "root.py",
         "struct.py",
+        "task.py",
+        "type.py",
+        "value.py",
     ],
     data = ["mm.mlody", "render.mlody"],  # keep — loaded at workspace startup
     visibility = ["//:__subpackages__"],
@@ -226,6 +239,32 @@ o_py_test(
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody:mlody_lib",  # keep — sets up mlody package namespace correctly
         "//mlody/core:core_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "registered_structs_test",
+    srcs = ["registered_structs_test.py"],
+    data = [
+        "action.mlody",
+        "attrs.mlody",
+        "build_ref.mlody",
+        "executor.mlody",
+        "freshness.mlody",
+        "implementation.mlody",
+        "locations.mlody",
+        "mm.mlody",
+        "representation.mlody",
+        "task.mlody",
+        "types.mlody",
+        "values.mlody",
+        "//mlody/core:rule.mlody",
+    ],
+    deps = [
+        ":common_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody:mlody_lib",
         "@pip//pytest",
     ],
 )
