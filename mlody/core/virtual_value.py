@@ -24,6 +24,24 @@ _STRING_TYPE = Struct(
     attributes={},
     _allowed_attrs={},
 )
+_LINEAGE_EVENT_TYPE = Struct(
+    kind="type",
+    type="mlody-lineage-event",
+    name="mlody-lineage-event",
+    type_name="mlody-lineage-event",
+    _root_kind="record",
+    attributes={},
+    _allowed_attrs={},
+)
+_LINEAGE_VECTOR_TYPE = Struct(
+    kind="type",
+    type="vector",
+    name="vector",
+    type_name="vector",
+    _root_kind="vector",
+    attributes={"element_type": _LINEAGE_EVENT_TYPE},
+    _allowed_attrs={},
+)
 
 
 def _is_virtual_value_struct(obj: object) -> bool:
@@ -101,6 +119,19 @@ def _synthetic_raw_attribute() -> Struct:
         name="raw",
         type=_STRING_TYPE,
         materializer=_runtime_json_blob,
+        mandatory=False,
+    )
+
+
+def _synthetic_lineage_attribute(lineage_type: object | None = None) -> Struct:
+    def _lineage_materializer(owner: object) -> object:
+        return list(getattr(owner, "_lineage", []))
+
+    return Struct(
+        kind="field",
+        name="lineage",
+        type=lineage_type if lineage_type is not None else _LINEAGE_VECTOR_TYPE,
+        materializer=_lineage_materializer,
         mandatory=False,
     )
 
@@ -226,6 +257,15 @@ def lookup_runtime_attribute(value: object, segment: str) -> object | None:
             return semantic_field
 
     entity_type = getattr(value, "_entity_type", None)
+    if segment == "lineage" and is_struct_like(value):
+        lineage_attr = (
+            lookup_declared_attribute(entity_type, segment)
+            if entity_type is not None
+            else None
+        )
+        return _synthetic_lineage_attribute(
+            getattr(lineage_attr, "type", None) if lineage_attr is not None else None
+        )
     if entity_type is not None:
         entity_attr = lookup_declared_attribute(entity_type, segment)
         if entity_attr is not None:

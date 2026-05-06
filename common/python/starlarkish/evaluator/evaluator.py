@@ -577,11 +577,15 @@ class Evaluator:
         owner_snapshot: Struct | None = None
         owner_name = str(fields.get("name", ""))
         for field_name, field_spec in materialized_specs:
-            # Refresh derived raw snapshots when an entity is re-decorated after
-            # mutation. The existing virtual child may still capture the old
-            # owner snapshot and would otherwise materialize stale JSON.
-            if field_name in fields and field_name != "raw":
-                continue
+            existing_child = fields.get(field_name, _MISSING)
+            if existing_child is not _MISSING:
+                existing_location = getattr(existing_child, "location", None)
+                if getattr(existing_location, "type", None) != "virtual":
+                    continue
+            # Refresh evaluator-owned virtual children when an entity is
+            # re-decorated after mutation. Existing virtual children may still
+            # capture the old owner snapshot and would otherwise materialize
+            # stale derived state such as raw JSON or lineage views.
             fields[field_name] = self._make_materialized_child_value(
                 field_name=field_name,
                 field_spec=field_spec,

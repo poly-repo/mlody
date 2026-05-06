@@ -2558,6 +2558,12 @@ def _lookup_entity(
             and key[1] == stem
             and key[2] == name
         ):
+            kind = key[0]
+            if isinstance(kind, str):
+                bucket = workspace.evaluator.registry.for_kind(kind, operation="lookup")
+                current_value = bucket.by_name.get(name)
+                if current_value is not None:
+                    return (kind, current_value)
             return (key[0], value)
     return None
 

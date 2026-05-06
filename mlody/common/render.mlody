@@ -510,6 +510,36 @@ defmethod(render_value, [mm.value(type=mm.ANY)], _render_simple_inline_value)
 
 
 # ---------------------------------------------------------------------------
+# Lineage — render the event sources as a plain text list.
+# ---------------------------------------------------------------------------
+
+def _render_lineage_value(ctx, value):
+    location = python.getattr(value, "location", None)
+    materializer = python.getattr(location, "materializer", None)
+    payload = materializer(value) if materializer != None else []
+    payload_type = type(payload)
+    events = payload if payload_type == "list" or payload_type == "tuple" else []
+    sources = []
+    for event in events:
+        source = python.getattr(event, "source", None)
+        sources = sources + [str(source if source != None else "(unknown)")]
+    content = "\n".join(sources) if len(sources) > 0 else "(empty)"
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [
+            struct(name="Content", rows=[], code=content, language="text"),
+        ],
+    )
+
+defmethod(
+    render_value,
+    [mm.value(type=mm.vector(element_type=mm.T("mlody-lineage-event")))],
+    _render_lineage_value,
+)
+
+
+# ---------------------------------------------------------------------------
 # Fallback — compact summary for any value.
 # ---------------------------------------------------------------------------
 

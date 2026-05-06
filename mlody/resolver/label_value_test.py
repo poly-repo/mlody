@@ -86,6 +86,18 @@ builtins.register("type", struct(
     _root_kind="record",
 ))
 builtins.register("type", struct(
+    kind="type", type="mlody-lineage-event", name="mlody-lineage-event",
+    fields=[
+        struct(name="source", type=struct(kind="type", type="string", name="string")),
+        struct(name="reason", type=struct(kind="type", type="string", name="string")),
+        struct(name="timestamp", type=struct(kind="type", type="string", name="string")),
+        struct(name="accessor", type=struct(kind="type", type="string", name="string")),
+        struct(name="mode", type=struct(kind="type", type="string", name="string")),
+    ],
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
     kind="type", type="mlody_workspace_info", name="mlody_workspace_info",
     fields=[
         struct(name="path", type=struct(kind="type", type="string", name="string")),
@@ -98,6 +110,17 @@ builtins.register("type", struct(
 ))
 _ENTITY_FIELDS = [
     struct(name="_source_range", type=builtins.lookup("type", "mlody-source-range"), mandatory=False),
+    struct(
+        name="lineage",
+        type=struct(
+            kind="type",
+            type="vector",
+            name="vector",
+            attributes={"element_type": builtins.lookup("type", "mlody-lineage-event")},
+        ),
+        materializer=lambda owner: python.getattr(owner, "_lineage", []),
+        mandatory=False,
+    ),
     struct(
         name="raw",
         type=struct(kind="type", type="string", name="string"),
@@ -742,6 +765,33 @@ builtins.register("value", struct(
         assert payload["location"]["data"] == "FOO"
         assert payload["location"]["attributes"] == {}
         assert configured._lineage[-1].source == "COMMAND_LINE: @myroot//entities:my_value=FOO"
+
+    def test_lineage_virtual_attribute_materializes_event_list(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        ws = _make_workspace(
+            fs,
+            {
+                "teams/myroot/entities.mlody": """\
+builtins.register("value", struct(
+    kind="value",
+    name="my_value",
+    type=struct(kind="type", type="string", name="string"),
+    location=struct(kind="location", type="inline", name="inline"),
+    _lineage=[],
+))
+""",
+            },
+        )
+        configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
+
+        result = resolve_label_to_value(parse_label("@myroot//entities:my_value.lineage"), ws)
+
+        assert isinstance(result, MlodyValueValue)
+        payload = force_virtual_value(result.struct)
+        assert isinstance(payload, list)
+        assert payload[-1].source == "COMMAND_LINE: @myroot//entities:my_value=FOO"
 
 
 # ---------------------------------------------------------------------------

@@ -96,17 +96,17 @@ def _lookup_value_if_registered(value):
     return None
 
 
-def _lineage_event(author, timestamp, reason):
+def _lineage_event(source, timestamp, reason):
     """Create a single lineage event struct.
 
     Args:
-        author:    string — who/what generated this event (e.g. "mlody")
+        source:    string — who/what generated this event (e.g. "mlody")
         timestamp: string — ISO-8601 or unix epoch as string
         reason:    string — why this event occurred (one of a fixed set, TBD)
     """
     return struct(
         kind="lineage_event",
-        author=author,
+        source=source,
         timestamp=timestamp,
         reason=reason,
     )

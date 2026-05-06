@@ -634,3 +634,45 @@ def test_non_inline_primitive_value_keeps_metadata_rendering() -> None:
     assert len(spec.sections) == 2
     assert spec.sections[0].name == "Type"
     assert spec.sections[1].name == "Location"
+
+
+def test_lineage_value_renders_event_sources_only() -> None:
+    """Lineage virtual values render the source of each lineage event."""
+    from common.python.starlarkish.core.struct import Struct
+
+    event_type = Struct(
+        kind="type",
+        name="mlody-lineage-event",
+        type_name="mlody-lineage-event",
+        _root_kind="record",
+    )
+    lineage_type = Struct(
+        kind="type",
+        name="vector",
+        type_name="vector",
+        _root_kind="vector",
+        attributes={"element_type": event_type},
+    )
+    events = [
+        Struct(kind="lineage_event", source="COMMAND_LINE: @root//pkg:value=FOO"),
+        Struct(kind="lineage_event", source="UI: edited manually"),
+    ]
+    value_struct = Struct(
+        kind="value",
+        name="lineage",
+        type=lineage_type,
+        location=Struct(
+            kind="location",
+            type="virtual",
+            materializer=lambda _value: events,
+        ),
+    )
+
+    spec = _dispatch_render_value(value_struct)
+
+    assert spec.kind == "render_value_spec"
+    assert len(spec.sections) == 1
+    assert spec.sections[0].rows == []
+    assert spec.sections[0].code == (
+        "COMMAND_LINE: @root//pkg:value=FOO\nUI: edited manually"
+    )

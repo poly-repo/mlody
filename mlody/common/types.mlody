@@ -374,11 +374,29 @@ typedef(
 )
 
 typedef(
+    name = "mlody-lineage-event",
+    base = record(fields = [
+        field(name = "source",    type = string(), mandatory = False),
+        field(name = "reason",    type = string(), mandatory = False),
+        field(name = "timestamp", type = string(), mandatory = False),
+        field(name = "accessor",  type = string(), mandatory = False),
+        field(name = "mode",      type = string(), mandatory = False),
+        field(name = "new_value", type = any(),    mandatory = False),
+    ]),
+)
+
+typedef(
     name = "mlody-entity",
     base = record(fields = [
         field(
             name = "_source_range",
             type = builtins.lookup("type", "mlody-source-range"),
+            mandatory = False,
+        ),
+        field(
+            name = "lineage",
+            type = vector(element_type=":mlody-lineage-event"),
+            materializer = lambda owner: python.getattr(owner, "_lineage", []),
             mandatory = False,
         ),
         field(
