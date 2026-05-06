@@ -81,7 +81,7 @@ class WorkspaceLoader:
             if not self._registry.is_loaded(render_path):
                 self._registry.eval_file(render_path)
             self._registry.propagate_globals_as_persistent_injections(
-                render_path, ["render_value"]
+                render_path, ["render_value", "render_element_preview", "render_element"]
             )
 
         self._root_infos.clear()

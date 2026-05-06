@@ -578,6 +578,93 @@ def _build_tabular_preview(
     return col_names, data_rows, table.num_rows
 
 
+def _is_render_spec(obj: object) -> bool:
+    return getattr(obj, "kind", None) == "render_value_spec"
+
+
+def _get_element_type_name(type_struct: object) -> str | None:
+    """Return the element type name for a vector type struct, or None."""
+    attrs = getattr(type_struct, "attributes", None)
+    element_type = attrs.get("element_type") if isinstance(attrs, dict) else None
+    if element_type is None:
+        element_type = getattr(type_struct, "element_type", None)
+    if element_type is None:
+        return None
+    elem_name: str | None = getattr(element_type, "name", None) or getattr(element_type, "type_name", None)
+    if elem_name is None and isinstance(element_type, str) and element_type.startswith(":"):
+        elem_name = element_type[1:]
+    return elem_name
+
+
+def _render_elements_individually(
+    type_struct: object,
+    raw_preview: object,
+    workspace: object,
+    dom_executor: object,
+) -> bool:
+    """Dispatch render_element once per row and render each result.
+
+    Returns True if a render_element method was found and used (even if some
+    rows returned None and were skipped). Returns False when no method is
+    registered for this element type, so the caller can fall back.
+    """
+    from mlody.core.multimethod import DispatchError, dispatch  # noqa: PLC0415
+    from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
+
+    elem_name = _get_element_type_name(type_struct)
+    if elem_name is None:
+        return False
+
+    entry = workspace.evaluator._method_registry.get("render_element", {})
+    methods = list(entry.get("methods", []))
+    if not methods:
+        return False
+
+    col_names, data_rows, _total = raw_preview
+    matched = False
+    for row in data_rows:
+        elem_arg = Struct(kind="type", name=elem_name, _row=list(zip(col_names, row)))
+        try:
+            result = dispatch("render_element", (elem_arg,), methods)
+            matched = True
+            if result is not None and _is_render_spec(result):
+                dom_executor.render(_render_spec_to_dom(result))
+        except DispatchError:
+            return False
+    return matched
+
+
+def _apply_element_preview(
+    type_struct: object,
+    raw_preview: object,
+    workspace: object,
+) -> object:
+    """Dispatch render_element_preview for the vector element type.
+
+    Builds a dispatch arg struct(kind="type", name=<elem-name>, _preview=<tuple>)
+    and fires render_element_preview. Returns whatever the method body returns —
+    a render_value_spec struct, a transformed (col_names, rows, total) tuple, or
+    None — or None when no method is registered / no element type is found.
+    """
+    from mlody.core.multimethod import DispatchError, dispatch  # noqa: PLC0415
+    from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
+
+    elem_name = _get_element_type_name(type_struct)
+    if elem_name is None:
+        return None
+
+    entry = workspace.evaluator._method_registry.get("render_element_preview", {})
+    methods = list(entry.get("methods", []))
+    if not methods:
+        return None
+
+    elem_dispatch_arg = Struct(kind="type", name=elem_name, _preview=raw_preview)
+    try:
+        return dispatch("render_element_preview", (elem_dispatch_arg,), methods)
+    except DispatchError:
+        return None
+
+
 def _image_encoder_for_terminal():
     """Return an image encoder callable for the current terminal, or None."""
     if _can_kitty():
@@ -1037,6 +1124,22 @@ def _print_mlody_value(
             from mlody.core.multimethod import DispatchError, dispatch  # noqa: PLC0415
             from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
 
+            if "_tabular_preview" in extra_fields:
+                type_struct = getattr(value.struct, "type", None)
+                if type_struct is not None:
+                    if _render_elements_individually(
+                        type_struct, extra_fields["_tabular_preview"], workspace, dom_executor
+                    ):
+                        return
+                    elem_result = _apply_element_preview(
+                        type_struct, extra_fields["_tabular_preview"], workspace
+                    )
+                    if elem_result is not None and _is_render_spec(elem_result):
+                        dom_executor.render(_render_spec_to_dom(elem_result))
+                        return
+                    elif elem_result is not None:
+                        extra_fields["_tabular_preview"] = elem_result
+
             entry = workspace.evaluator._method_registry.get("render_value", {})
             methods = list(entry.get("methods", []))
             if methods:
@@ -1114,12 +1217,20 @@ def _print_mlody_value(
                         type_struct = getattr(base_value, "type", None)
                     except Exception:
                         pass
+                raw_preview = _build_tabular_preview(raw_table, image_encoder=enc)
+                if type_struct is not None:
+                    if _render_elements_individually(type_struct, raw_preview, workspace, dom_executor):
+                        return
+                    elem_result = _apply_element_preview(type_struct, raw_preview, workspace)
+                    if elem_result is not None and _is_render_spec(elem_result):
+                        dom_executor.render(_render_spec_to_dom(elem_result))
+                        return
+                    elif elem_result is not None:
+                        raw_preview = elem_result
                 dispatch_kwargs: dict[str, object] = {
                     "kind": "value",
                     "name": label_str,
-                    "_tabular_preview": _build_tabular_preview(
-                        raw_table, image_encoder=enc
-                    ),
+                    "_tabular_preview": raw_preview,
                 }
                 if type_struct is not None:
                     dispatch_kwargs["type"] = type_struct

@@ -595,7 +595,47 @@ defmethod(render_value, [mm.source_range], _render_source_range_value)
 
 
 # ---------------------------------------------------------------------------
+# render_element_preview — per-element-type tabular preview transform
+#
+# Dispatches on a struct(kind="type", name=<elem-type-name>, _preview=<tuple>).
+# Body receives (ctx, elem) and returns a transformed (col_names, rows, total)
+# tuple, or None to suppress the preview. Pipeline authors use:
+#
+#   defmethod(render_element_preview, [mm.T("my-type")], fn)
+#
+# The generic vector/tuple renderer calls this before displaying data, so a
+# match here automatically filters/transforms the columns shown. A specific
+# defmethod(render_value, [mm.value(type=mm.vector(...))]) always takes
+# priority because it bypasses this path entirely.
+# ---------------------------------------------------------------------------
+
+render_element_preview = mm.generic(
+    "render_element_preview",
+    description="Transform the tabular preview for a specific vector element type.",
+)
+
+# ---------------------------------------------------------------------------
+# render_element — per-instance element rendering
+#
+# Called once per row when the generic vector renderer iterates elements.
+# Dispatches on struct(kind="type", name=<elem-type-name>, _row=[(col, val), ...]).
+# Body receives (ctx, elem) and returns a render_value_spec (one panel per element)
+# or None to skip that element. Pipeline authors use:
+#
+#   defmethod(render_element, [mm.T("my-type")], fn)
+#
+# Takes priority over render_element_preview when both are registered.
+# ---------------------------------------------------------------------------
+
+render_element = mm.generic(
+    "render_element",
+    description="Render a single element of a vector. Body receives struct(kind='type', name=<type>, _row=[(col, val), ...]) and returns a render_value_spec or None.",
+)
+
+# ---------------------------------------------------------------------------
 # Inject into sandbox
 # ---------------------------------------------------------------------------
 
 builtins.inject("render_value", render_value)
+builtins.inject("render_element_preview", render_element_preview)
+builtins.inject("render_element", render_element)
