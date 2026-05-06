@@ -766,6 +766,61 @@ builtins.register("value", struct(
         assert payload["location"]["attributes"] == {}
         assert configured._lineage[-1].source == "COMMAND_LINE: @myroot//entities:my_value=FOO"
 
+    def test_default_value_is_copied_into_missing_payload_before_overrides(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        ws = _make_workspace(
+            fs,
+            {
+                "teams/myroot/entities.mlody": """\
+builtins.register("value", struct(
+    kind="value",
+    name="my_value",
+    type=struct(kind="type", type="string", name="string"),
+    location=struct(kind="location", type="inline", name="inline"),
+    default="seed",
+    _lineage=[],
+))
+""",
+            },
+        )
+        configure_workspace(ws, [])
+
+        configured = ws.resolve("@myroot//entities:my_value")
+
+        assert configured.location.data == "seed"
+        assert configured._lineage[-1].source == "DEFAULT: seed"
+
+    def test_command_line_override_follows_default_normalization(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        ws = _make_workspace(
+            fs,
+            {
+                "teams/myroot/entities.mlody": """\
+builtins.register("value", struct(
+    kind="value",
+    name="my_value",
+    type=struct(kind="type", type="string", name="string"),
+    location=struct(kind="location", type="inline", name="inline"),
+    default="seed",
+    _lineage=[],
+))
+""",
+            },
+        )
+        configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
+
+        configured = ws.resolve("@myroot//entities:my_value")
+
+        assert configured.location.data == "FOO"
+        assert [event.source for event in configured._lineage[-2:]] == [
+            "DEFAULT: seed",
+            "COMMAND_LINE: @myroot//entities:my_value=FOO",
+        ]
+
     def test_lineage_virtual_attribute_materializes_event_list(
         self,
         fs: FakeFilesystem,

@@ -31,6 +31,7 @@ class RegisteredValue(RegisteredStructBase):
     _source_value: object | None = None
     _source_range: object | None = None
     raw: object | None = None
+    lineage: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)

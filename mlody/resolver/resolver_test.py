@@ -253,6 +253,7 @@ class TestConfigureWorkspace:
 
     def test_inline_value_target_updates_inline_location_payload(self) -> None:
         workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
         location = Struct(
             kind="location",
             type="inline",
@@ -289,6 +290,7 @@ class TestConfigureWorkspace:
 
     def test_non_inline_target_uses_direct_setf_assignment(self) -> None:
         workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
         workspace.resolve.return_value = "old"
 
         with patch("mlody.core.setf.setf") as mock_setf:
@@ -310,6 +312,7 @@ class TestConfigureWorkspace:
 
     def test_invalid_config_entry_raises_workspace_resolution_error(self) -> None:
         workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
 
         with pytest.raises(WorkspaceResolutionError, match="LABEL=VALUE"):
             configure_workspace(workspace, ["@lexica//services/release/api/image:image"])

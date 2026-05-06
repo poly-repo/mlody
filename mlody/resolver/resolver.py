@@ -155,8 +155,8 @@ def _parse_config_assignment(raw: str) -> tuple[str, str]:
     return (ref, value)
 
 
-def _updated_inline_location(location: object, value: str) -> object:
-    """Return an inline location with its canonical payload updated."""
+def _updated_location_payload(location: object, value: object) -> object:
+    """Return a location with its canonical payload updated."""
     from mlody.common.struct import struct_like_updated  # noqa: PLC0415
 
     raw_attributes = getattr(location, "attributes", None)
@@ -170,9 +170,116 @@ def _updated_inline_location(location: object, value: str) -> object:
     return struct_like_updated(location, data=value, attributes=attributes)
 
 
+def _registry_value_label(
+    workspace: Workspace,
+    key: tuple[object, object, object],
+) -> str | None:
+    """Return a concrete label for a registry value key when one can be derived."""
+    _, stem, name = key
+    if not isinstance(stem, str) or not isinstance(name, str):
+        return None
+
+    root_infos = getattr(workspace, "root_infos", {})
+    root_matches: list[tuple[int, str, str]] = []
+    for root_name, root_info in root_infos.items():
+        if not isinstance(root_name, str):
+            continue
+        root_path = getattr(root_info, "path", None)
+        if not isinstance(root_path, str):
+            continue
+        root_prefix = root_path.lstrip("/").rstrip("/")
+        if not root_prefix:
+            continue
+        if stem == root_prefix or stem.startswith(root_prefix + "/"):
+            root_matches.append((len(root_prefix), root_name, root_prefix))
+    if root_matches:
+        _, root_name, root_prefix = max(root_matches, key=lambda item: item[0])
+        suffix = stem[len(root_prefix) :].lstrip("/")
+        if suffix:
+            return f"@{root_name}//{suffix}:{name}"
+        return f"@{root_name}//:{name}"
+
+    workspace_root = getattr(workspace, "_workspace_root", None)
+    monorepo_root = getattr(workspace, "_monorepo_root", None)
+    workspace_prefix = ""
+    if isinstance(workspace_root, Path) and isinstance(monorepo_root, Path):
+        if workspace_root != monorepo_root:
+            try:
+                workspace_prefix = str(workspace_root.relative_to(monorepo_root))
+            except ValueError:
+                return None
+            workspace_prefix = workspace_prefix.strip("/")
+    if workspace_prefix:
+        if stem == workspace_prefix:
+            relative_stem = ""
+        elif stem.startswith(workspace_prefix + "/"):
+            relative_stem = stem[len(workspace_prefix) + 1 :]
+        else:
+            return None
+    else:
+        relative_stem = stem
+    if relative_stem:
+        return f"//{relative_stem}:{name}"
+    return f"//:{name}"
+
+
+def _normalize_workspace_defaults(workspace: Workspace) -> Workspace:
+    """Populate missing value payloads from defaults before user overrides apply."""
+    from mlody.common.struct import struct_like_as_mapping, struct_like_updated  # noqa: PLC0415
+    from mlody.core.lineage import append_lineage, build_lineage_event  # noqa: PLC0415
+    from mlody.core.setf import setf  # noqa: PLC0415
+
+    for key, value in workspace.registry_view.iter_registry_items():
+        if not (
+            isinstance(key, tuple)
+            and len(key) == 3
+            and key[0] == "value"
+        ):
+            continue
+        default_value = getattr(value, "default", None)
+        if default_value is None:
+            continue
+        location = getattr(value, "location", None)
+        if location is None:
+            continue
+        try:
+            location_fields = struct_like_as_mapping(location)
+        except TypeError:
+            location_fields = {}
+        if location_fields.get("data", None) is not None:
+            continue
+
+        updated_location = _updated_location_payload(location, default_value)
+        source = f"DEFAULT: {default_value}"
+        label = _registry_value_label(workspace, key)
+        if label is not None:
+            setf(
+                f"{label}.location",
+                updated_location,
+                workspace=workspace,
+                source=source,
+            )
+            continue
+
+        updated_value = struct_like_updated(value, location=updated_location)
+        event = build_lineage_event(
+            accessor=str(key),
+            new_value=updated_location,
+            source=source,
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+        )
+        updated_value = append_lineage(updated_value, event, mode="inplace")
+        workspace.registry_view.set_registry_entity(key, updated_value)
+    return workspace
+
+
 def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspace:
     """Apply ``--with LABEL=VALUE`` overrides and return the configured workspace."""
     from mlody.core.setf import setf  # noqa: PLC0415
+
+    _normalize_workspace_defaults(workspace)
 
     for raw in config:
         ref, value = _parse_config_assignment(raw)
@@ -183,7 +290,7 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
             if getattr(location, "type", None) == "inline":
                 setf(
                     f"{ref}.location",
-                    _updated_inline_location(location, value),
+                    _updated_location_payload(location, value),
                     workspace=workspace,
                     source=source,
                 )

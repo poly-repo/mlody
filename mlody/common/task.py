@@ -29,6 +29,7 @@ class RegisteredTask(RegisteredStructBase):
     _entity_type: object | None = None
     _source_range: object | None = None
     raw: object | None = None
+    lineage: object | None = None
     _hash: object | None = None
 
     def __init__(self, value: Struct) -> None:

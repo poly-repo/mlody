@@ -51,12 +51,11 @@ def _type_impl(ctx):
     if base_type != None and _is_record_like(base_type):
         inherited_fields = _declared_fields(base_type)
         requested_fields = list(declared_fields or [])
-        legacy_virtual_fields = list(virtual_attributes or [])
-        if requested_fields or legacy_virtual_fields:
+        if requested_fields:
             merged_record_fields = _merge_field_declarations(
                 ctx.attr.name,
                 inherited_fields,
-                requested_fields + legacy_virtual_fields,
+                requested_fields,
             )
             inherited_attrs = python.getattr(base_type, "attributes", {})
             inherited_strict = inherited_attrs.get("strict") if isinstance(inherited_attrs, dict) else None
@@ -394,17 +393,19 @@ typedef(
             mandatory = False,
         ),
         field(
-            name = "lineage",
-            type = vector(element_type=":mlody-lineage-event"),
-            materializer = lambda owner: python.getattr(owner, "_lineage", []),
-            mandatory = False,
-        ),
-        field(
             name = "raw",
             type = string(),
             materializer = lambda owner: python.runtime_json_blob(owner),
         ),
     ]),
+    virtual_attributes = [
+        field(
+            name = "lineage",
+            type = vector(element_type=":mlody-lineage-event"),
+            materializer = lambda owner: python.getattr(owner, "_lineage", []),
+            mandatory = False,
+        ),
+    ],
 )
 
 typedef(
