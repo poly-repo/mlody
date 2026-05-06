@@ -16,6 +16,32 @@ from mlody.core.workspace_models import RootInfo
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 
 
+def _matching_mlody_query_candidates(
+    entity_query: str | None,
+    candidates: list[tuple[tuple[object, object, object], object]],
+) -> list[tuple[tuple[object, object, object], object]]:
+    if entity_query is None:
+        return []
+
+    from mlody.core.traversal_parser import (  # noqa: PLC0415
+        evaluate_mlody_segment,
+        parse_mlody_segment,
+    )
+
+    segment = parse_mlody_segment(entity_query)
+    if segment is None:
+        return []
+
+    matches: list[tuple[tuple[object, object, object], object]] = []
+    for candidate in candidates:
+        try:
+            if evaluate_mlody_segment(segment, candidate[1]):
+                matches.append(candidate)
+        except Exception:
+            continue
+    return matches
+
+
 class RegistryView:
     """Small facade over the evaluator's registry state."""
 
@@ -240,6 +266,10 @@ class RegistryView:
                 raise KeyError(msg)
             return None
 
+        mlody_matches = _matching_mlody_query_candidates(entity_query, matches)
+        if mlody_matches:
+            matches = mlody_matches
+
         kind_order = {
             "task": 0,
             "action": 1,
@@ -291,10 +321,10 @@ class RegistryView:
 
         path_suffix = entity.path.lstrip("/").rstrip("/") if entity.path else ""
 
-        stems: set[str] = set()
-        for key, _value in self.iter_registry_items():
+        candidates: list[tuple[tuple[object, object, object], object]] = []
+        for key, value in self.iter_registry_items():
             key_stem, key_name = key[1], key[2]
-            if not isinstance(key_stem, str):
+            if not isinstance(key_stem, str) or not isinstance(key_name, str):
                 continue
             if base_name is not None and key_name != base_name:
                 continue
@@ -302,10 +332,37 @@ class RegistryView:
                 continue
             if path_suffix and not key_stem.endswith(path_suffix):
                 continue
-            stems.add(key_stem)
+            candidates.append((key, value))
+
+        from mlody.core.traversal_parser import parse_mlody_segment  # noqa: PLC0415
+
+        mlody_segment = parse_mlody_segment(lbl.entity_query)
+        mlody_matches = _matching_mlody_query_candidates(lbl.entity_query, candidates)
+        if entity.name is None and mlody_segment is not None and not mlody_matches:
+            return []
+        expand_entities = entity.name is None and mlody_segment is not None
 
         result: list[str] = []
-        for stem in sorted(stems):
+        seen_labels: set[str] = set()
+        concrete_items: list[tuple[str, str]]
+        if expand_entities:
+            concrete_items = sorted(
+                {
+                    (key[1], key[2])
+                    for key, _value in mlody_matches
+                    if isinstance(key[1], str) and isinstance(key[2], str)
+                },
+            )
+        else:
+            concrete_items = sorted(
+                {
+                    (key[1], "")
+                    for key, _value in candidates
+                    if isinstance(key[1], str)
+                },
+            )
+
+        for stem, concrete_name in concrete_items:
             if root_prefix and stem.startswith(root_prefix):
                 rel_path = stem[len(root_prefix) :].lstrip("/")
             else:
@@ -322,8 +379,20 @@ class RegistryView:
                 )
                 query_suffix = f"[{lbl.entity_query}]" if lbl.entity_query else ""
                 parts.append(f":{entity.name}{field_suffix}{query_suffix}")
+            elif expand_entities:
+                field_suffix = (
+                    "." + ".".join(entity.field_path) if entity.field_path else ""
+                )
+                query_suffix = f"[{lbl.entity_query}]" if lbl.entity_query else ""
+                parts.append(f":{concrete_name}{field_suffix}{query_suffix}")
+            elif lbl.entity_query:
+                parts.append(f":[{lbl.entity_query}]")
             if lbl.attribute_path:
                 parts.append(f"'{'.'.join(lbl.attribute_path)}")
-            result.append("".join(parts))
+            rendered = "".join(parts)
+            if rendered in seen_labels:
+                continue
+            seen_labels.add(rendered)
+            result.append(rendered)
 
         return result

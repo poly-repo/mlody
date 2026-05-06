@@ -59,7 +59,7 @@ class Label:
             parts.append(f"@{self.entity.root}")
         path = self.entity.path or ""
         if self.entity.wildcard:
-            parts.append(f"//{path}/...")
+            parts.append(f"//{path}/..." if path else "//...")
         elif path:
             parts.append(f"//{path}")
         if self.entity.name is not None:
@@ -68,6 +68,10 @@ class Label:
                 parts.append("." + ".".join(self.entity.field_path))
             if self.entity_query is not None:
                 parts.append(f"[{self.entity_query}]")
+        elif self.entity_query is not None:
+            parts.append(f":[{self.entity_query}]")
+            if self.entity.field_path:
+                parts.append("." + ".".join(self.entity.field_path))
         if self.attribute_path:
             parts.append("'" + ".".join(self.attribute_path))
             if self.attribute_query is not None:

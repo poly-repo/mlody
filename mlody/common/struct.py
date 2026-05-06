@@ -99,6 +99,46 @@ def struct_like_updated(value: object, **changes: Any) -> object:
     return clone
 
 
+def struct_like_to_struct(value: object) -> object:
+    """Recursively convert Struct-like values into plain ``Struct`` objects."""
+
+    def _convert(child: object) -> object:
+        if isinstance(child, Struct):
+            return Struct(
+                **{
+                    name: _convert(value)
+                    for name, value in child.as_mapping().items()
+                },
+            )
+        if _is_dataclass_instance(child):
+            mapping = struct_like_as_mapping(child)
+            return Struct(
+                **{
+                    name: _convert(value)
+                    for name, value in mapping.items()
+                },
+            )
+        if isinstance(child, dict):
+            if all(isinstance(name, str) for name in child):
+                return Struct(
+                    **{
+                        str(name): _convert(value)
+                        for name, value in child.items()
+                    },
+                )
+            return {
+                key: _convert(value)
+                for key, value in child.items()
+            }
+        if isinstance(child, list):
+            return [_convert(value) for value in child]
+        if isinstance(child, tuple):
+            return tuple(_convert(value) for value in child)
+        return child
+
+    return _convert(value)
+
+
 class _FieldAwareMethod:
     """Descriptor that preserves field access for helper names like ``items``."""
 
@@ -147,5 +187,6 @@ __all__ = [
     "is_struct_like",
     "struct",
     "struct_like_as_mapping",
+    "struct_like_to_struct",
     "struct_like_updated",
 ]

@@ -1653,6 +1653,7 @@ def _traverse_one_step(
         FieldSegment,
         IndexSegment,
         KeySegment,
+        MlodySegment,
         PathSegment,
         RecursiveDescentSegment,
         SliceSegment,
@@ -1710,6 +1711,37 @@ def _traverse_one_step(
         return _engine_slice_step(
             MlodyValueValue(struct=current_struct), field_name, policy, label
         )
+    elif isinstance(field_name, MlodySegment):
+        from mlody.core.traversal_parser import evaluate_mlody_segment  # noqa: PLC0415
+
+        entity = current_struct
+        if isinstance(current_struct, (MlodyValueValue, MlodyTaskValue, MlodyActionValue)):
+            entity = current_struct.struct  # type: ignore[union-attr]
+        elif isinstance(current_struct, _RawAttrValue):
+            entity = current_struct.value
+
+        try:
+            matched = evaluate_mlody_segment(field_name, entity)
+        except Exception as exc:
+            return MlodyUnresolvedValue(
+                label=label,
+                reason=(
+                    f"@mlody query {field_name.query!r} raised "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            )
+
+        if not matched:
+            return MlodyUnresolvedValue(
+                label=label,
+                reason=f"@mlody query {field_name.query!r} rejected the current entity",
+            )
+
+        if isinstance(current_struct, MlodyValue):
+            return current_struct
+        if isinstance(current_struct, _RawAttrValue):
+            return current_struct
+        return (entity, False)
     else:
         return MlodyUnresolvedValue(
             label=label,
@@ -2542,6 +2574,7 @@ def _lookup_entity(
     workspace: "Workspace",
     stem: str,
     name: str,
+    entity_query: str | None = None,
 ) -> tuple[str, object] | None:
     """Scan ``workspace.evaluator.registry.all`` for ``(kind, stem, name)``.
 
@@ -2551,6 +2584,7 @@ def _lookup_entity(
     ``starlarkish/evaluator/evaluator.py`` and used by ``workspace.resolve()``.
     Coupling note: see design.md §R-002 for the accepted trade-off.
     """
+    candidates: list[tuple[str, object]] = []
     for key, value in workspace.evaluator.registry.all.items():
         if (
             isinstance(key, tuple)
@@ -2563,9 +2597,33 @@ def _lookup_entity(
                 bucket = workspace.evaluator.registry.for_kind(kind, operation="lookup")
                 current_value = bucket.by_name.get(name)
                 if current_value is not None:
-                    return (kind, current_value)
-            return (key[0], value)
-    return None
+                    candidates.append((kind, current_value))
+                    continue
+            if isinstance(key[0], str):
+                candidates.append((key[0], value))
+
+    if not candidates:
+        return None
+
+    if entity_query is not None:
+        from mlody.core.traversal_parser import (  # noqa: PLC0415
+            evaluate_mlody_segment,
+            parse_mlody_segment,
+        )
+
+        segment = parse_mlody_segment(entity_query)
+        if segment is not None:
+            matching: list[tuple[str, object]] = []
+            for kind, candidate in candidates:
+                try:
+                    if evaluate_mlody_segment(segment, candidate):
+                        matching.append((kind, candidate))
+                except Exception:
+                    continue
+            if matching:
+                candidates = matching
+
+    return candidates[0]
 
 
 # ---------------------------------------------------------------------------
@@ -2759,7 +2817,7 @@ def resolve_label_to_value(
             stem_parts.append(entity_path)
         stem = "/".join(stem_parts)
 
-        lookup = _lookup_entity(workspace, stem, entity_name)
+        lookup = _lookup_entity(workspace, stem, entity_name, label.entity_query)
         if lookup is None:
             return MlodyUnresolvedValue(
                 label=label,
@@ -2865,7 +2923,7 @@ def resolve_label_to_value(
                 TraversalParseError,
                 parse_traversal_expression,
             )
-            from mlody.core.traversal_grammar import SqlSegment  # noqa: PLC0415
+            from mlody.core.traversal_grammar import MlodySegment, SqlSegment  # noqa: PLC0415
 
             try:
                 eq_expr = parse_traversal_expression(f"[{label.entity_query}]")
@@ -2880,6 +2938,8 @@ def resolve_label_to_value(
                 if tabular_result is not None:
                     return tabular_result
                 seg = eq_expr.segments[0]
+                if isinstance(seg, MlodySegment):
+                    return result
                 step = _traverse_one_step(
                     result, seg, resolved_path, label, traversal_error_policy
                 )
@@ -2951,6 +3011,12 @@ def _workspace_traverse_record(
                     return tabular_result
                 return getattr(tabular_result, "value", tabular_result)
             seg = expr.segments[0]
+            from mlody.core.traversal_grammar import MlodySegment  # noqa: PLC0415
+
+            if isinstance(seg, MlodySegment):
+                if isinstance(current, _RawAttrValue):
+                    return current.value
+                return current
             q_result = _traverse_one_step(
                 current, seg, field_parts, lbl, TraversalErrorPolicy.RAISE
             )

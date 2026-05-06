@@ -24,7 +24,13 @@ from mlody.core.registry_view import RegistryView
 from mlody.core.source_parser import extract_entity_ranges
 from mlody.core.targets import TargetAddress, parse_target, resolve_target_value
 from mlody.core.traversal_runtime import step_named_child
-from mlody.core.traversal_grammar import IndexSegment, KeySegment, SqlSegment, WildcardSegment
+from mlody.core.traversal_grammar import (
+    IndexSegment,
+    KeySegment,
+    MlodySegment,
+    SqlSegment,
+    WildcardSegment,
+)
 from mlody.core.traversal_parser import TraversalParseError, parse_traversal_expression
 from mlody.core.virtual_value import (
     force_virtual_value,

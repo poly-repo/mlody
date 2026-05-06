@@ -452,6 +452,19 @@ class TestSetfModuleSkeleton:
         assert event.accessor == ".location"
         assert event.source == "tester"
 
+    def test_setf_creates_missing_allowed_struct_field(self) -> None:
+        """Terminal field writes may create a declared-but-absent child."""
+        root = Struct(
+            config=Struct(
+                _allowed_attrs={"sha": Struct(name="sha", type=_STRING_TYPE)},
+            )
+        )
+
+        updated = setf_root(root, ".config.sha", "new-sha")
+
+        assert updated.config.sha == "new-sha"
+        assert not hasattr(root.config, "sha")
+
     def test_resolve_places_raises_for_missing_struct_field(self) -> None:
         """Task 3.7: missing field selections fail immediately."""
         root = Struct(config=Struct(learning_rate=0.1))

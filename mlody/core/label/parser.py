@@ -200,19 +200,69 @@ def _parse_entity_fragment(raw: str, fragment: str) -> tuple[EntitySpec, str | N
     colon_pos = remainder.find(":")
     if colon_pos != -1:
         name_part = remainder[colon_pos + 1 :]
-        if not name_part:
+        if not name_part and query is None:
             raise EntityParseError(
                 raw,
                 "entity name after ':' must not be empty",
                 entity_fragment=fragment,
             )
-        dot_idx = name_part.find(".")
-        if dot_idx != -1:
-            name = name_part[:dot_idx]
-            field_path_tuple = tuple(name_part[dot_idx + 1 :].split("."))
-        else:
-            name = name_part
-            field_path_tuple = None
+        if name_part:
+            if query is None and name_part.startswith("["):
+                depth = 0
+                quote: str | None = None
+                escaped = False
+                close_idx: int | None = None
+                for i, ch in enumerate(name_part):
+                    if quote is not None:
+                        if escaped:
+                            escaped = False
+                        elif ch == "\\":
+                            escaped = True
+                        elif ch == quote:
+                            quote = None
+                        continue
+                    if ch in ("'", '"'):
+                        quote = ch
+                        continue
+                    if ch == "[":
+                        depth += 1
+                        continue
+                    if ch == "]":
+                        depth -= 1
+                        if depth == 0:
+                            close_idx = i
+                            break
+                if close_idx is None:
+                    raise EntityParseError(
+                        raw,
+                        f"unclosed '[' in {fragment!r}",
+                        entity_fragment=fragment,
+                    )
+                query = name_part[1:close_idx]
+                suffix = name_part[close_idx + 1 :]
+                if suffix:
+                    if not suffix.startswith("."):
+                        raise EntityParseError(
+                            raw,
+                            "entity field path after query must start with '.'",
+                            entity_fragment=fragment,
+                        )
+                    field_suffix = suffix[1:]
+                    if not field_suffix or field_suffix.startswith(".") or field_suffix.endswith("."):
+                        raise EntityParseError(
+                            raw,
+                            "entity field path after query must not be empty",
+                            entity_fragment=fragment,
+                        )
+                    field_path_tuple = tuple(field_suffix.split("."))
+            else:
+                dot_idx = name_part.find(".")
+                if dot_idx != -1:
+                    name = name_part[:dot_idx]
+                    field_path_tuple = tuple(name_part[dot_idx + 1 :].split("."))
+                else:
+                    name = name_part
+                    field_path_tuple = None
         remainder = remainder[:colon_pos]
 
     # Wildcard check: path ends with /... or is just ...

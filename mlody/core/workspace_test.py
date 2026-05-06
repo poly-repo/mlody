@@ -484,6 +484,20 @@ class TestResolve:
         assert isinstance(result["action/trainer"], Struct)
         assert result["action/trainer"].name == "trainer"  # type: ignore[attr-defined]
 
+    def test_resolve_entity_query_uses_mlody_filter(self, project: Path, fs: FakeFilesystem) -> None:
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/pipeline.mlody"),
+            contents="""\
+builtins.register("value", Struct(kind="value", name="trainer"))
+builtins.register("task", Struct(kind="task", name="trainer", inputs=[], outputs=[], config=[]))
+""",
+        )
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        result = ws.resolve("@lexica//pipeline:trainer[@mlody _.kind == 'task']")
+        assert getattr(result, "kind", None) == "task"
+
 
 class TestResolveLabelAnchor:
     """Requirement: resolve_label_anchor returns concrete anchor objects."""
@@ -513,6 +527,28 @@ class TestResolveLabelAnchor:
         assert anchor.registry_key == ("task", "mlody/teams/lexica/pipeline", "trainer")
         assert anchor.field_parts == ("outputs",)
         assert getattr(anchor.root_value, "name", None) == "trainer"
+
+    def test_registry_entity_anchor_prefers_mlody_filtered_match(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/pipeline.mlody"),
+            contents="""\
+builtins.register("value", Struct(kind="value", name="trainer"))
+builtins.register("task", Struct(kind="task", name="trainer", inputs=[], outputs=[], config=[]))
+""",
+        )
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        anchor = ws.resolve_label_anchor(
+            "@lexica//pipeline:trainer[@mlody _.kind == 'task']",
+        )
+
+        assert isinstance(anchor, RegistryEntityAnchor)
+        assert anchor.registry_key == ("task", "mlody/teams/lexica/pipeline", "trainer")
 
     def test_root_object_anchor(self, project: Path) -> None:
         ws = Workspace(monorepo_root=project)
@@ -622,6 +658,29 @@ builtins.register("root", Struct(
         assert result.source_line == 321  # type: ignore[attr-defined]
         assert ws.info.branch == "release"
         assert ws.resolve("@lexica//a_entity:artifact._source_range.start_line") == 321
+
+
+class TestExpandWildcardLabel:
+    def test_query_only_mlody_wildcard_returns_matching_entities(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/pipeline.mlody"),
+            contents="""\
+builtins.register("value", Struct(kind="value", name="trainer"))
+builtins.register("task", Struct(kind="task", name="trainer", inputs=[], outputs=[], config=[]))
+builtins.register("action", Struct(kind="action", name="deploy", inputs=[], outputs=[], config=[]))
+""",
+        )
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        labels = ws.expand_wildcard_label("//...:[@mlody _.kind == 'task']")
+        assert labels == [
+            "//mlody/teams/lexica/pipeline:trainer[@mlody _.kind == 'task']",
+        ]
 
 
 class TestWorkspaceStepResolvedObject:

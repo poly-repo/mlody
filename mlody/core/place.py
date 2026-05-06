@@ -8,6 +8,7 @@ from typing import Literal, Protocol
 from mlody.core.traversal_grammar import PathExpression
 
 AssignmentMode = Literal["inplace", "copy"]
+MISSING_PLACE_VALUE = object()
 
 
 class SetterStrategy(Protocol):
@@ -32,6 +33,7 @@ class Place:
     declared_type: object | None
     declared_representation: object | None
     strategy: SetterStrategy
+    missing: bool = False
     projected: bool = False
     lineage_sink: object | None = None
     lineage_selector: PathExpression | None = None

@@ -121,35 +121,48 @@ def parse_label(label: str) -> tuple[str | None, str]:
             attr_str += f"[{lbl.attribute_query}]"
         return (committoid, f"'{attr_str}")
 
-    # Entity-bearing label: re-serialise inner_label from Label fields.
-    parts: list[str] = []
-    if lbl.entity.root is not None:
-        parts.append(f"@{lbl.entity.root}")
-    path = lbl.entity.path or ""
-    if lbl.entity.wildcard:
-        parts.append(f"//{path}/...")
-    elif path:
-        parts.append(f"//{path}")
-    # else: bare root (@lexica with no path) — no // suffix
-    if lbl.entity.name is not None:
-        parts.append(f":{lbl.entity.name}")
-        if lbl.entity.field_path:
-            parts.append("." + ".".join(lbl.entity.field_path))
-        if lbl.entity_query is not None:
-            parts.append(f"[{lbl.entity_query}]")
-    if lbl.attribute_path:
-        parts.append("'" + ".".join(lbl.attribute_path))
-        if lbl.attribute_query is not None:
-            parts.append(f"[{lbl.attribute_query}]")
-    inner_label = "".join(parts)
-    return (committoid, inner_label)
+    # Entity-bearing label: delegate to the canonical formatter so query-only
+    # wildcard labels (e.g. //...:[@mlody ...]) survive intact.
+    return (committoid, lbl.format_inner())
 
 
 def _parse_config_assignment(raw: str) -> tuple[str, str]:
     """Parse one ``LABEL=VALUE`` override string."""
-    ref, sep, value = raw.partition("=")
-    ref = ref.strip()
-    if not sep or not ref:
+    bracket_depth = 0
+    quote: str | None = None
+    escaped = False
+
+    separator = -1
+    for index, ch in enumerate(raw):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            continue
+
+        if ch in ("'", '"'):
+            quote = ch
+            continue
+        if ch == "[":
+            bracket_depth += 1
+            continue
+        if ch == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+            continue
+        if ch == "=" and bracket_depth == 0:
+            separator = index
+            break
+
+    if separator == -1:
+        msg = f"Invalid --with override {raw!r}; expected LABEL=VALUE."
+        raise WorkspaceResolutionError(msg)
+
+    ref = raw[:separator].strip()
+    value = raw[separator + 1 :]
+    if not ref:
         msg = f"Invalid --with override {raw!r}; expected LABEL=VALUE."
         raise WorkspaceResolutionError(msg)
     return (ref, value)
@@ -283,19 +296,27 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
 
     for raw in config:
         ref, value = _parse_config_assignment(raw)
-        source = f"COMMAND_LINE: {raw}"
-        resolved = workspace.resolve(ref)
-        if getattr(resolved, "kind", None) == "value":
-            location = getattr(resolved, "location", None)
-            if getattr(location, "type", None) == "inline":
-                setf(
-                    f"{ref}.location",
-                    _updated_location_payload(location, value),
-                    workspace=workspace,
-                    source=source,
-                )
-                continue
-        setf(ref, value, workspace=workspace, source=source)
+        concrete_refs = workspace.expand_wildcard_label(ref)
+        if not concrete_refs:
+            msg = f"--with override {raw!r} matched no entities."
+            raise WorkspaceResolutionError(msg)
+        for concrete_ref in concrete_refs:
+            source = f"COMMAND_LINE: {raw}"
+            try:
+                resolved = workspace.resolve(concrete_ref)
+            except AttributeError:
+                resolved = None
+            if getattr(resolved, "kind", None) == "value":
+                location = getattr(resolved, "location", None)
+                if getattr(location, "type", None) == "inline":
+                    setf(
+                        f"{concrete_ref}.location",
+                        _updated_location_payload(location, value),
+                        workspace=workspace,
+                        source=source,
+                    )
+                    continue
+            setf(concrete_ref, value, workspace=workspace, source=source)
     return workspace
 
 

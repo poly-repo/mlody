@@ -10,7 +10,7 @@ from mlody.common.struct import Struct, is_struct_like
 from mlody.core.anchor import Anchor
 from mlody.core.label import parse_label as parse_ref_label
 from mlody.core.lineage import append_lineage, build_lineage_event
-from mlody.core.place import AssignmentMode, Place, PlaceSet
+from mlody.core.place import AssignmentMode, MISSING_PLACE_VALUE, Place, PlaceSet
 from mlody.core.setf_strategies import (
     DictKeySetter,
     ListIndexSetter,
@@ -28,6 +28,7 @@ from mlody.core.traversal_grammar import (
     FieldSegment,
     IndexSegment,
     KeySegment,
+    MlodySegment,
     PathExpression,
     RecursiveDescentSegment,
     SliceSegment,
@@ -79,16 +80,21 @@ def _declared_child_contract(
     segment: object,
     current_value: object,
 ) -> tuple[object | None, object | None]:
+    current_representation = (
+        None
+        if current_value is MISSING_PLACE_VALUE
+        else getattr(current_value, "representation", None)
+    )
     if isinstance(segment, FieldSegment):
         attr_spec = lookup_runtime_attribute(owner, segment.name)
         if attr_spec is not None:
             return (
                 getattr(attr_spec, "type", None),
-                getattr(current_value, "representation", None),
+                current_representation,
             )
     return (
         getattr(current_value, "type", None),
-        getattr(current_value, "representation", None),
+        current_representation,
     )
 
 
@@ -145,6 +151,7 @@ def _make_place(
         declared_type=declared_type,
         declared_representation=declared_representation,
         strategy=strategy,
+        missing=current_value is MISSING_PLACE_VALUE,
         projected=projected,
         lineage_sink=lineage_sink,
         lineage_selector=lineage_selector,
@@ -251,7 +258,22 @@ def _resolve_places_recursive(
     tail = remaining[1:]
 
     if isinstance(segment, (FieldSegment, IndexSegment, KeySegment)):
-        child = _step(current, segment)
+        try:
+            child = _step(current, segment)
+        except AttributeError:
+            if isinstance(segment, FieldSegment) and not tail:
+                attr_spec = lookup_runtime_attribute(current, segment.name)
+                if attr_spec is not None:
+                    return [
+                        _make_direct_place(
+                            root=root,
+                            owner=current,
+                            segment=segment,
+                            prefix=prefix + (segment,),
+                            current_value=MISSING_PLACE_VALUE,
+                        )
+                    ]
+            raise
         return _resolve_places_recursive(
             root=root,
             current=child,
@@ -449,7 +471,11 @@ def _selector_from_label_anchor(anchor: Anchor) -> PathExpression:
     segments: list[object] = [FieldSegment(field) for field in anchor.field_parts]
     if anchor.entity_query is not None:
         query_expression = parse_traversal_expression(f"[{anchor.entity_query}]")
-        segments.extend(query_expression.segments)
+        if not (
+            query_expression.segments
+            and isinstance(query_expression.segments[0], MlodySegment)
+        ):
+            segments.extend(query_expression.segments)
     return PathExpression(segments=tuple(segments))
 
 

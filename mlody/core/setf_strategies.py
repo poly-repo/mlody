@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from mlody.common.struct import is_struct_like
 
-from mlody.core.place import AssignmentMode, Place
+from mlody.core.place import AssignmentMode, MISSING_PLACE_VALUE, Place
 from mlody.core.traversal_runtime import replace_child, step_segment
 from mlody.core.traversal_grammar import FieldSegment, IndexSegment, KeySegment, SliceSegment
 from mlody.core.virtual_value import is_virtual_value
@@ -28,7 +28,12 @@ class StructFieldSetter:
             )
         if not isinstance(segment, FieldSegment):
             raise TypeError(f"expected FieldSegment, got {type(segment).__name__}")
-        _ = step_segment(place.owner, segment)
+        try:
+            _ = step_segment(place.owner, segment)
+        except AttributeError:
+            if place.current_value is MISSING_PLACE_VALUE or place.missing:
+                return
+            raise
 
     def commit(self, place: Place, new_value: object, *, mode: AssignmentMode) -> object:
         _ = mode

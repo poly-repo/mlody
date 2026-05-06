@@ -8,16 +8,18 @@ from __future__ import annotations
 
 import pytest
 
+from common.python.starlarkish.core.struct import Struct
 from mlody.core.traversal_grammar import (
     FieldSegment,
     IndexSegment,
     KeySegment,
+    MlodySegment,
     PathExpression,
     RecursiveDescentSegment,
     TraversalParseError,
     WildcardSegment,
 )
-from mlody.core.traversal_parser import parse_traversal_expression
+from mlody.core.traversal_parser import evaluate_mlody_segment, parse_traversal_expression
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +109,25 @@ class TestParseSuccess:
         result = parse_traversal_expression('["f1_score"]')
         assert result == PathExpression(segments=(KeySegment(key="f1_score"),))
 
+    def test_mlody_segment(self) -> None:
+        result = parse_traversal_expression("[@mlody _.kind == 'task']")
+        assert result == PathExpression(
+            segments=(MlodySegment(query="_.kind == 'task'"),),
+        )
+
+    def test_mlody_segment_preserves_nested_brackets(self) -> None:
+        result = parse_traversal_expression(
+            "[@mlody _.kind in ['task', 'action']]",
+        )
+        assert result == PathExpression(
+            segments=(MlodySegment(query="_.kind in ['task', 'action']"),),
+        )
+
+    def test_mlody_segment_evaluates_against_struct(self) -> None:
+        segment = MlodySegment(query="_.kind == 'task'")
+        assert evaluate_mlody_segment(segment, Struct(kind="task", name="train")) is True
+        assert evaluate_mlody_segment(segment, Struct(kind="value", name="train")) is False
+
 
 # ---------------------------------------------------------------------------
 # Error cases
@@ -166,6 +187,10 @@ class TestParseErrors:
         with pytest.raises(TraversalParseError):
             parse_traversal_expression(".123")  # digit-only after dot without ..
 
+    def test_invalid_mlody_expression_raises(self) -> None:
+        with pytest.raises(TraversalParseError, match="invalid @mlody expression"):
+            parse_traversal_expression("[@mlody _.kind == ]")
+
 
 # ---------------------------------------------------------------------------
 # Round-trip fidelity
@@ -223,4 +248,8 @@ class TestRoundTrip:
 
     def test_round_trip_empty(self) -> None:
         expr = PathExpression(segments=())
+        assert self._roundtrip(expr) == expr
+
+    def test_round_trip_mlody_segment(self) -> None:
+        expr = PathExpression(segments=(MlodySegment("_.kind == 'task'"),))
         assert self._roundtrip(expr) == expr

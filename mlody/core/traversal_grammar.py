@@ -1,6 +1,6 @@
 """Typed AST for mlody traversal path expressions.
 
-Defines the five ``PathSegment`` kinds, ``PathExpression``, ``TraversalParseError``,
+Defines the path-segment kinds, ``PathExpression``, ``TraversalParseError``,
 and the authoritative ``TRAVERSAL_GRAMMAR_EBNF`` constant.
 
 This module has **zero mandatory runtime dependencies** outside the Python
@@ -26,14 +26,16 @@ TRAVERSAL_GRAMMAR_EBNF: str = """\
 traversal_expr  ::= segment*
 segment         ::= field_seg | bracket_seg | recursive_seg
 field_seg       ::= "." IDENT
-bracket_seg     ::= "[" ( sql_seg | slice_seg | INT | STR | "*" ) "]"
+bracket_seg     ::= "[" ( sql_seg | mlody_seg | slice_seg | INT | STR | "*" ) "]"
 sql_seg         ::= "@sql" WS* SQL_BODY
+mlody_seg       ::= "@mlody" WS* STARLARK_EXPR
 slice_seg       ::= INT? ":" INT? ( ":" INT? )?
 recursive_seg   ::= ".."
 IDENT           ::= [a-zA-Z_][a-zA-Z0-9_]*
 INT             ::= "-"? [0-9]+
 STR             ::= '"' [^"]* '"'
 SQL_BODY        ::= any characters (nested "[]" balanced) up to the closing "]"
+STARLARK_EXPR   ::= a Starlark expression (nested brackets / strings balanced)
 WS              ::= " " | "\\t"
 """
 
@@ -74,7 +76,8 @@ class PathSegment:
     """Abstract base for all path segment kinds.
 
     Concrete subclasses: ``FieldSegment``, ``IndexSegment``, ``KeySegment``,
-    ``WildcardSegment``, ``RecursiveDescentSegment``.  Each implements
+    ``WildcardSegment``, ``RecursiveDescentSegment``, ``SqlSegment``,
+    ``MlodySegment``, and ``SliceSegment``.  Each implements
     ``__str__`` returning the canonical serialisation for round-trip fidelity.
     """
 
@@ -138,6 +141,21 @@ class SqlSegment(PathSegment):
 
     def __str__(self) -> str:
         return f"[@sql {self.query}]"
+
+
+@dataclass(frozen=True)
+class MlodySegment(PathSegment):
+    """Entity-filter segment: ``[@mlody <expr>]``.
+
+    The ``query`` field stores the Starlark expression body exactly as supplied
+    by the caller, minus surrounding whitespace and without the ``@mlody``
+    keyword itself.
+    """
+
+    query: str
+
+    def __str__(self) -> str:
+        return f"[@mlody {self.query}]"
 
 
 @dataclass(frozen=True)

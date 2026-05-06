@@ -12,7 +12,7 @@ Grammar (see ``TRAVERSAL_GRAMMAR_EBNF`` in ``traversal_grammar``):
     traversal_expr  ::= segment*
     segment         ::= field_seg | bracket_seg | recursive_seg
     field_seg       ::= "." IDENT
-    bracket_seg     ::= "[" ( INT | STR | "*" ) "]"
+    bracket_seg     ::= "[" ( sql_seg | mlody_seg | slice_seg | INT | STR | "*" ) "]"
     recursive_seg   ::= ".."
     IDENT           ::= [a-zA-Z_][a-zA-Z0-9_]*
     INT             ::= "-"? [0-9]+
@@ -25,10 +25,16 @@ class, which is instantiated fresh for each call to ``parse_traversal_expression
 
 from __future__ import annotations
 
+from functools import lru_cache
+from typing import Any, Callable
+
+from common.python.starlarkish.core.struct import Struct
+from mlody.common.struct import struct_like_to_struct
 from mlody.core.traversal_grammar import (
     FieldSegment,
     IndexSegment,
     KeySegment,
+    MlodySegment,
     PathExpression,
     PathSegment,
     RecursiveDescentSegment,
@@ -37,6 +43,146 @@ from mlody.core.traversal_grammar import (
     TraversalParseError,
     WildcardSegment,
 )
+
+
+_MLODY_EVAL_GLOBALS: dict[str, object] = {
+    "__builtins__": {},
+    "False": False,
+    "None": None,
+    "True": True,
+    "all": all,
+    "any": any,
+    "bool": bool,
+    "dict": dict,
+    "enumerate": enumerate,
+    "false": False,
+    "float": float,
+    "getattr": getattr,
+    "hasattr": hasattr,
+    "int": int,
+    "isinstance": isinstance,
+    "len": len,
+    "list": list,
+    "max": max,
+    "min": min,
+    "none": None,
+    "range": range,
+    "set": set,
+    "sorted": sorted,
+    "str": str,
+    "sum": sum,
+    "true": True,
+    "tuple": tuple,
+    "type": type,
+    "zip": zip,
+}
+_MLODY_QUERY_WRAP_PREFIX = "_mlody_query = ("
+_MLODY_QUERY_WRAP_SUFFIX = ")\n"
+
+
+def _first_tree_syntax_issue(node: Any) -> Any | None:
+    if node.type == "ERROR" or node.is_missing:
+        return node
+    for child in node.children:
+        issue = _first_tree_syntax_issue(child)
+        if issue is not None:
+            return issue
+    return None
+
+
+@lru_cache(maxsize=1)
+def _starlark_language() -> Any:
+    import tree_sitter
+    import tree_sitter_starlark as _ts_starlark
+
+    return tree_sitter.Language(_ts_starlark.language())
+
+
+def _validate_mlody_query(query: str, *, expr: str, query_start: int) -> None:
+    if not query.strip():
+        raise TraversalParseError(
+            "empty '[@mlody ...]' expression",
+            expr,
+            query_start,
+        )
+
+    import tree_sitter
+
+    wrapped = f"{_MLODY_QUERY_WRAP_PREFIX}{query}{_MLODY_QUERY_WRAP_SUFFIX}"
+    parser = tree_sitter.Parser(_starlark_language())
+    tree = parser.parse(wrapped.encode())
+    issue = _first_tree_syntax_issue(tree.root_node)
+    if issue is None:
+        return
+
+    relative_position = max(
+        0,
+        min(
+            len(query),
+            int(issue.start_byte) - len(_MLODY_QUERY_WRAP_PREFIX),
+        ),
+    )
+    detail = "syntax error" if issue.type == "ERROR" else f"missing {issue.type}"
+    raise TraversalParseError(
+        f"invalid @mlody expression: {detail}",
+        expr,
+        query_start + relative_position,
+    )
+
+
+def _coerce_mlody_result_to_bool(result: object, *, query: str) -> bool:
+    if not isinstance(result, bool):
+        raise TypeError(
+            f"@mlody expression {query!r} must return bool, got {type(result).__name__}.",
+        )
+    return result
+
+
+@lru_cache(maxsize=256)
+def compile_mlody_query_predicate(query: str) -> Callable[[Struct], bool]:
+    try:
+        globals_env = dict(_MLODY_EVAL_GLOBALS)
+        callable_or_value = eval(query, globals_env, {})  # noqa: S307
+    except NameError:
+        callable_or_value = None
+    else:
+        if callable(callable_or_value):
+            callable_value = callable_or_value
+
+            def _callable_predicate(entity: Struct) -> bool:
+                return _coerce_mlody_result_to_bool(callable_value(entity), query=query)
+
+            return _callable_predicate
+
+    lambda_env = dict(_MLODY_EVAL_GLOBALS)
+    predicate = eval(f"lambda _: ({query})", lambda_env, {})  # noqa: S307
+
+    def _expression_predicate(entity: Struct) -> bool:
+        return _coerce_mlody_result_to_bool(predicate(entity), query=query)
+
+    return _expression_predicate
+
+
+def parse_mlody_segment(entity_query: str | None) -> MlodySegment | None:
+    if entity_query is None:
+        return None
+    expr = parse_traversal_expression(f"[{entity_query}]")
+    if not expr.segments:
+        return None
+    segment = expr.segments[0]
+    if isinstance(segment, MlodySegment):
+        return segment
+    return None
+
+
+def evaluate_mlody_segment(segment: MlodySegment, entity: object) -> bool:
+    predicate = compile_mlody_query_predicate(segment.query)
+    struct_entity = struct_like_to_struct(entity)
+    if not isinstance(struct_entity, Struct):
+        raise TypeError(
+            f"@mlody segment expects a Struct-like entity, got {type(entity).__name__}.",
+        )
+    return predicate(struct_entity)
 
 
 class _Parser:
@@ -83,9 +229,9 @@ class _Parser:
 
         ch = self._peek()
 
-        # SQL query segment: [@sql <query>]
+        # Query segment: [@sql <query>] or [@mlody <expr>]
         if ch == "@":
-            return self._parse_sql_seg(start)
+            return self._parse_query_seg(start)
 
         # Wildcard: [*]
         if ch == "*":
@@ -120,16 +266,26 @@ class _Parser:
             ),
         )
 
-    def _parse_sql_seg(self, bracket_start: int) -> SqlSegment:
-        """Parse ``[@sql <query>]`` — SQL query segment.
+    def _parse_query_seg(self, bracket_start: int) -> PathSegment:
+        if self._expr[self._pos : self._pos + len("@sql")].lower() == "@sql":
+            query, _query_start = self._parse_query_body(
+                bracket_start,
+                keyword="@sql",
+            )
+            return SqlSegment(query=query)
+        if self._expr[self._pos : self._pos + len("@mlody")].lower() == "@mlody":
+            query, query_start = self._parse_query_body(
+                bracket_start,
+                keyword="@mlody",
+            )
+            _validate_mlody_query(query, expr=self._expr, query_start=query_start)
+            return MlodySegment(query=query)
+        self._fail_at(
+            self._pos,
+            "expected '@sql' or '@mlody' after '['",
+        )
 
-        Cursor is positioned immediately after the opening ``[``, pointing at
-        ``@``.  Consumes ``@sql``, optional whitespace, then the SQL body up to
-        the matching ``]`` (nested ``[]`` are balanced so SQL array subscripts
-        work).  Returns a ``SqlSegment`` with ``query`` stripped of surrounding
-        whitespace.
-        """
-        keyword = "@sql"
+    def _parse_query_body(self, bracket_start: int, *, keyword: str) -> tuple[str, int]:
         end = self._pos + len(keyword)
         if self._expr[self._pos : end].lower() != keyword:
             self._fail_at(
@@ -137,18 +293,31 @@ class _Parser:
                 f"expected '{keyword}' after '['; "
                 f"got {self._expr[self._pos:end]!r}",
             )
-        self._pos = end  # consume "@sql"
-
-        # Skip optional whitespace between @sql and the query body.
+        self._pos = end
         while not self._at_end() and self._peek() in (" ", "\t"):
             self._pos += 1
 
-        # Consume SQL body, tracking bracket depth so nested [] are handled.
-        # depth=1 because we are already inside the outer "[".
-        depth = 1
         query_start = self._pos
+        depth = 1
+        in_string: str | None = None
+        escaped = False
+
         while not self._at_end():
             ch = self._peek()
+            if in_string is not None:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == in_string:
+                    in_string = None
+                self._pos += 1
+                continue
+
+            if ch in ("'", '"'):
+                in_string = ch
+                self._pos += 1
+                continue
             if ch == "[":
                 depth += 1
             elif ch == "]":
@@ -160,12 +329,12 @@ class _Parser:
         if self._at_end():
             self._fail_at(
                 bracket_start,
-                "unterminated '[@sql' — missing closing ']'",
+                f"unterminated '[{keyword}' — missing closing ']'",
             )
 
         query = self._expr[query_start : self._pos].strip()
-        self._pos += 1  # consume closing "]"
-        return SqlSegment(query=query)
+        self._pos += 1
+        return query, query_start
 
     def _parse_quoted_string(self, bracket_start: int) -> str:
         """Parse a double-quoted string, consuming both delimiters.

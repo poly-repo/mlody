@@ -86,6 +86,11 @@ class TestParseLabel:
         assert committoid is None
         assert inner == "@common//huggingface/downloader:downloader.outputs.model"
 
+    def test_query_only_wildcard_entity_query_is_preserved(self) -> None:
+        committoid, inner = parse_label('//...:[@mlody _.kind == "task"]')
+        assert committoid is None
+        assert inner == '//...:[@mlody _.kind == "task"]'
+
     def test_bare_root_label_round_trips(self) -> None:
         # Scenario: bare @root with no path re-serialises without // suffix.
         committoid, inner = parse_label("@lexica")
@@ -254,6 +259,9 @@ class TestConfigureWorkspace:
     def test_inline_value_target_updates_inline_location_payload(self) -> None:
         workspace = MagicMock()
         workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = [
+            "@lexica//services/release/api/image:cfg",
+        ]
         location = Struct(
             kind="location",
             type="inline",
@@ -291,6 +299,9 @@ class TestConfigureWorkspace:
     def test_non_inline_target_uses_direct_setf_assignment(self) -> None:
         workspace = MagicMock()
         workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = [
+            "@lexica//services/release/api/image:image.config.commit_sha",
+        ]
         workspace.resolve.return_value = "old"
 
         with patch("mlody.core.setf.setf") as mock_setf:
@@ -309,6 +320,86 @@ class TestConfigureWorkspace:
                 "@lexica//services/release/api/image:image.config.commit_sha=new-api"
             ),
         )
+
+    def test_mlody_query_target_splits_on_top_level_equals(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = [
+            '@lexica//pipeline:deploy.sha[@mlody _.kind == "action"]',
+        ]
+        workspace.resolve.return_value = "old"
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            result = configure_workspace(
+                workspace,
+                ['//...:[@mlody _.kind == "action"].sha=foo'],
+            )
+
+        assert result is workspace
+        mock_setf.assert_called_once_with(
+            '@lexica//pipeline:deploy.sha[@mlody _.kind == "action"]',
+            "foo",
+            workspace=workspace,
+            source='COMMAND_LINE: //...:[@mlody _.kind == "action"].sha=foo',
+        )
+
+    def test_mlody_query_target_falls_back_to_setf_for_missing_field(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = [
+            '@lexica//pipeline:deploy.config.sha[@mlody _.kind == "action"]',
+        ]
+        workspace.resolve.side_effect = AttributeError("sha")
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            result = configure_workspace(
+                workspace,
+                ['//...:[@mlody _.kind == "action"].config.sha=foo'],
+            )
+
+        assert result is workspace
+        mock_setf.assert_called_once_with(
+            '@lexica//pipeline:deploy.config.sha[@mlody _.kind == "action"]',
+            "foo",
+            workspace=workspace,
+            source='COMMAND_LINE: //...:[@mlody _.kind == "action"].config.sha=foo',
+        )
+
+    def test_value_may_contain_additional_equals(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = [
+            "@lexica//services/release/api/image:image.config.commit_sha",
+        ]
+        workspace.resolve.return_value = "old"
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            result = configure_workspace(
+                workspace,
+                ["@lexica//services/release/api/image:image.config.commit_sha=foo=bar"],
+            )
+
+        assert result is workspace
+        mock_setf.assert_called_once_with(
+            "@lexica//services/release/api/image:image.config.commit_sha",
+            "foo=bar",
+            workspace=workspace,
+            source=(
+                "COMMAND_LINE: "
+                "@lexica//services/release/api/image:image.config.commit_sha=foo=bar"
+            ),
+        )
+
+    def test_wildcard_override_with_no_matches_raises(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = []
+
+        with pytest.raises(WorkspaceResolutionError, match="matched no entities"):
+            configure_workspace(
+                workspace,
+                ['//...:[@mlody _.kind == "action"].sha=foo'],
+            )
 
     def test_invalid_config_entry_raises_workspace_resolution_error(self) -> None:
         workspace = MagicMock()

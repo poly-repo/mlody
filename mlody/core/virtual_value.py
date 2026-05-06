@@ -136,6 +136,21 @@ def _synthetic_lineage_attribute(lineage_type: object | None = None) -> Struct:
     )
 
 
+def _synthetic_allowed_attribute(segment: str, allowed_spec: object) -> Struct | object:
+    if is_struct_like(allowed_spec):
+        return allowed_spec
+    if isinstance(allowed_spec, dict):
+        attr_type = allowed_spec.get("type")
+        metadata = allowed_spec.get("metadata")
+        field_args = {"name": segment}
+        if attr_type is not None:
+            field_args["type"] = attr_type
+        if metadata is not None:
+            field_args["metadata"] = metadata
+        return Struct(**field_args)
+    return Struct(name=segment, type=allowed_spec)
+
+
 def is_virtual_value(value: object) -> bool:
     """Return True when *value* is a typed virtual value Struct."""
     if not is_struct_like(value):
@@ -270,6 +285,11 @@ def lookup_runtime_attribute(value: object, segment: str) -> object | None:
         entity_attr = lookup_declared_attribute(entity_type, segment)
         if entity_attr is not None:
             return entity_attr
+
+    if is_struct_like(value):
+        allowed_attrs = getattr(value, "_allowed_attrs", None)
+        if isinstance(allowed_attrs, dict) and segment in allowed_attrs:
+            return _synthetic_allowed_attribute(segment, allowed_attrs[segment])
 
     if segment == "raw" and is_struct_like(value):
         return _synthetic_raw_attribute()

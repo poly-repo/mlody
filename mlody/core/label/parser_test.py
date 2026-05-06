@@ -257,6 +257,23 @@ class TestEntitySpecQuery:
         with pytest.raises(EntityParseError):
             parse_label("//foo/bar[kind=action")
 
+    def test_query_only_wildcard_entity_is_allowed(self) -> None:
+        result = parse_label("//...:[@mlody _.kind == 'task']")
+        assert result.entity is not None
+        assert result.entity.wildcard is True
+        assert result.entity.name is None
+        assert result.entity_query == "@mlody _.kind == 'task'"
+        assert result.format_inner() == "//...:[@mlody _.kind == 'task']"
+
+    def test_query_only_wildcard_entity_with_field_path_is_allowed(self) -> None:
+        result = parse_label('//...:[@mlody _.kind == "action"].sha')
+        assert result.entity is not None
+        assert result.entity.wildcard is True
+        assert result.entity.name is None
+        assert result.entity.field_path == ("sha",)
+        assert result.entity_query == '@mlody _.kind == "action"'
+        assert result.format_inner() == '//...:[@mlody _.kind == "action"].sha'
+
 
 class TestAttributePath:
     """Requirement: Attribute path is parsed after the tick (')."""
