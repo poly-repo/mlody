@@ -161,6 +161,8 @@ def _make_direct_place(
 ) -> Place:
     """Construct a direct writable place for one concrete segment."""
     selector = PathExpression(segments=prefix)
+    lineage_on_current = _has_lineage(current_value)
+    lineage_on_owner = _has_lineage(owner)
     if isinstance(segment, FieldSegment) and is_virtual_value(owner):
         strategy = VirtualValueFieldSetter()
     elif isinstance(segment, FieldSegment) and (
@@ -195,8 +197,16 @@ def _make_direct_place(
         strategy=strategy,
         declared_type=declared_type,
         declared_representation=declared_representation,
-        lineage_sink=current_value if _has_lineage(current_value) else None,
-        lineage_selector=selector if _has_lineage(current_value) else None,
+        lineage_sink=(
+            current_value
+            if lineage_on_current
+            else owner if lineage_on_owner else None
+        ),
+        lineage_selector=(
+            selector
+            if lineage_on_current
+            else PathExpression(segments=prefix[:-1]) if lineage_on_owner else None
+        ),
     )
 
 
@@ -386,12 +396,11 @@ def setf_root(
     new_value: object,
     *,
     mode: AssignmentMode = "inplace",
-    author: str | None = None,
+    source: str | None = None,
     reason: str | None = None,
     timestamp: str | None = None,
 ) -> object:
     """Apply a selector-based assignment and return the updated root."""
-    _ = (author, reason, timestamp)
     place_set = resolve_places(root, selector)
     place_set.assert_non_empty()
     can_setf(root, selector, new_value, mode=mode)
@@ -413,7 +422,7 @@ def setf_root(
             event = build_lineage_event(
                 accessor=fresh_place.accessor,
                 new_value=new_value,
-                author=author,
+                source=source,
                 reason=reason,
                 timestamp=timestamp,
                 mode=mode,
@@ -542,7 +551,7 @@ def _apply_anchor_assignment(
     new_value: object,
     *,
     mode: AssignmentMode,
-    author: str | None,
+    source: str | None,
     reason: str | None,
     timestamp: str | None,
 ) -> object:
@@ -553,7 +562,7 @@ def _apply_anchor_assignment(
             event = build_lineage_event(
                 accessor=anchor.resolved_label,
                 new_value=new_value,
-                author=author,
+                source=source,
                 reason=reason,
                 timestamp=timestamp,
                 mode=mode,
@@ -565,7 +574,7 @@ def _apply_anchor_assignment(
         anchor.residual_selector,
         new_value,
         mode=mode,
-        author=author,
+        source=source,
         reason=reason,
         timestamp=timestamp,
     )
@@ -582,7 +591,7 @@ def setf(
     *,
     workspace: Workspace | None = None,
     mode: AssignmentMode = "inplace",
-    author: str | None = None,
+    source: str | None = None,
     reason: str | None = None,
     timestamp: str | None = None,
 ) -> Workspace:
@@ -600,7 +609,7 @@ def setf(
             anchor,
             new_value,
             mode=mode,
-            author=author,
+            source=source,
             reason=reason,
             timestamp=timestamp,
         )

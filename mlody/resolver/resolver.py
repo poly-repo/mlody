@@ -176,6 +176,7 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
 
     for raw in config:
         ref, value = _parse_config_assignment(raw)
+        source = f"COMMAND_LINE: {raw}"
         resolved = workspace.resolve(ref)
         if getattr(resolved, "kind", None) == "value":
             location = getattr(resolved, "location", None)
@@ -184,9 +185,10 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
                     f"{ref}.location",
                     _updated_inline_location(location, value),
                     workspace=workspace,
+                    source=source,
                 )
                 continue
-        setf(ref, value, workspace=workspace)
+        setf(ref, value, workspace=workspace, source=source)
     return workspace
 
 

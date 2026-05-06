@@ -400,7 +400,7 @@ class TestSetfModuleSkeleton:
             root,
             ".config",
             replacement,
-            author="tester",
+            source="tester",
             reason="bump",
             timestamp="2026-04-20T00:00:00Z",
         )
@@ -409,6 +409,7 @@ class TestSetfModuleSkeleton:
         event = updated.config._lineage[0]
         assert event.accessor == ".config"
         assert event.new_value == replacement
+        assert event.source == "tester"
 
     def test_setf_appends_projected_lineage_to_aggregate_owner(self) -> None:
         """Task 5.5: projected writes preserve the aggregate accessor in lineage."""
@@ -418,7 +419,7 @@ class TestSetfModuleSkeleton:
             root,
             '["items"][::2]',
             42,
-            author="tester",
+            source="tester",
             reason="mask",
             timestamp="2026-04-20T00:00:00Z",
         )
@@ -427,6 +428,29 @@ class TestSetfModuleSkeleton:
         assert len(updated["_lineage"]) == 1
         event = updated["_lineage"][0]
         assert event.accessor == '["items"][::2]'
+        assert event.source == "tester"
+
+    def test_setf_appends_lineage_to_owner_when_child_has_no_lineage(self) -> None:
+        """Direct child writes fall back to the owner's lineage sink."""
+        root = Struct(
+            location=Struct(type="inline", data="before"),
+            _lineage=[],
+        )
+
+        updated = setf_root(
+            root,
+            ".location",
+            Struct(type="inline", data="after"),
+            source="tester",
+            reason="override",
+            timestamp="2026-05-05T00:00:00Z",
+        )
+
+        assert updated.location.data == "after"
+        assert len(updated._lineage) == 1
+        event = updated._lineage[0]
+        assert event.accessor == ".location"
+        assert event.source == "tester"
 
     def test_resolve_places_raises_for_missing_struct_field(self) -> None:
         """Task 3.7: missing field selections fail immediately."""

@@ -282,6 +282,10 @@ class TestConfigureWorkspace:
         assert updated_location.data == "abc123"
         assert updated_location.attributes == {}
         assert call.kwargs["workspace"] is workspace
+        assert (
+            call.kwargs["source"]
+            == "COMMAND_LINE: @lexica//services/release/api/image:cfg=abc123"
+        )
 
     def test_non_inline_target_uses_direct_setf_assignment(self) -> None:
         workspace = MagicMock()
@@ -298,6 +302,10 @@ class TestConfigureWorkspace:
             "@lexica//services/release/api/image:image.config.commit_sha",
             "new-api",
             workspace=workspace,
+            source=(
+                "COMMAND_LINE: "
+                "@lexica//services/release/api/image:image.config.commit_sha=new-api"
+            ),
         )
 
     def test_invalid_config_entry_raises_workspace_resolution_error(self) -> None:

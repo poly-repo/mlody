@@ -731,6 +731,7 @@ builtins.register("value", struct(
             },
         )
         configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
+        configured = ws.resolve("@myroot//entities:my_value")
 
         result = resolve_label_to_value(parse_label("@myroot//entities:my_value.raw"), ws)
 
@@ -740,6 +741,7 @@ builtins.register("value", struct(
         assert payload["name"] == "my_value"
         assert payload["location"]["data"] == "FOO"
         assert payload["location"]["attributes"] == {}
+        assert configured._lineage[-1].source == "COMMAND_LINE: @myroot//entities:my_value=FOO"
 
 
 # ---------------------------------------------------------------------------
