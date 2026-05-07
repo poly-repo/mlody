@@ -315,17 +315,20 @@ def _value_impl(ctx):
     if type_ref == None:
         type_ref = builtins.lookup("type", "nothing")
 
+    # Parse unit early so it is available for quantity-string default parsing.
+    unit_ref = None
+    if unit_raw != None:
+        unit_ref = _parse_value_unit(unit_raw, type_ref)
+
     if default_raw != None:
+        if unit_ref != None and isinstance(default_raw, str):
+            default_raw = python.parse_quantity_string(default_raw, unit_ref)
         _default_validator = python.getattr(type_ref, "validator", None)
         if _default_validator != None:
             _default_validator(default_raw)
         _default_canonical = python.getattr(type_ref, "canonical", None)
         if _default_canonical != None:
             default_raw = _default_canonical(default_raw)
-
-    unit_ref = None
-    if unit_raw != None:
-        unit_ref = _parse_value_unit(unit_raw, type_ref)
 
     rep_ref = _resolve_representation_ref(rep_raw) if rep_raw != None else None
     entity_type = None

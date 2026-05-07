@@ -919,3 +919,32 @@ def test_value_attaches_declared_entity_type() -> None:
 
     value = ev.registry.values.by_name["artifact"]
     assert value._entity_type.name == "mlody-value"
+
+
+def test_value_quantity_string_default_same_unit() -> None:
+    ev = _eval(
+        'value(name="speed", type=float(), unit="m/s", default="3m/s")'
+    )
+    value = ev.registry.values.by_name["speed"]
+    assert value.default == pytest.approx(3.0)
+
+
+def test_value_quantity_string_default_converts_unit() -> None:
+    ev = _eval(
+        'value(name="speed", type=float(), unit="m/s", default="3600m/h")'
+    )
+    value = ev.registry.values.by_name["speed"]
+    assert value.default == pytest.approx(1.0)
+
+
+def test_value_quantity_string_default_incompatible_unit_raises() -> None:
+    with pytest.raises(ValueError, match="Cannot convert"):
+        _eval('value(name="mass", type=float(), unit="kg", default="3m/s")')
+
+
+def test_value_bare_number_default_with_unit_still_accepted() -> None:
+    ev = _eval(
+        'value(name="speed", type=float(), unit="m/s", default=3.0)'
+    )
+    value = ev.registry.values.by_name["speed"]
+    assert value.default == pytest.approx(3.0)
