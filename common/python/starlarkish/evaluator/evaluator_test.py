@@ -574,3 +574,51 @@ def test_inmemoryfs_roots_smoketest() -> None:
     assert "smoke:smoke_root" in ev.roots
     assert ev.roots["smoke:smoke_root"].name == "smoke_root"
     assert ev.roots["smoke:smoke_root"].path == "//smoke"  # type: ignore[attr-defined]
+
+
+def test_parse_quantity_string_same_unit() -> None:
+    """Parse a quantity string with the same target unit returns the magnitude.
+
+    Requirement: _parse_quantity_string with matching units.
+    """
+    from astropy import units as u
+    from common.python.starlarkish.evaluator.evaluator import _parse_quantity_string
+
+    result = _parse_quantity_string("3m/s", u.Unit("m/s"))
+    assert result == pytest.approx(3.0)
+
+
+def test_parse_quantity_string_converts_compatible_unit() -> None:
+    """Parse a quantity string and convert to a compatible unit.
+
+    Requirement: _parse_quantity_string converts compatible units.
+    """
+    from astropy import units as u
+    from common.python.starlarkish.evaluator.evaluator import _parse_quantity_string
+
+    result = _parse_quantity_string("3600m/h", u.Unit("m/s"))
+    assert result == pytest.approx(1.0)
+
+
+def test_parse_quantity_string_incompatible_unit_raises() -> None:
+    """Parse a quantity string with incompatible target unit raises ValueError.
+
+    Requirement: _parse_quantity_string rejects incompatible units.
+    """
+    from astropy import units as u
+    from common.python.starlarkish.evaluator.evaluator import _parse_quantity_string
+
+    with pytest.raises(ValueError, match="Cannot convert"):
+        _parse_quantity_string("3kg", u.Unit("m/s"))
+
+
+def test_parse_quantity_string_unparseable_raises() -> None:
+    """Parse an unparseable quantity string raises ValueError.
+
+    Requirement: _parse_quantity_string rejects malformed input.
+    """
+    from astropy import units as u
+    from common.python.starlarkish.evaluator.evaluator import _parse_quantity_string
+
+    with pytest.raises(ValueError, match="Cannot parse"):
+        _parse_quantity_string("not-a-quantity", u.Unit("m/s"))
