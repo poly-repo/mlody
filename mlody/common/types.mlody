@@ -266,9 +266,20 @@ typedef(name="aggregate", base=any(),       abstract=True)
 typedef(name="opaque",    base=any())
 
 # ---- Scalar primitives (inherit from scalar) ----
+def _coerce_integer(v):
+    if isinstance(v, int) and not isinstance(v, _builtin_bool):
+        return v
+    if isinstance(v, str):
+        if python.re.fullmatch(r'[+-]?\d+', v.strip()):
+            return int(v.strip())
+        raise TypeError(f"Cannot parse {v!r} as integer")
+    raise TypeError(f"Expected integer, got {type(v)!r}: {v!r}")
+
+
 typedef(
     name = "integer",
     base = scalar(),
+    canonical = _coerce_integer,
     attrs = {
         "min": attr(type="integer", mandatory=False),
         "max": attr(type="integer", mandatory=False),
@@ -298,10 +309,19 @@ def _coerce_bool(v):
     if isinstance(v, _builtin_bool):
         return v
     if isinstance(v, str):
-        return v.lower() in _BOOL_TRUTHY_STRINGS
-    if isinstance(v, int):
+        if v.lower() in _BOOL_TRUTHY_STRINGS:
+            return True
+        if v.lower() in _BOOL_FALSY_STRINGS:
+            return False
+        raise TypeError(
+            f"Expected bool-like string ('true'/'false'/'yes'/'no'/'1'/'0'), got {v!r}"
+        )
+    if isinstance(v, int) and not isinstance(v, _builtin_bool) and v in (0, 1):
         return v == 1
-    return False  # unreachable if predicate passed
+    raise TypeError(
+        f"Expected bool-like value (True/False, 'true'/'false'/'yes'/'no'/'1'/'0', "
+        f"integer 0 or 1), got {type(v)!r}: {v!r}"
+    )
 
 
 typedef(
@@ -310,9 +330,22 @@ typedef(
     predicate = _is_accepted_bool,
     canonical = _coerce_bool,
 )
+def _coerce_float(v):
+    if isinstance(v, _builtin_float):
+        return v
+    if isinstance(v, int) and not isinstance(v, _builtin_bool):
+        return _builtin_float(v)
+    if isinstance(v, str):
+        if python.re.fullmatch(r'[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?', v.strip()):
+            return _builtin_float(v.strip())
+        raise TypeError(f"Cannot parse {v!r} as float")
+    raise TypeError(f"Expected float, got {type(v)!r}: {v!r}")
+
+
 typedef(
     name = "float",
     base = scalar(),
+    canonical = _coerce_float,
     attrs = {
         "min": attr(type="float", mandatory=False),
         "max": attr(type="float", mandatory=False),

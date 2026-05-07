@@ -457,6 +457,151 @@ class TestConfigureWorkspace:
         updated_location = mock_setf.call_args.args[1]
         assert updated_location.data == full_sha
 
+    def test_bool_string_coerced_to_true_in_data(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = ["//simple:b"]
+        location = Struct(kind="location", type="inline", name="inline", attributes={}, _allowed_attrs={})
+        _TRUTHY = {"true", "yes", "1"}
+        _FALSY = {"false", "no", "0"}
+
+        def _coerce_bool(v):
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                if v.lower() in _TRUTHY:
+                    return True
+                if v.lower() in _FALSY:
+                    return False
+                raise TypeError(f"Expected bool-like string, got {v!r}")
+            raise TypeError(f"Expected bool-like value, got {type(v)!r}")
+
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="b",
+            type=Struct(
+                kind="type",
+                type="bool",
+                name="bool",
+                canonical=_coerce_bool,
+                validator=lambda v: None if isinstance(v, bool) else (_ for _ in ()).throw(TypeError(f"Expected bool, got {type(v)}")),
+            ),
+            location=location,
+            _lineage=[],
+        )
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            configure_workspace(workspace, ["//simple:b=yes"])
+
+        updated_location = mock_setf.call_args.args[1]
+        assert updated_location.data is True
+        assert mock_setf.call_args.kwargs["source"] == "COMMAND_LINE: //simple:b=True"
+
+    def test_integer_string_is_coerced(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = ["//simple:i"]
+        location = Struct(kind="location", type="inline", name="inline", attributes={}, _allowed_attrs={})
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="i",
+            type=Struct(
+                kind="type",
+                type="integer",
+                name="integer",
+                validator=lambda v: None if (isinstance(v, int) and not isinstance(v, bool)) else (_ for _ in ()).throw(TypeError(f"Expected int, got {type(v)}")),
+                canonical=lambda v: int(v) if isinstance(v, str) else v,
+            ),
+            location=location,
+            _lineage=[],
+        )
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            configure_workspace(workspace, ["//simple:i=5"])
+
+        updated_location = mock_setf.call_args.args[1]
+        assert updated_location.data == 5
+
+    def test_integer_invalid_string_raises(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = ["//simple:i"]
+        location = Struct(kind="location", type="inline", name="inline", attributes={}, _allowed_attrs={})
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="i",
+            type=Struct(
+                kind="type",
+                type="integer",
+                name="integer",
+                canonical=lambda v: int(v),
+            ),
+            location=location,
+            _lineage=[],
+        )
+
+        with pytest.raises(WorkspaceResolutionError, match="not valid for type 'integer'"):
+            configure_workspace(workspace, ["//simple:i=abc"])
+
+    def test_float_string_is_coerced(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = ["//simple:f"]
+        location = Struct(kind="location", type="inline", name="inline", attributes={}, _allowed_attrs={})
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="f",
+            type=Struct(
+                kind="type",
+                type="float",
+                name="float",
+                canonical=lambda v: float(v) if isinstance(v, str) else v,
+            ),
+            location=location,
+            _lineage=[],
+        )
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            configure_workspace(workspace, ["//simple:f=3.14"])
+
+        updated_location = mock_setf.call_args.args[1]
+        assert updated_location.data == pytest.approx(3.14)
+
+    def test_bool_invalid_string_raises(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = ["//simple:b"]
+        location = Struct(kind="location", type="inline", name="inline", attributes={}, _allowed_attrs={})
+        _TRUTHY = {"true", "yes", "1"}
+        _FALSY = {"false", "no", "0"}
+
+        def _strict_coerce_bool(v):
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                if v.lower() in _TRUTHY:
+                    return True
+                if v.lower() in _FALSY:
+                    return False
+                raise TypeError(f"Expected bool-like string, got {v!r}")
+            raise TypeError(f"Expected bool-like value, got {type(v)!r}")
+
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="b",
+            type=Struct(
+                kind="type",
+                type="bool",
+                name="bool",
+                canonical=_strict_coerce_bool,
+            ),
+            location=location,
+            _lineage=[],
+        )
+
+        with pytest.raises(WorkspaceResolutionError, match="not valid for type 'bool'"):
+            configure_workspace(workspace, ["//simple:b=maybe"])
+
 
 class TestResolveWorkspaceCwdPath:
     """Requirement: resolve_workspace cwd passthrough."""

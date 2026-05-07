@@ -184,12 +184,19 @@ def _updated_location_payload(location: object, value: object) -> object:
 
 
 def _coerce_config_value(type_ref: object, value: str, raw: str) -> object:
-    """Validate *value* against *type_ref* and return its canonical form.
+    """Parse *value* from string, validate against *type_ref*, return canonical form.
 
-    Raises WorkspaceResolutionError when the value fails validation or
-    cannot be canonicalized.
+    Raises WorkspaceResolutionError when the value cannot be parsed or is invalid.
     """
     type_name = getattr(type_ref, "name", "?")
+    canonical = getattr(type_ref, "canonical", None)
+    if callable(canonical):
+        try:
+            value = canonical(value)
+        except (TypeError, ValueError) as exc:
+            raise WorkspaceResolutionError(
+                f"--with {raw!r}: value {value!r} is not valid for type {type_name!r}: {exc}"
+            ) from exc
     validator = getattr(type_ref, "validator", None)
     if callable(validator):
         try:
@@ -197,14 +204,6 @@ def _coerce_config_value(type_ref: object, value: str, raw: str) -> object:
         except (TypeError, ValueError) as exc:
             raise WorkspaceResolutionError(
                 f"--with {raw!r}: value {value!r} is not valid for type {type_name!r}: {exc}"
-            ) from exc
-    canonical = getattr(type_ref, "canonical", None)
-    if callable(canonical):
-        try:
-            value = canonical(value)
-        except (TypeError, ValueError) as exc:
-            raise WorkspaceResolutionError(
-                f"--with {raw!r}: cannot canonicalize {value!r} to type {type_name!r}: {exc}"
             ) from exc
     return value
 
@@ -336,6 +335,7 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
                 type_ref = getattr(resolved, "type", None)
                 if type_ref is not None:
                     value = _coerce_config_value(type_ref, value, raw)
+                    source = f"COMMAND_LINE: {ref}={value}"
                 location = getattr(resolved, "location", None)
                 if getattr(location, "type", None) == "inline":
                     setf(
