@@ -318,6 +318,47 @@ def _runtime_json_blob(obj: object) -> str:
     return json.dumps(_runtime_json_data(obj), indent=2, sort_keys=True)
 
 
+_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHORT_SHA_RE = re.compile(r"^[0-9a-f]{4,39}$")
+
+
+def _expand_commit_sha(value: str) -> str:
+    """Expand a short commit SHA to the canonical 40-char form.
+
+    Returns *value* unchanged when it is already a full 40-char hex string.
+    For shorter strings attempts ``git rev-parse --verify <sha>^{commit}``
+    using gitpython with the repo root determined by (in priority order):
+
+    1. ``BUILD_WORKSPACE_DIRECTORY`` env-var (set automatically by ``bazel run``)
+    2. ``CWD`` (works when the CLI is invoked from inside the repo)
+
+    Raises ``TypeError`` when *value* is not a hex string or cannot be resolved.
+    """
+    if not isinstance(value, str):
+        raise TypeError(f"commit-sha must be a string, got {type(value).__name__!r}")
+    if _FULL_SHA_RE.match(value):
+        return value
+    if not _SHORT_SHA_RE.match(value):
+        raise TypeError(
+            f"commit-sha must be a hex string (4–40 chars), got {value!r}"
+        )
+    try:
+        import git as _git  # noqa: PLC0415
+
+        workspace_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
+        root = Path(workspace_dir) if workspace_dir else Path.cwd()
+        repo = _git.Repo(root, search_parent_directories=True)
+        full = repo.git.rev_parse("--verify", f"{value}^{{commit}}")
+        if _FULL_SHA_RE.match(full):
+            return full
+    except Exception:
+        pass
+    raise TypeError(
+        f"Cannot resolve short commit SHA {value!r}: "
+        "no git repository accessible at CWD or BUILD_WORKSPACE_DIRECTORY"
+    )
+
+
 # Python-specific builtins that are not part of the Starlark standard.
 # These will be exposed under a `python` object.
 PYTHON_SPECIFIC_BUILTINS = struct(
@@ -337,6 +378,7 @@ PYTHON_SPECIFIC_BUILTINS = struct(
     # It is safe to expose: it returns an integer (the memory address of the
     # object), which cannot be used as a sandbox escape.
     id=builtins.id,
+    expand_commit_sha=_expand_commit_sha,
 )
 
 # A curated list of safe built-ins to expose to user scripts.

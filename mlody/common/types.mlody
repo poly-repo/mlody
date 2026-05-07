@@ -362,6 +362,32 @@ typedef(
     },
 )
 
+# ---- Domain scalar types ----
+
+_FULL_SHA_RE  = python.re.compile(r'^[0-9a-f]{40}$')
+_SHORT_SHA_RE = python.re.compile(r'^[0-9a-f]{4,39}$')
+
+def _is_valid_commit_sha(value):
+    if isinstance(value, str) and (
+        _FULL_SHA_RE.match(value) or _SHORT_SHA_RE.match(value)
+    ):
+        return True
+    raise TypeError(
+        "commit-sha must be a 40-char hex string or a resolvable short SHA, got " + repr(value)
+    )
+
+def _canonical_commit_sha(value):
+    if _FULL_SHA_RE.match(value):
+        return value
+    return python.expand_commit_sha(value)
+
+typedef(
+    name      = "commit-sha",
+    base      = string(),
+    predicate = _is_valid_commit_sha,
+    canonical = _canonical_commit_sha,
+)
+
 # ---- mlody built-in types ----
 typedef(
     name = "mlody-source-range",
