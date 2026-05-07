@@ -183,6 +183,32 @@ def _updated_location_payload(location: object, value: object) -> object:
     return struct_like_updated(location, data=value, attributes=attributes)
 
 
+def _coerce_config_value(type_ref: object, value: str, raw: str) -> object:
+    """Validate *value* against *type_ref* and return its canonical form.
+
+    Raises WorkspaceResolutionError when the value fails validation or
+    cannot be canonicalized.
+    """
+    type_name = getattr(type_ref, "name", "?")
+    validator = getattr(type_ref, "validator", None)
+    if callable(validator):
+        try:
+            validator(value)
+        except (TypeError, ValueError) as exc:
+            raise WorkspaceResolutionError(
+                f"--with {raw!r}: value {value!r} is not valid for type {type_name!r}: {exc}"
+            ) from exc
+    canonical = getattr(type_ref, "canonical", None)
+    if callable(canonical):
+        try:
+            value = canonical(value)
+        except (TypeError, ValueError) as exc:
+            raise WorkspaceResolutionError(
+                f"--with {raw!r}: cannot canonicalize {value!r} to type {type_name!r}: {exc}"
+            ) from exc
+    return value
+
+
 def _registry_value_label(
     workspace: Workspace,
     key: tuple[object, object, object],
@@ -307,6 +333,9 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
             except AttributeError:
                 resolved = None
             if getattr(resolved, "kind", None) == "value":
+                type_ref = getattr(resolved, "type", None)
+                if type_ref is not None:
+                    value = _coerce_config_value(type_ref, value, raw)
                 location = getattr(resolved, "location", None)
                 if getattr(location, "type", None) == "inline":
                     setf(

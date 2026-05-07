@@ -410,6 +410,53 @@ class TestConfigureWorkspace:
 
         workspace.resolve.assert_not_called()
 
+    def test_inline_value_with_failing_validator_raises(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = ["//simple:commit"]
+        location = Struct(kind="location", type="inline", name="inline", attributes={}, _allowed_attrs={})
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="commit",
+            type=Struct(
+                kind="type",
+                type="commit",
+                name="commit",
+                validator=lambda v: (_ for _ in ()).throw(TypeError(f"bad sha: {v}")),
+            ),
+            location=location,
+            _lineage=[],
+        )
+
+        with pytest.raises(WorkspaceResolutionError, match="not valid for type"):
+            configure_workspace(workspace, ["//simple:commit=xxx"])
+
+    def test_inline_value_canonical_is_applied(self) -> None:
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = ["//simple:commit"]
+        location = Struct(kind="location", type="inline", name="inline", attributes={}, _allowed_attrs={})
+        full_sha = "a" * 40
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="commit",
+            type=Struct(
+                kind="type",
+                type="commit",
+                name="commit",
+                validator=lambda v: True,
+                canonical=lambda v: full_sha,
+            ),
+            location=location,
+            _lineage=[],
+        )
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            configure_workspace(workspace, ["//simple:commit=abc123"])
+
+        updated_location = mock_setf.call_args.args[1]
+        assert updated_location.data == full_sha
+
 
 class TestResolveWorkspaceCwdPath:
     """Requirement: resolve_workspace cwd passthrough."""
