@@ -602,6 +602,73 @@ class TestConfigureWorkspace:
         with pytest.raises(WorkspaceResolutionError, match="not valid for type 'bool'"):
             configure_workspace(workspace, ["//simple:b=maybe"])
 
+    def test_with_quantity_string_converted_to_declared_unit(self) -> None:
+        from astropy import units as u
+
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = ["//simple:d"]
+        location = Struct(
+            kind="location",
+            type="inline",
+            name="inline",
+            attributes={},
+            _allowed_attrs={},
+        )
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="d",
+            unit=u.Unit("m/s"),
+            type=Struct(
+                kind="type",
+                type="float",
+                name="float",
+                canonical=lambda v: float(v) if isinstance(v, str) else v,
+                validator=lambda v: None,
+            ),
+            location=location,
+            _lineage=[],
+        )
+
+        with patch("mlody.core.setf.setf") as mock_setf:
+            configure_workspace(workspace, ["//simple:d=3600m/h"])
+
+        updated_location = mock_setf.call_args.args[1]
+        assert updated_location.data == pytest.approx(1.0)
+
+    def test_with_quantity_string_incompatible_unit_raises(self) -> None:
+        from astropy import units as u
+
+        workspace = MagicMock()
+        workspace.registry_view.iter_registry_items.return_value = ()
+        workspace.expand_wildcard_label.return_value = ["//simple:d"]
+        location = Struct(
+            kind="location",
+            type="inline",
+            name="inline",
+            attributes={},
+            _allowed_attrs={},
+        )
+        workspace.resolve.return_value = Struct(
+            kind="value",
+            name="d",
+            unit=u.Unit("m/s"),
+            type=Struct(
+                kind="type",
+                type="float",
+                name="float",
+                canonical=lambda v: float(v) if isinstance(v, str) else v,
+                validator=lambda v: None,
+            ),
+            location=location,
+            _lineage=[],
+        )
+
+        with pytest.raises(
+            WorkspaceResolutionError, match="cannot parse as quantity"
+        ):
+            configure_workspace(workspace, ["//simple:d=3kg"])
+
 
 class TestResolveWorkspaceCwdPath:
     """Requirement: resolve_workspace cwd passthrough."""

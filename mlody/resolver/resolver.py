@@ -333,6 +333,17 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
                 resolved = None
             if getattr(resolved, "kind", None) == "value":
                 type_ref = getattr(resolved, "type", None)
+                unit_ref = getattr(resolved, "unit", None)
+                if unit_ref is not None and isinstance(value, str):
+                    from astropy import units as u  # noqa: PLC0415
+                    try:
+                        q = u.Quantity(value)
+                        value = float(q.to(unit_ref).value)
+                    except Exception as exc:
+                        raise WorkspaceResolutionError(
+                            f"--with {raw!r}: cannot parse as quantity for "
+                            f"unit {unit_ref}: {exc}"
+                        ) from exc
                 if type_ref is not None:
                     value = _coerce_config_value(type_ref, value, raw)
                     source = f"COMMAND_LINE: {ref}={value}"
