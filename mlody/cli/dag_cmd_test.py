@@ -78,10 +78,13 @@ def _make_workspace_mock(tasks: dict[str, SimpleNamespace]) -> MagicMock:
     The dict key must follow the evaluator convention: ``"{stem}:{name}"``.
     build_dag derives the node_id as ``"task/{stem}:{name}"``.
     """
+    from mlody.core.dag import build_dag  # noqa: PLC0415
+
     evaluator = MagicMock()
     evaluator.registry.tasks.by_key = tasks
     ws = MagicMock()
     ws.evaluator = evaluator
+    ws.dag = build_dag(ws)
     return ws
 
 

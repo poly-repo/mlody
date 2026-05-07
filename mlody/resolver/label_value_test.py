@@ -2915,3 +2915,73 @@ class TestQueryOnlyEntityLabel:
         assert len(result.elements) == 1
         assert isinstance(result.elements[0], MlodyTaskValue)
         assert getattr(result.elements[0].struct, "name", None) == "train"
+
+
+# ---------------------------------------------------------------------------
+# DAG virtual attribute
+# ---------------------------------------------------------------------------
+
+
+class TestDagVirtualAttribute:
+    """Resolving ``.dag`` on a task output value synthesises a MlodyDagType virtual value."""
+
+    def test_dag_segment_returns_mlody_value_value_with_dag_type(
+        self, fs: FakeFilesystem
+    ) -> None:
+        from mlody.core.dag_value import MlodyDagType
+
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/foo.mlody": TASK_WITH_VALUE_OUTPUTS_MLODY},
+        )
+        label = parse_label("@myroot//pkg/foo:my_task.outputs.result.dag")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyValueValue), f"Got {result!r}"
+        assert isinstance(getattr(result.struct, "type", None), MlodyDagType)
+
+    def test_dag_segment_name_is_port_name(self, fs: FakeFilesystem) -> None:
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/foo.mlody": TASK_WITH_VALUE_OUTPUTS_MLODY},
+        )
+        label = parse_label("@myroot//pkg/foo:my_task.outputs.result.dag")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyValueValue)
+        assert getattr(result.struct, "name", None) == "result"
+
+    def test_dag_segment_without_workspace_returns_unresolved(
+        self, fs: FakeFilesystem
+    ) -> None:
+        from mlody.resolver.label_value import StructTraversalStrategy
+
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/foo.mlody": TASK_WITH_VALUE_OUTPUTS_MLODY},
+        )
+        task_struct = ws.evaluator.registry.tasks.by_key["teams/myroot/pkg/foo:my_task"]
+        strategy = StructTraversalStrategy("task")
+        label = parse_label("@myroot//pkg/foo:my_task.outputs.result.dag")
+        from mlody.core.traversal_grammar import FieldSegment
+
+        path = (FieldSegment("outputs"), FieldSegment("result"), FieldSegment("dag"))
+        result = strategy.traverse(task_struct, path, label)
+
+        assert isinstance(result, MlodyUnresolvedValue), f"Got {result!r}"
+
+    def test_dag_virtual_value_materialises_to_graph(
+        self, fs: FakeFilesystem
+    ) -> None:
+        import networkx
+
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/foo.mlody": TASK_WITH_VALUE_OUTPUTS_MLODY},
+        )
+        label = parse_label("@myroot//pkg/foo:my_task.outputs.result.dag")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyValueValue)
+        graph = force_virtual_value(result.struct)
+        assert isinstance(graph, networkx.MultiDiGraph)

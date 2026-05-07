@@ -50,6 +50,7 @@ o_py_test(
     deps = [
         ":core_lib",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/common:common_lib",
     ],
 )
 
@@ -242,6 +243,7 @@ o_py_test(
     srcs = ["traversal_parser_test.py"],
     deps = [
         ":core_lib",
+        "//common/python/starlarkish/core:core_lib",
         "@pip//pytest",
     ],
 )
@@ -416,6 +418,7 @@ o_py_library(
         "__init__.py",
         "anchor.py",
         "dag.py",
+        "dag_value.py",
         "derived.py",
         "lineage.py",
         "location_composition.py",
@@ -508,6 +511,16 @@ o_py_test(
         ":core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pyfakefs",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "dag_value_test",
+    srcs = ["dag_value_test.py"],
+    deps = [
+        ":core_lib",
+        "@pip//networkx",
         "@pip//pytest",
     ],
 )

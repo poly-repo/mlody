@@ -27,7 +27,7 @@ from rich.table import Table
 
 from common.python.console import RichDomNode, RichDomExecutor, SyntaxNode, panel
 
-from mlody.cli.dag_render import render_dag_table, resolve_show_output_selection
+from mlody.cli.dag_render import build_dag_table, render_dag_table, resolve_show_output_selection
 from mlody.cli.main import cli
 from mlody.core.dag import build_dag
 from mlody.core.derived import DerivedValueShapeError
@@ -1089,6 +1089,18 @@ def _print_mlody_value(
         return
 
     if isinstance(value, MlodyValueValue):
+        from mlody.core.dag_value import MlodyDagType  # noqa: PLC0415
+        from mlody.core.virtual_value import force_virtual_value  # noqa: PLC0415
+
+        _value_type = getattr(value.struct, "type", None)
+        if isinstance(_value_type, MlodyDagType):
+            graph = force_virtual_value(value.struct)
+            if isinstance(graph, networkx.MultiDiGraph):
+                port_name = getattr(value.struct, "name", "") or ""
+                title = f"DAG — ancestors of '{port_name}'" if port_name else "DAG"
+                _console.print(build_dag_table(graph, title))
+            return
+
         display_payload = _display_payload(value)
         try:
             tabular_source = (

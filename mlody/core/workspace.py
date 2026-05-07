@@ -5,7 +5,10 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
+
+if TYPE_CHECKING:
+    import networkx
 
 from rich.console import Console
 
@@ -113,6 +116,7 @@ class Workspace:
         self._workspace_attributes: dict[str, object] = {
             "info": self._build_workspace_info(),
         }
+        self._dag_cache: "networkx.MultiDiGraph | None" = None
 
     @property
     def evaluator(self) -> Evaluator:
@@ -130,6 +134,15 @@ class Workspace:
     def info(self) -> object:
         """Workspace-level metadata backed by workspace-owned mutable state."""
         return self.get_workspace_attribute("info")
+
+    @property
+    def dag(self) -> "networkx.MultiDiGraph":
+        """Task dependency graph; built once and cached per workspace instance."""
+        if self._dag_cache is None:
+            from mlody.core.dag import build_dag  # noqa: PLC0415
+
+            self._dag_cache = build_dag(self)
+        return self._dag_cache
 
     def _git(self, *args: str) -> str:
         try:

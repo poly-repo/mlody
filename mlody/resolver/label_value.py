@@ -534,6 +534,31 @@ class StructTraversalStrategy:
                 if field_decl is not None:
                     terminal_field_name = field_name
                     continue
+                # DAG virtual attribute: synthesize when segment is "dag" on a
+                # kind="value" struct and a workspace is available via kwargs.
+                _ws = kwargs.get("workspace")
+                if (
+                    isinstance(field_name, str)
+                    and field_name == "dag"
+                    and _ws is not None
+                    and getattr(obj, "kind", None) == "value"
+                ):
+                    from mlody.core.dag_value import (  # noqa: PLC0415
+                        MlodyDagType,
+                        make_dag_virtual_value,
+                    )
+
+                    if not isinstance(getattr(obj, "type", None), MlodyDagType):
+                        _port_name = getattr(obj, "name", None) or ""
+                        _parent_label = (
+                            getattr(obj, "label", None)
+                            or getattr(obj, "_resolved_label", None)
+                            or ""
+                        )
+                        _dag_label = f"{_parent_label}.dag" if _parent_label else "dag"
+                        return MlodyValueValue(
+                            struct=make_dag_virtual_value(_ws, _port_name, _dag_label)
+                        )
                 traversed = "".join(str(s) for s in path[:i])
                 parent = f" on '{traversed}'" if traversed else ""
                 return MlodyUnresolvedValue(
@@ -1862,6 +1887,7 @@ class ValueTraversalStrategy:
         label: "Label",
         *,
         traversal_error_policy: TraversalErrorPolicy = TraversalErrorPolicy.RAISE,
+        workspace: "Workspace | None" = None,
     ) -> MlodyValue:
         from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
         from mlody.core.virtual_value import (  # noqa: PLC0415
@@ -2954,6 +2980,7 @@ def resolve_label_to_value(
                 resolved_path,
                 label,
                 traversal_error_policy=traversal_error_policy,
+                workspace=workspace,
             )
         else:
             # Pass traversal_error_policy through to the strategy.  ValueTraversalStrategy
@@ -2964,6 +2991,7 @@ def resolve_label_to_value(
                 resolved_path,
                 label,
                 traversal_error_policy=traversal_error_policy,
+                workspace=workspace,
             )
 
         # Lift mlody-source-range _RawAttrValue → typed MlodySourceRangeValue so

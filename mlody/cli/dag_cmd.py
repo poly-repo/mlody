@@ -12,7 +12,6 @@ from rich.console import Console
 from mlody.cli.dag_gui import show_dag_gui
 from mlody.cli.dag_render import render_dag_table, resolve_dag_selection
 from mlody.cli.main import cli
-from mlody.core.dag import build_dag
 from mlody.core.workspace import Workspace, WorkspaceLoadError
 
 _console = Console()
@@ -78,7 +77,7 @@ def dag_cmd(ctx: click.Context, label: str | None, gui: bool) -> None:
         click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
         sys.exit(1)
 
-    dag = build_dag(workspace)
+    dag = workspace.dag
 
     if label is None:
         display_graph = dag
