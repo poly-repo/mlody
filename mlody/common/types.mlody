@@ -123,6 +123,9 @@ def _type_impl(ctx):
     canonical = python.getattr(ctx.attr, 'canonical', None)
     if canonical != None:
         other_fields['canonical'] = canonical
+    canonical_for_attrs = python.getattr(ctx.attr, '_canonical_for_attrs', None)
+    if canonical_for_attrs != None:
+        other_fields['_canonical_for_attrs'] = canonical_for_attrs
     predicate = python.getattr(ctx.attr, 'predicate', None)
 
     extra_attrs_spec = None
@@ -247,7 +250,8 @@ typedef = rule(
         "base":        attr(type="type",       mandatory=False, default=None),
         "attrs":       attr(type="dict",       mandatory=False, default=None),
         "predicate":   attr(type="callable",   mandatory=False, default=None),
-        "canonical":   attr(type="callable",   mandatory=False, default=None),
+        "canonical":            attr(type="callable",   mandatory=False, default=None),
+        "_canonical_for_attrs": attr(type="callable",   mandatory=False, default=None),
         "fields":           attr(type="field_list", mandatory=False, default=None),
         "strict":           attr(type="bool",       mandatory=False, default=None),
         "abstract":         attr(type="bool",       mandatory=False, default=None),
@@ -266,9 +270,14 @@ typedef(name="aggregate", base=any(),       abstract=True)
 typedef(name="opaque",    base=any())
 
 # ---- Scalar primitives (inherit from scalar) ----
-def _coerce_integer(v):
+def _coerce_integer_strict(v):
     if isinstance(v, int) and not isinstance(v, _builtin_bool):
         return v
+    if isinstance(v, _builtin_float):
+        rounded = python.round(v)
+        if _builtin_float(rounded) == v:
+            return rounded
+        raise TypeError(f"Cannot convert non-whole float {v!r} to integer")
     if isinstance(v, str):
         if python.re.fullmatch(r'[+-]?\d+', v.strip()):
             return int(v.strip())
@@ -276,13 +285,33 @@ def _coerce_integer(v):
     raise TypeError(f"Expected integer, got {type(v)!r}: {v!r}")
 
 
+def _coerce_integer_lenient(v):
+    if isinstance(v, int) and not isinstance(v, _builtin_bool):
+        return v
+    if isinstance(v, _builtin_float):
+        return python.round(v)
+    if isinstance(v, str):
+        if python.re.fullmatch(r'[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?', v.strip()):
+            return python.round(_builtin_float(v.strip()))
+        raise TypeError(f"Cannot parse {v!r} as integer")
+    raise TypeError(f"Expected integer, got {type(v)!r}: {v!r}")
+
+
+def _integer_canonical_for_attrs(attrs):
+    if attrs.get("strict", True) == False:
+        return _coerce_integer_lenient
+    return _coerce_integer_strict
+
+
 typedef(
     name = "integer",
     base = scalar(),
-    canonical = _coerce_integer,
+    canonical = _coerce_integer_strict,
+    _canonical_for_attrs = _integer_canonical_for_attrs,
     attrs = {
-        "min": attr(type="integer", mandatory=False),
-        "max": attr(type="integer", mandatory=False),
+        "min":    attr(type="integer", mandatory=False),
+        "max":    attr(type="integer", mandatory=False),
+        "strict": attr(type="bool",    mandatory=False),
     },
 )
 _BOOL_TRUTHY_STRINGS = {"true", "yes", "1"}

@@ -499,6 +499,7 @@ def _make_factory(type_struct):
 
     mandatory = python.getattr(type_struct, "_attrs_mandatory", set())
     current_attrs = python.getattr(type_struct, "attributes", {})
+    canonical_for_attrs = python.getattr(type_struct, "_canonical_for_attrs", None)
 
     def factory(**kwargs):
         for k in kwargs:
@@ -527,6 +528,16 @@ def _make_factory(type_struct):
                 generic_validate(root_kind, captured_kwargs, value)
             return True
 
+        if canonical_for_attrs != None:
+            merged_attrs = dict(current_attrs)
+            merged_attrs.update(captured_kwargs)
+            new_canonical = canonical_for_attrs(merged_attrs)
+            return extend_attrs(
+                base=type_struct,
+                extra_attributes=captured_kwargs,
+                extra_validator=extra_validator,
+                canonical=new_canonical,
+            )
         return extend_attrs(
             base=type_struct,
             extra_attributes=captured_kwargs,

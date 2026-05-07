@@ -24,6 +24,7 @@ class RegisteredType(RegisteredStructBase):
     _root_kind: str | None = None
     description: str | None = None
     canonical: object | None = None
+    _canonical_for_attrs: object | None = None
     virtual_attributes: object | None = None
     _attrs_mandatory: set[str] | None = None
 

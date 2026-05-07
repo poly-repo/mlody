@@ -85,7 +85,7 @@ def test_allowed_attrs_is_dict() -> None:
     assert isinstance(allowed, dict), (
         f"_allowed_attrs should be dict, got {type(allowed)}"
     )
-    assert allowed == {"min": "integer", "max": "integer"}
+    assert allowed == {"min": "integer", "max": "integer", "strict": "bool"}
 
 
 # ---------------------------------------------------------------------------
