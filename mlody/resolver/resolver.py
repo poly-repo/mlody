@@ -288,7 +288,14 @@ def _normalize_workspace_defaults(workspace: Workspace) -> Workspace:
             continue
 
         updated_location = _updated_location_payload(location, default_value)
-        source = f"DEFAULT: {default_value}"
+        unit_ref = getattr(value, "unit", None)
+        if unit_ref is not None:
+            from common.python.starlarkish.evaluator.evaluator import (  # noqa: PLC0415
+                _format_quantity_string,
+            )
+            source = f"DEFAULT: {_format_quantity_string(default_value, unit_ref)}"
+        else:
+            source = f"DEFAULT: {default_value}"
         label = _registry_value_label(workspace, key)
         if label is not None:
             setf(
@@ -347,7 +354,13 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
                         ) from exc
                 if type_ref is not None:
                     value = _coerce_config_value(type_ref, value, raw)
-                    source = f"COMMAND_LINE: {ref}={value}"
+                    if unit_ref is not None:
+                        from common.python.starlarkish.evaluator.evaluator import (  # noqa: PLC0415
+                            _format_quantity_string,
+                        )
+                        source = f"COMMAND_LINE: {ref}={_format_quantity_string(value, unit_ref)}"
+                    else:
+                        source = f"COMMAND_LINE: {ref}={value}"
                 location = getattr(resolved, "location", None)
                 if getattr(location, "type", None) == "inline":
                     setf(
