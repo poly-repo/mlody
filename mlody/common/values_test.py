@@ -269,30 +269,34 @@ def test_inline_location_with_data() -> None:
 
 
 @pytest.mark.parametrize(
-    ("expr", "expected"),
+    ("type_expr", "default_expr", "expected"),
     [
-        ("1", 1),
-        ("3.14", 3.14),
-        ('"hello"', "hello"),
-        ("True", True),
-        ("[1, 2, 3]", [1, 2, 3]),
+        ("integer()", "1", 1),
+        ("float()", "3.14", 3.14),
+        ("string()", '"hello"', "hello"),
+        ("bool()", "True", True),
+        ("opaque()", "[1, 2, 3]", [1, 2, 3]),
     ],
 )
-def test_value_stores_default_builtin_types(expr: str, expected: object) -> None:
-    ev = _eval(f'value(name="v", type=integer(), location=inline(), default={expr})')
+def test_value_stores_default_builtin_types(
+    type_expr: str, default_expr: str, expected: object
+) -> None:
+    ev = _eval(
+        f'value(name="v", type={type_expr}, location=inline(), default={default_expr})'
+    )
     v = ev.registry.values.by_name["v"]
     assert v.default == expected
 
 
 def test_value_stores_dict_literal_default() -> None:
-    ev = _eval('value(name="v", type=integer(), location=inline(), default={"k": "v"})')
+    ev = _eval('value(name="v", type=opaque(), location=inline(), default={"k": "v"})')
     v = ev.registry.values.by_name["v"]
     # In starlarkish, dict literals are represented as Struct values.
     assert getattr(v.default, "k", None) == "v"
 
 
 def test_value_stores_tuple_literal_default() -> None:
-    ev = _eval('value(name="v", type=integer(), location=inline(), default=(1, 2))')
+    ev = _eval('value(name="v", type=opaque(), location=inline(), default=(1, 2))')
     v = ev.registry.values.by_name["v"]
     # Tuples are normalized to list in runtime values.
     assert v.default == [1, 2]
@@ -406,6 +410,44 @@ def test_value_with_representation_parquet_rejects_unknown_schema() -> None:
         _eval(
             'value(name="x", type=integer(), location=s3(), representation=parquet(schema="missing_schema"))'
         )
+
+
+# ---------------------------------------------------------------------------
+# TC: value() validates default= against type predicate
+# ---------------------------------------------------------------------------
+
+
+def test_value_default_invalid_for_typed_value_raises() -> None:
+    with pytest.raises(TypeError):
+        _eval('value(name="x", type=commit(), default="xxxx")')
+
+
+def test_value_default_valid_sha_accepted() -> None:
+    valid_sha = "a" * 40
+    canonical_sha = "b" * 40
+    import common.python.starlarkish.evaluator.evaluator as _ev_mod
+    from common.python.starlarkish.core.struct import struct as _struct
+    from unittest.mock import patch
+
+    mock_python = _struct(
+        **{**_ev_mod.PYTHON_SPECIFIC_BUILTINS.as_mapping(), "expand_commit_sha": lambda _: canonical_sha}
+    )
+    with patch.dict(_ev_mod.SAFE_BUILTINS, {"python": mock_python}):
+        ev = _eval(f'value(name="x", type=commit(), default="{valid_sha}")')
+    v = ev.registry.values.by_name["x"]
+    assert v.default == canonical_sha
+
+
+def test_value_default_opaque_type_passes_through() -> None:
+    ev = _eval('value(name="x", type=opaque(), default="any-value")')
+    v = ev.registry.values.by_name["x"]
+    assert v.default == "any-value"
+
+
+def test_value_no_default_untyped_passes_through() -> None:
+    ev = _eval('value(name="x")')
+    v = ev.registry.values.by_name["x"]
+    assert v.default is None
 
 
 def test_value_with_representation_parquet_rejects_invalid_file_bounds() -> None:

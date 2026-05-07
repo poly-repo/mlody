@@ -34,7 +34,7 @@ def _merge_field_declarations(owner_name, existing_fields, new_fields):
         field_name = python.getattr(f, "name", None)
         if field_name in seen:
             raise ValueError(
-                "typedef " + repr(owner_name) + ": duplicate declared field " + repr(field_name)
+                "typedef " + str(owner_name) + ": duplicate declared field " + str(field_name)
             )
         merged.append(f)
         seen.add(field_name)
@@ -373,16 +373,14 @@ def _is_valid_commit_sha(value):
     ):
         return True
     raise TypeError(
-        "commit-sha must be a 40-char hex string or a resolvable short SHA, got " + repr(value)
+        "commit-sha must be a 40-char hex string or a resolvable short SHA, got " + str(value)
     )
 
 def _canonical_commit_sha(value):
-    if _FULL_SHA_RE.match(value):
-        return value
     return python.expand_commit_sha(value)
 
 typedef(
-    name      = "commit-sha",
+    name      = "commit",
     base      = string(),
     predicate = _is_valid_commit_sha,
     canonical = _canonical_commit_sha,

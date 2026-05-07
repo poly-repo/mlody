@@ -323,40 +323,42 @@ _SHORT_SHA_RE = re.compile(r"^[0-9a-f]{4,39}$")
 
 
 def _expand_commit_sha(value: str) -> str:
-    """Expand a short commit SHA to the canonical 40-char form.
+    """Verify a commit SHA exists in the repo and return its canonical 40-char form.
 
-    Returns *value* unchanged when it is already a full 40-char hex string.
-    For shorter strings attempts ``git rev-parse --verify <sha>^{commit}``
-    using gitpython with the repo root determined by (in priority order):
+    Accepts a full 40-char hex string or an abbreviated form (4–39 hex chars);
+    both are resolved via ``git rev-parse --verify <sha>^{commit}`` so existence
+    and uniqueness are always confirmed.  The repo root is determined by:
 
     1. ``BUILD_WORKSPACE_DIRECTORY`` env-var (set automatically by ``bazel run``)
     2. ``CWD`` (works when the CLI is invoked from inside the repo)
 
-    Raises ``TypeError`` when *value* is not a hex string or cannot be resolved.
+    Raises ``TypeError`` when *value* is not a hex string, does not exist, or
+    is ambiguous.
     """
     if not isinstance(value, str):
         raise TypeError(f"commit-sha must be a string, got {type(value).__name__!r}")
-    if _FULL_SHA_RE.match(value):
-        return value
-    if not _SHORT_SHA_RE.match(value):
+    if not _FULL_SHA_RE.match(value) and not _SHORT_SHA_RE.match(value):
         raise TypeError(
             f"commit-sha must be a hex string (4–40 chars), got {value!r}"
         )
-    try:
-        import git as _git  # noqa: PLC0415
+    import git as _git  # noqa: PLC0415
 
-        workspace_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
-        root = Path(workspace_dir) if workspace_dir else Path.cwd()
+    workspace_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
+    root = Path(workspace_dir) if workspace_dir else Path.cwd()
+    try:
         repo = _git.Repo(root, search_parent_directories=True)
         full = repo.git.rev_parse("--verify", f"{value}^{{commit}}")
-        if _FULL_SHA_RE.match(full):
-            return full
-    except Exception:
-        pass
-    raise TypeError(
-        f"Cannot resolve short commit SHA {value!r}: "
-        "no git repository accessible at CWD or BUILD_WORKSPACE_DIRECTORY"
-    )
+    except _git.exc.GitCommandError:
+        raise TypeError(
+            f"commit SHA {value!r} does not exist or is ambiguous in the repository"
+        )
+    except Exception as exc:
+        raise TypeError(f"Cannot verify commit SHA {value!r}: {exc}") from exc
+    if not _FULL_SHA_RE.match(full):
+        raise TypeError(
+            f"commit SHA {value!r} resolved to unexpected output: {full!r}"
+        )
+    return full
 
 
 # Python-specific builtins that are not part of the Starlark standard.
