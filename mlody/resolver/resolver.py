@@ -335,11 +335,12 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
                 type_ref = getattr(resolved, "type", None)
                 unit_ref = getattr(resolved, "unit", None)
                 if unit_ref is not None and isinstance(value, str):
-                    from astropy import units as u  # noqa: PLC0415
+                    from common.python.starlarkish.evaluator.evaluator import (  # noqa: PLC0415
+                        _parse_quantity_string,
+                    )
                     try:
-                        q = u.Quantity(value)
-                        value = float(q.to(unit_ref).value)
-                    except Exception as exc:
+                        value = _parse_quantity_string(value, unit_ref)
+                    except ValueError as exc:
                         raise WorkspaceResolutionError(
                             f"--with {raw!r}: cannot parse as quantity for "
                             f"unit {unit_ref}: {exc}"
