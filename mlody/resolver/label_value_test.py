@@ -33,6 +33,7 @@ from mlody.resolver.label_value import (
     MlodyUnresolvedValue,
     MlodyValue,  # noqa: F401 — imported for type annotations in extensibility test
     MlodyValueValue,
+    MlodyVectorValue,
     _RawAttrValue,
     _traverse_one_step,
     _value_rows,
@@ -225,6 +226,30 @@ builtins.register("task", struct(
         struct(name="not_a_value"),
     ],
     action=None,
+))
+"""
+
+MIXED_ENTITIES_MLODY = """\
+builtins.register("action", struct(
+    kind="action",
+    name="build_model",
+    inputs=[],
+    outputs=[],
+    config=[],
+))
+builtins.register("task", struct(
+    kind="task",
+    name="train",
+    inputs=[],
+    outputs=[],
+    action=None,
+))
+builtins.register("action", struct(
+    kind="action",
+    name="evaluate_model",
+    inputs=[],
+    outputs=[],
+    config=[],
 ))
 """
 
@@ -2837,3 +2862,56 @@ class TestStructListPromotion:
 
         assert isinstance(result, MlodyVectorValue), f"Got {result!r}"
         assert result.elements == ()
+
+
+# ---------------------------------------------------------------------------
+# Query-only entity label: entity_name is None, entity_query is set
+# ---------------------------------------------------------------------------
+
+
+class TestQueryOnlyEntityLabel:
+    """entity_query with no entity_name uses _lookup_all_entities_by_query."""
+
+    def test_query_returns_matching_actions(self, fs: FakeFilesystem) -> None:
+        ws = _make_workspace(
+            fs, extra_files={"teams/myroot/pkg/foo.mlody": MIXED_ENTITIES_MLODY}
+        )
+        label = parse_label('@myroot//pkg/foo:[@mlody _.kind == "action"]')
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyVectorValue)
+        assert len(result.elements) == 2
+        assert all(isinstance(e, MlodyActionValue) for e in result.elements)
+        names = {getattr(e.struct, "name", None) for e in result.elements}
+        assert names == {"build_model", "evaluate_model"}
+
+    def test_no_match_returns_empty_vector_not_source(self, fs: FakeFilesystem) -> None:
+        ws = _make_workspace(
+            fs, extra_files={"teams/myroot/pkg/foo.mlody": MIXED_ENTITIES_MLODY}
+        )
+        label = parse_label('@myroot//pkg/foo:[@mlody _.kind == "pipeline"]')
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyVectorValue)
+        assert result.elements == ()
+
+    def test_bare_source_label_unaffected(self, fs: FakeFilesystem) -> None:
+        ws = _make_workspace(
+            fs, extra_files={"teams/myroot/pkg/foo.mlody": MIXED_ENTITIES_MLODY}
+        )
+        label = parse_label("@myroot//pkg/foo")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodySourceValue)
+
+    def test_query_for_task_returns_task_value(self, fs: FakeFilesystem) -> None:
+        ws = _make_workspace(
+            fs, extra_files={"teams/myroot/pkg/foo.mlody": MIXED_ENTITIES_MLODY}
+        )
+        label = parse_label('@myroot//pkg/foo:[@mlody _.kind == "task"]')
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyVectorValue)
+        assert len(result.elements) == 1
+        assert isinstance(result.elements[0], MlodyTaskValue)
+        assert getattr(result.elements[0].struct, "name", None) == "train"

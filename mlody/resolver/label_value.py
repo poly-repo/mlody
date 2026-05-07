@@ -2626,6 +2626,50 @@ def _lookup_entity(
     return candidates[0]
 
 
+def _lookup_all_entities_by_query(
+    workspace: "Workspace",
+    stem: str,
+    entity_query: str,
+) -> list[MlodyValue]:
+    """Return all entities under *stem* whose struct satisfies *entity_query*."""
+    from mlody.core.traversal_parser import (  # noqa: PLC0415
+        evaluate_mlody_segment,
+        parse_mlody_segment,
+    )
+
+    segment = parse_mlody_segment(entity_query)
+    if segment is None:
+        return []
+
+    seen: set[tuple[str, str]] = set()
+    candidates: list[tuple[str, object]] = []
+
+    for key, value in workspace.evaluator.registry.all.items():
+        if not (isinstance(key, tuple) and len(key) == 3):
+            continue
+        kind, key_stem, name = key
+        if not isinstance(kind, str) or not isinstance(name, str):
+            continue
+        if key_stem != stem or kind not in TRAVERSAL_STRATEGIES:
+            continue
+        dedup_key = (kind, name)
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        bucket = workspace.evaluator.registry.for_kind(kind, operation="lookup")
+        canonical = bucket.by_name.get(name)
+        candidates.append((kind, canonical if canonical is not None else value))
+
+    results: list[MlodyValue] = []
+    for kind, struct in candidates:
+        try:
+            if evaluate_mlody_segment(segment, struct):
+                results.append(_wrap_struct(kind, struct))
+        except Exception:
+            continue
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Resolver  (tasks 3.1, 3.3, 3.4)
 # ---------------------------------------------------------------------------
@@ -2787,8 +2831,29 @@ def resolve_label_to_value(
     mlody_path = abs_path.parent / (abs_path.name + ".mlody")
 
     if mlody_path.exists():
-        # Source file found. If no entity name, return MlodySourceValue.
+        # Source file found.
         if entity_name is None:
+            # Query-only bracket (e.g. :[@mlody _.kind=="action"]): scan registry
+            # instead of returning the source file.
+            if label.entity_query is not None:
+                stem_parts: list[str] = []
+                if root_path:
+                    stem_parts.append(root_path)
+                elif workspace._workspace_root != workspace._monorepo_root:  # noqa: SLF001
+                    workspace_rel = str(
+                        workspace._workspace_root.relative_to(  # noqa: SLF001
+                            workspace._monorepo_root  # noqa: SLF001
+                        )
+                    )
+                    stem_parts.append(workspace_rel)
+                if entity_path:
+                    stem_parts.append(entity_path)
+                stem = "/".join(stem_parts)
+                matched = _lookup_all_entities_by_query(
+                    workspace, stem, label.entity_query
+                )
+                return MlodyVectorValue(elements=tuple(matched))
+            # No entity name and no query: return the source file.
             if attr_path is not None:
                 return MlodyUnresolvedValue(
                     label=label,
