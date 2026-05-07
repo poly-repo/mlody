@@ -226,6 +226,13 @@ def _parse_quantity_string(text: str, unit: object) -> float:
         raise ValueError(f"Cannot convert {q.unit} to {unit}: {exc}") from exc
 
 
+def _format_quantity_string(value: float, unit: object) -> str:
+    """Format a numeric magnitude and astropy unit as a quantity string."""
+    from astropy import units as u  # noqa: PLC0415
+
+    return str(u.Quantity(value, unit))
+
+
 def _uuid7_string() -> str:
     """Return a random UUID v7 string for Starlark-side materializers."""
     return str(uuid_utils.uuid7())
@@ -386,6 +393,7 @@ PYTHON_SPECIFIC_BUILTINS = struct(
     getattr=builtins.getattr,
     parse_astropy_unit=_parse_astropy_unit,
     parse_quantity_string=_parse_quantity_string,
+    format_quantity_string=_format_quantity_string,
     runtime_json_blob=_runtime_json_blob,
     uuid7=_uuid7_string,
     round=builtins.round,

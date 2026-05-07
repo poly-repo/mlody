@@ -676,3 +676,29 @@ def test_lineage_value_renders_event_sources_only() -> None:
     assert spec.sections[0].code == (
         "COMMAND_LINE: @root//pkg:value=FOO\nUI: edited manually"
     )
+
+
+def test_render_value_inline_float_with_unit_shows_quantity() -> None:
+    """Inline float values with a unit attribute display as astropy quantity strings."""
+    from astropy import units as u
+    from common.python.starlarkish.core.struct import Struct
+
+    float_type = Struct(kind="type", type="float", name="float", _root_kind="float")
+    value_struct = Struct(
+        kind="value",
+        name="speed",
+        type=float_type,
+        unit=u.Unit("m/s"),
+        location=Struct(kind="location", type="inline", data=3.0),
+        default=3.0,
+        representation=None,
+        _lineage=[],
+    )
+
+    spec = _dispatch_render_value(value_struct)
+
+    assert spec.kind == "render_value_spec"
+    code_sections = [s for s in spec.sections if hasattr(s, "code")]
+    assert code_sections, "Expected at least one code section"
+    assert "3.0" in code_sections[0].code
+    assert "m" in code_sections[0].code

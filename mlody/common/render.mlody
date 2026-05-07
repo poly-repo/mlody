@@ -292,10 +292,15 @@ def _inline_value_payload(value):
 
 def _render_inline_payload_value(value, payload):
     """Render a simple inline payload without type/location metadata."""
+    unit = python.getattr(value, "unit", None)
+    if unit != None:
+        display = python.format_quantity_string(payload, unit)
+    else:
+        display = str(payload)
     return struct(
         kind     = "render_value_spec",
         title    = _value_title(value),
-        sections = [struct(name="Value", rows=[], code=str(payload), language="text")],
+        sections = [struct(name="Value", rows=[], code=display, language="text")],
     )
 
 

@@ -622,3 +622,12 @@ def test_parse_quantity_string_unparseable_raises() -> None:
 
     with pytest.raises(ValueError, match="Cannot parse"):
         _parse_quantity_string("not-a-quantity", u.Unit("m/s"))
+
+
+def test_format_quantity_string_returns_quantity_repr() -> None:
+    from astropy import units as u
+    from common.python.starlarkish.evaluator.evaluator import _format_quantity_string
+
+    result = _format_quantity_string(3.0, u.Unit("m/s"))
+    assert "3.0" in result
+    assert "m" in result
