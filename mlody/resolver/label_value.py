@@ -386,13 +386,11 @@ def _fmt_default(v: object) -> str:
 
 
 def _value_rows(container: object) -> list[list[RichDomNode]]:
-    """Return table rows for a struct of value-structs (inputs/outputs/config)."""
-    if container is None or not hasattr(container, "as_mapping"):
+    """Return table rows for a dict of value-structs (inputs/outputs/config)."""
+    if not isinstance(container, dict):
         return []
     rows: list[list[RichDomNode]] = []
-    for k, v in container.as_mapping().items():
-        if isinstance(k, str) and k.startswith("_"):
-            continue
+    for k, v in container.items():
         rows.append([
             text(str(getattr(v, "name", k))),
             text(_fmt_type(getattr(v, "type", None))),
@@ -643,10 +641,22 @@ class StructTraversalStrategy:
             if len(elements) == len(obj):
                 return MlodyVectorValue(elements=elements)
 
-        # Promote a struct-of-values to MlodyVectorValue.
-        # After workspace loading, _convert_ports_to_structs transforms port lists
-        # into Struct(name→entity_struct) objects.  If every field value is a
-        # known-kind entity struct (or the struct is empty), treat as a vector.
+        # Promote a dict-of-values to MlodyVectorValue.
+        # Port collections (inputs/outputs/config) are dict(name→entity_struct).
+        if isinstance(obj, dict):
+            field_values = list(obj.values())
+            if all(
+                isinstance(getattr(fv, "kind", None), str)
+                and getattr(fv, "kind", None) in TRAVERSAL_STRATEGIES
+                for fv in field_values
+            ):
+                return MlodyVectorValue(
+                    elements=tuple(
+                        _wrap_struct(getattr(fv, "kind"), fv) for fv in field_values
+                    )
+                )
+
+        # Promote a struct-of-values to MlodyVectorValue (legacy fallback for raw Structs).
         from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
         if isinstance(obj, _Struct):
             field_values = list(obj.as_mapping().values())

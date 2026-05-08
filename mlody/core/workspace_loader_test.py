@@ -181,7 +181,7 @@ def test_workspace_loader_injects_extra_and_lazy_roots(
     assert registry.resolved is True
 
 
-def test_workspace_loader_validates_contextual_values_before_port_conversion(
+def test_workspace_loader_validates_contextual_values_after_port_conversion(
     fs: FakeFilesystem,
 ) -> None:
     project = Path("/workspace")
@@ -232,7 +232,7 @@ def test_workspace_loader_validates_contextual_values_before_port_conversion(
         loader.load()
 
     assert registry.resolved is True
-    assert converted == []
+    assert converted == ["converted"]
 
 
 # ---------------------------------------------------------------------------

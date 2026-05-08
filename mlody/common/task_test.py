@@ -10,7 +10,6 @@ import pytest
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 import mlody
-from mlody.common.struct import Struct
 from mlody.core.workspace import force
 from mlody.core.value_context_validation import (
     ContextRestrictedValueValidationError,
@@ -152,7 +151,7 @@ def test_task_config_defaults_to_empty_list() -> None:
         'task(name="t", inputs=[], outputs=[], action="act")\n'
     )
     t = ev.registry.tasks.by_name["t"]
-    assert isinstance(t.config, Struct)
+    assert isinstance(t.config, dict)
     assert len(t.config) == 0
 
 
@@ -219,8 +218,8 @@ def test_task_empty_inputs_outputs_allowed() -> None:
         'task(name="t", inputs=[], outputs=[], action="act")\n'
     )
     t = ev.registry.tasks.by_name["t"]
-    assert isinstance(t.inputs, Struct)
-    assert isinstance(t.outputs, Struct)
+    assert isinstance(t.inputs, dict)
+    assert isinstance(t.outputs, dict)
     assert len(t.inputs) == 0
     assert len(t.outputs) == 0
 

@@ -9,7 +9,6 @@ import pytest
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 import mlody
-from mlody.common.struct import Struct
 from mlody.core.value_context_validation import (
     ContextRestrictedValueValidationError,
     validate_context_restricted_values_evaluator,
@@ -120,8 +119,8 @@ def test_action_string_value_label_resolves() -> None:
 def test_action_empty_inputs_and_outputs_allowed() -> None:
     ev = _eval('action(name="empty", inputs=[], outputs=[], implementation=container(build=bazel(target="//mlody/common:action_lib")))\n')
     a = ev.registry.actions.by_name["empty"]
-    assert isinstance(a.inputs, Struct)
-    assert isinstance(a.outputs, Struct)
+    assert isinstance(a.inputs, dict)
+    assert isinstance(a.outputs, dict)
     assert len(a.inputs) == 0
     assert len(a.outputs) == 0
 

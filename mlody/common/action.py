@@ -21,9 +21,9 @@ class RegisteredAction(RegisteredStructBase):
     _KIND: ClassVar[str] = "action"
 
     name: str
-    inputs: Struct
-    outputs: Struct
-    config: Struct
+    inputs: dict[str, RegisteredValue]
+    outputs: dict[str, RegisteredValue]
+    config: dict[str, RegisteredValue]
     requirements: list[object]
     implementation: object
     _entity_type: object | None = None

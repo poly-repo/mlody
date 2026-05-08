@@ -57,9 +57,9 @@ def _task(
     return Struct(
         kind="task",
         name=name,
-        inputs=inputs or [],
-        outputs=outputs or [],
-        config=config or [],
+        inputs={v.name: v for v in (inputs or [])},
+        outputs={v.name: v for v in (outputs or [])},
+        config={v.name: v for v in (config or [])},
         action=action,
     )
 
@@ -74,9 +74,9 @@ def _action(
     return Struct(
         kind="action",
         name=name,
-        inputs=inputs or [],
-        outputs=outputs or [],
-        config=config or [],
+        inputs={v.name: v for v in (inputs or [])},
+        outputs={v.name: v for v in (outputs or [])},
+        config={v.name: v for v in (config or [])},
     )
 
 

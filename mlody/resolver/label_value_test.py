@@ -1275,20 +1275,20 @@ class TestAggregateTypeRendering:
             attributes={"_element_types": [float_type, float_type]},
             _allowed_attrs={},
         )
-        outputs = _make_struct(
-            releases=_make_struct(
+        outputs = {
+            "releases": _make_struct(
                 name="releases",
                 type=vector_type,
                 source=_make_struct(type="inline"),
                 default=None,
             ),
-            point=_make_struct(
+            "point": _make_struct(
                 name="point",
                 type=point_type,
                 source=_make_struct(type="inline"),
                 default=None,
             ),
-        )
+        }
 
         rows = _value_rows(outputs)
 
@@ -1318,16 +1318,16 @@ class TestAggregateTypeRendering:
             struct=_make_struct(
                 kind="task",
                 name="downloader",
-                inputs=_make_struct(),
-                config=_make_struct(),
-                outputs=_make_struct(
-                    releases=_make_struct(
+                inputs={},
+                config={},
+                outputs={
+                    "releases": _make_struct(
                         name="releases",
                         type=vector_type,
                         source=_make_struct(type="inline"),
                         default=None,
                     )
-                ),
+                },
             )
         )
 

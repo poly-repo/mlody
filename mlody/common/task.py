@@ -21,10 +21,10 @@ class RegisteredTask(RegisteredStructBase):
     _KIND: ClassVar[str] = "task"
 
     name: str
-    inputs: Struct
-    outputs: Struct
+    inputs: dict[str, RegisteredValue]
+    outputs: dict[str, RegisteredValue]
     action: object
-    config: Struct
+    config: dict[str, RegisteredValue]
     executor: object | None = None
     _entity_type: object | None = None
     _source_range: object | None = None

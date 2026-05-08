@@ -40,9 +40,9 @@ def _make_action(
 ) -> SimpleNamespace:
     return SimpleNamespace(
         name=name,
-        inputs=[_make_port(p) for p in (inputs or [])],
-        outputs=[_make_port(p) for p in (outputs or [])],
-        config=[_make_port(p) for p in (config or [])],
+        inputs={p: _make_port(p) for p in (inputs or [])},
+        outputs={p: _make_port(p) for p in (outputs or [])},
+        config={p: _make_port(p) for p in (config or [])},
     )
 
 
@@ -66,9 +66,9 @@ def _make_task_struct(
             outputs=action_outputs,
             config=action_config,
         ),
-        outputs=[_make_port(p) for p in (outputs or [])],
-        inputs=[_make_port(p) for p in (inputs or [])],
-        config=[_make_port(p) for p in (config or [])],
+        outputs={p: _make_port(p) for p in (outputs or [])},
+        inputs={p: _make_port(p) for p in (inputs or [])},
+        config={p: _make_port(p) for p in (config or [])},
     )
 
 
@@ -166,30 +166,30 @@ def _wired_tasks() -> dict[str, SimpleNamespace]:
         kind="task",
         name="upstream",
         action=_make_action("train_action"),
-        outputs=[_make_port("weights")],
-        inputs=[],
+        outputs={"weights": _make_port("weights")},
+        inputs={},
     )
     midstream = SimpleNamespace(
         kind="task",
         name="midstream",
         action=_make_action("eval_action"),
         # source ":upstream.weights" means midstream consumes upstream.weights
-        inputs=[_make_wired_port("weights", ":upstream.weights")],
-        outputs=[_make_port("processed_weights")],
+        inputs={"weights": _make_wired_port("weights", ":upstream.weights")},
+        outputs={"processed_weights": _make_port("processed_weights")},
     )
     downstream = SimpleNamespace(
         kind="task",
         name="downstream",
         action=_make_action("export_action"),
-        inputs=[_make_wired_port("processed_weights", ":midstream.processed_weights")],
-        outputs=[_make_port("model_checkpoint")],
+        inputs={"processed_weights": _make_wired_port("processed_weights", ":midstream.processed_weights")},
+        outputs={"model_checkpoint": _make_port("model_checkpoint")},
     )
     isolated = SimpleNamespace(
         kind="task",
         name="isolated_task",
         action=_make_action("misc_action"),
-        outputs=[_make_port("isolated_value")],
-        inputs=[],
+        outputs={"isolated_value": _make_port("isolated_value")},
+        inputs={},
     )
     return {
         "test:upstream": upstream,

@@ -1007,28 +1007,28 @@ class TestShowMlodyValueRendering:
         task_struct = Struct(
             kind="task",
             name="downloader",
-            inputs=Struct(),
-            config=Struct(),
-            outputs=Struct(
-                model=Struct(
+            inputs={},
+            config={},
+            outputs={
+                "model": Struct(
                     name="model",
                     type=_make_type_struct("nothing", root_kind="nothing"),
                     source=Struct(type="inline"),
                     default=None,
                 ),
-                committoid=Struct(
+                "committoid": Struct(
                     name="committoid",
                     type=_make_type_struct("nothing", root_kind="nothing"),
                     source=Struct(type="inline"),
                     default=None,
                 ),
-                releases=Struct(
+                "releases": Struct(
                     name="releases",
                     type=vector_string,
                     source=Struct(type="inline"),
                     default=None,
                 ),
-            ),
+            },
         )
         value = MlodyTaskValue(struct=task_struct)
         result = _make_show_runner(

@@ -45,9 +45,9 @@ def _make_action(
 ) -> SimpleNamespace:
     return SimpleNamespace(
         name=name,
-        inputs=[_make_port(port) for port in (inputs or [])],
-        outputs=[_make_port(port) for port in (outputs or [])],
-        config=[_make_port(port) for port in (config or [])],
+        inputs={p: _make_port(p) for p in (inputs or [])},
+        outputs={p: _make_port(p) for p in (outputs or [])},
+        config={p: _make_port(p) for p in (config or [])},
     )
 
 
@@ -71,9 +71,9 @@ def _make_task_struct(
             outputs=action_outputs,
             config=action_config,
         ),
-        inputs=[_make_port(port) for port in (inputs or [])],
-        outputs=[_make_port(port) for port in (outputs or [])],
-        config=[_make_port(port) for port in (config or [])],
+        inputs={p: _make_port(p) for p in (inputs or [])},
+        outputs={p: _make_port(p) for p in (outputs or [])},
+        config={p: _make_port(p) for p in (config or [])},
     )
 
 
@@ -163,8 +163,8 @@ def test_format_action_cell_renders_aggregate_type_labels() -> None:
     )
     action = SimpleNamespace(
         name="train_action",
-        inputs=[
-            _make_port(
+        inputs={
+            "dataset": _make_port(
                 "dataset",
                 _make_type(
                     "dataset",
@@ -172,9 +172,9 @@ def test_format_action_cell_renders_aggregate_type_labels() -> None:
                     attributes={"element_type": _make_type("row", root_kind="record")},
                 ),
             )
-        ],
-        outputs=[],
-        config=[_make_port("point", point_type)],
+        },
+        outputs={},
+        config={"point": _make_port("point", point_type)},
     )
 
     rendered = format_action_cell(action, "fallback")
@@ -214,10 +214,10 @@ def test_build_dag_table_renders_aggregate_type_labels() -> None:
     task_struct = SimpleNamespace(
         kind="task",
         name="downstream",
-        action=SimpleNamespace(name="export_action", inputs=[], outputs=[], config=[]),
-        inputs=[_make_port("dataset", dataset_type)],
-        outputs=[],
-        config=[_make_port("point", point_type)],
+        action=SimpleNamespace(name="export_action", inputs={}, outputs={}, config={}),
+        inputs={"dataset": _make_port("dataset", dataset_type)},
+        outputs={},
+        config={"point": _make_port("point", point_type)},
     )
     dag.add_node(
         "task/test:downstream",

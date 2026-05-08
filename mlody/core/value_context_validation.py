@@ -286,17 +286,11 @@ def _record_bindings(
 
 def _iter_slot_values(container: object, field_name: str) -> tuple[object, ...]:
     raw_values = getattr(container, field_name, None)
-    if isinstance(raw_values, dict):
-        values = tuple(raw_values.values())
-    elif is_struct_like(raw_values):
-        values = tuple(raw_values.as_mapping().values())
-    elif isinstance(raw_values, (list, tuple)):
-        values = tuple(raw_values)
-    else:
+    if not isinstance(raw_values, dict):
         return ()
     return tuple(
         value
-        for value in values
+        for value in raw_values.values()
         if is_struct_like(value) and getattr(value, "kind", None) == "value"
     )
 

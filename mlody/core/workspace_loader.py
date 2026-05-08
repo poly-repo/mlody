@@ -49,8 +49,8 @@ class WorkspaceLoader:
         if load_errors:
             raise WorkspaceLoadError(load_errors)
         self._registry.resolve_all()
-        validate_context_restricted_values_registry(self._registry)
         self._convert_ports_to_structs()
+        validate_context_restricted_values_registry(self._registry)
 
     def _phase1_root_discovery(self) -> None:
         if self._roots_file.exists():

@@ -915,10 +915,10 @@ builtins.register("task", Struct(
         assert isinstance(el, Struct)
         assert getattr(el, "name", None) == "backbone_weights"
 
-        # TC-002: outputs field is a Struct
+        # TC-002: outputs field is a dict after load().
         outputs_struct = ws.resolve("@bert//entity:train_bert.outputs")
-        assert isinstance(outputs_struct, Struct)
-        assert isinstance(getattr(outputs_struct, "backbone_weights", None), Struct)
+        assert isinstance(outputs_struct, dict)
+        assert isinstance(outputs_struct.get("backbone_weights"), Struct)
 
         # TC-003: deep traversal into element sub-field
         loc_val = ws.resolve("@bert//entity:train_bert.outputs.backbone_weights.location")
@@ -947,13 +947,13 @@ builtins.register("task", Struct(
         inp_el = ws.resolve("@bert//entity:preprocess.inputs.raw_data")
         assert isinstance(inp_el, Struct)
         assert getattr(inp_el, "name", None) == "raw_data"
-        assert isinstance(ws.resolve("@bert//entity:preprocess.inputs"), Struct)
+        assert isinstance(ws.resolve("@bert//entity:preprocess.inputs"), dict)
 
         # config
         cfg_el = ws.resolve("@bert//entity:preprocess.config.lr_value")
         assert isinstance(cfg_el, Struct)
         assert getattr(cfg_el, "name", None) == "lr_value"
-        assert isinstance(ws.resolve("@bert//entity:preprocess.config"), Struct)
+        assert isinstance(ws.resolve("@bert//entity:preprocess.config"), dict)
 
     # TC-005 — direct action entity (not embedded in a task)
     def test_direct_action_outputs_accessible_by_name(
@@ -1019,10 +1019,8 @@ builtins.register("task", Struct(
         ws.load()  # must not raise
 
         config_val = ws.resolve("@bert//entity:empty_ports.config")
-        assert isinstance(config_val, Struct)
-        # An empty Struct has no fields — accessing any field raises AttributeError.
-        with pytest.raises(AttributeError):
-            _ = getattr(config_val, "nonexistent")
+        assert isinstance(config_val, dict)
+        assert len(config_val) == 0
 
     # TC-008 — missing name field raises ValueError
     def test_element_missing_name_raises_value_error(
@@ -1080,7 +1078,7 @@ builtins.register("task", Struct(
         second = Workspace._convert_single_entity(first)
         # No error, and field-by-field equality holds.
         assert first == second
-        assert isinstance(getattr(first.outputs, "weights", None), Struct)
+        assert isinstance(first.outputs.get("weights"), Struct)
 
     # TC-011 — non-port fields are preserved unchanged after conversion
     def test_non_port_fields_preserved_after_load(

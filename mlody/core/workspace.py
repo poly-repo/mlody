@@ -367,15 +367,18 @@ class Workspace:
         entity_kind = getattr(entity, "kind", "<unknown>")
         entity_name = getattr(entity, "name", "<unknown>")
 
-        def _convert_port(field_name: str) -> object:
+        def _convert_port(field_name: str) -> dict[str, object]:
             lst: object = getattr(entity, field_name, None)
-            # Idempotency: already a named mapping — leave it unchanged.
-            if isinstance(lst, (Struct, dict)):
+            # Idempotency: already a name-keyed dict — leave it unchanged.
+            if isinstance(lst, dict):
                 return lst
-            # Treat None or empty list as an empty Struct.
+            # Treat None, empty list, or legacy Struct as an empty dict.
             if not lst:
-                return Struct()
-            # lst is a non-empty list; validate and build the named Struct.
+                return {}
+            # Struct from an older normalization pass — convert to dict.
+            if isinstance(lst, Struct):
+                return dict(lst.as_mapping())
+            # lst is a non-empty list; validate and build the named dict.
             seen: dict[str, int] = {}
             for idx, el in enumerate(lst):  # type: ignore[union-attr]
                 name = getattr(el, "name", None)
@@ -394,7 +397,7 @@ class Workspace:
                     )
                     raise ValueError(msg)
                 seen[name] = idx
-            return Struct(**{el.name: el for el in lst})  # type: ignore[union-attr]
+            return {el.name: el for el in lst}  # type: ignore[union-attr]
 
         new_inputs = _convert_port("inputs")
         new_outputs = _convert_port("outputs")

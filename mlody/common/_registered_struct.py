@@ -142,26 +142,21 @@ def coerce_named_struct_collection(
     *,
     wrapper: type[_WrappedStruct],
     field_name: str,
-) -> Struct:
-    """Normalize a port collection to a name-keyed Struct of wrapped structs."""
+) -> dict[str, _WrappedStruct]:
+    """Normalize a port collection to a name-keyed dict of wrapped structs."""
 
     if value is None:
-        return Struct()
+        return {}
     if isinstance(value, Struct):
-        items = value.as_mapping().items()
-        return Struct(
-            **{
+        return {
             name: _wrap_struct_item(item, wrapper=wrapper, field_name=field_name)
-            for name, item in items
-            }
-        )
+            for name, item in value.as_mapping().items()
+        }
     if isinstance(value, dict):
-        return Struct(
-            **{
+        return {
             str(name): _wrap_struct_item(item, wrapper=wrapper, field_name=field_name)
             for name, item in value.items()
-            }
-        )
+        }
     if isinstance(value, (list, tuple)):
         wrapped: dict[str, _WrappedStruct] = {}
         for item in value:
@@ -176,7 +171,7 @@ def coerce_named_struct_collection(
                     f"{field_name} contains duplicate item name {item_name!r}.",
                 )
             wrapped[item_name] = wrapped_item
-        return Struct(**wrapped)
+        return wrapped
     raise TypeError(
         f"{field_name} expects a Struct, dict, list, or tuple of Struct values; "
         f"got {type(value)!r}.",

@@ -30,11 +30,11 @@ def short_type_name(value: object) -> str:
 
 def format_value_list(values: object) -> str:
     """Format ports/config entries as ``name:type`` with short type names."""
-    if not isinstance(values, list) or not values:
+    if not isinstance(values, dict) or not values:
         return "—"
 
     rendered: list[str] = []
-    for value in values:
+    for value in values.values():
         name = getattr(value, "name", None)
         if not isinstance(name, str) or not name:
             name = str(value)

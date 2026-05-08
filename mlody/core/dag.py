@@ -183,17 +183,10 @@ def _iter_tasks(
         yield f"task/{tasks_key}", task_struct
 
 
-def iter_port_values(container: object) -> tuple[object, ...]:
-    """Return port objects from list- or mapping-shaped port collections."""
-    if container is None:
-        return ()
-    as_mapping = getattr(container, "as_mapping", None)
-    if callable(as_mapping):
-        return tuple(as_mapping().values())
+def iter_port_values(container: object) -> tuple[RegisteredValue, ...]:
+    """Return port values from a name-keyed dict port collection."""
     if isinstance(container, dict):
-        return tuple(container.values())
-    if isinstance(container, (list, tuple)):
-        return tuple(container)
+        return tuple(container.values())  # type: ignore[return-value]
     return ()
 
 
@@ -220,10 +213,10 @@ def _collect_edges(
         consumer_node_id = f"task/{tasks_key}"
 
         for port_val in (
-            *iter_port_values(getattr(task_struct, "outputs", [])),  # type: ignore[attr-defined]
-            *iter_port_values(getattr(task_struct, "inputs", [])),  # type: ignore[attr-defined]
+            *iter_port_values(getattr(task_struct, "outputs", {})),
+            *iter_port_values(getattr(task_struct, "inputs", {})),
         ):
-            source_val = getattr(port_val, "source", None)  # type: ignore[attr-defined]
+            source_val = getattr(port_val, "source", None)
             dst_path: str = getattr(port_val, "name", "")
 
             if source_val is not None and getattr(source_val, "kind", None) == "value":
@@ -273,7 +266,7 @@ def _build_output_index(
     """Return ``{output_value_name: producer_task_node_id}`` for all task outputs."""
     index: dict[str, str] = {}
     for _task_name, (prod_node_id, prod_struct) in tasks_index.items():
-        for v in iter_port_values(getattr(prod_struct, "outputs", [])):  # type: ignore[attr-defined]
+        for v in iter_port_values(getattr(prod_struct, "outputs", {})):
             v_name: str = getattr(v, "name", "")
             if v_name:
                 index[v_name] = prod_node_id
@@ -320,10 +313,10 @@ def _collect_value_edges(
     for tasks_key, task_struct in evaluator.registry.tasks.by_key.items():
         consumer_id = f"task/{tasks_key}"
         for port_val in (
-            *iter_port_values(getattr(task_struct, "outputs", [])),  # type: ignore[attr-defined]
-            *iter_port_values(getattr(task_struct, "inputs", [])),  # type: ignore[attr-defined]
+            *iter_port_values(getattr(task_struct, "outputs", {})),
+            *iter_port_values(getattr(task_struct, "inputs", {})),
         ):
-            source_val = getattr(port_val, "source", None)  # type: ignore[attr-defined]
+            source_val = getattr(port_val, "source", None)
             dst_path: str = getattr(port_val, "name", "")
             src_name = _resolve_source_name(source_val)
             if src_name is None:
@@ -435,7 +428,7 @@ def tasks_producing(dag: networkx.MultiDiGraph, value_name: str) -> set[str]:
         task_node: TaskNode | None = node_data.get("task")
         if task_node is not None and any(
             getattr(v, "name", "") == value_name
-            for v in iter_port_values(getattr(task_node.task, "outputs", None))  # type: ignore[attr-defined]
+            for v in iter_port_values(getattr(task_node.task, "outputs", None))
         ):
             result.add(node_id)
     return result
