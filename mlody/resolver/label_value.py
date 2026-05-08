@@ -465,6 +465,34 @@ def _wrap_struct(kind: str, struct: object) -> MlodyValue:
     )
 
 
+def _dag_target_name(value_struct: object) -> str:
+    """Return the name to use as the ``ancestors_subgraph`` target.
+
+    For a value that has ``source=``, the DAG of interest is the one rooted at
+    the connected source (a task output or standalone value), not the value's
+    own name.  This is the expected behaviour for task input ports: accessing
+    ``task.inputs.my_input.dag`` should return the DAG of whatever is wired to
+    that input, not a (potentially empty) subgraph keyed on ``"my_input"``.
+
+    Handles the three source forms used elsewhere in the DAG builder:
+    - Resolved value struct (``kind="value"``): use ``source.name``.
+    - String ``":value_name"`` (no dot): use ``value_name``.
+    - String ``":task.port_path"`` (has dot): use the last segment of the port
+      path as the value name.
+    Falls back to the value's own name when source is absent or unrecognised.
+    """
+    source = getattr(value_struct, "source", None)
+    if source is None:
+        return getattr(value_struct, "name", None) or ""
+    if getattr(source, "kind", None) == "value":
+        return getattr(source, "name", None) or getattr(value_struct, "name", None) or ""
+    if isinstance(source, str) and source.startswith(":"):
+        after = source[1:]
+        name = after.split(".")[-1] if "." in after else after
+        return name or getattr(value_struct, "name", None) or ""
+    return getattr(value_struct, "name", None) or ""
+
+
 class StructTraversalStrategy:
     """Attribute-path traversal via getattr on a Starlark Struct.
 
@@ -549,7 +577,7 @@ class StructTraversalStrategy:
                     )
 
                     if not isinstance(getattr(obj, "type", None), MlodyDagType):
-                        _port_name = getattr(obj, "name", None) or ""
+                        _port_name = _dag_target_name(obj)
                         _parent_label = (
                             getattr(obj, "label", None)
                             or getattr(obj, "_resolved_label", None)
@@ -2043,6 +2071,27 @@ class ValueTraversalStrategy:
                     if synthesized is not None:
                         obj = synthesized
                         continue
+                if (
+                    segment == "dag"
+                    and workspace is not None
+                    and getattr(obj, "kind", None) == "value"
+                ):
+                    from mlody.core.dag_value import (  # noqa: PLC0415
+                        MlodyDagType,
+                        make_dag_virtual_value,
+                    )
+
+                    if not isinstance(getattr(obj, "type", None), MlodyDagType):
+                        _port_name = _dag_target_name(obj)
+                        _parent_label = (
+                            getattr(obj, "label", None)
+                            or getattr(obj, "_resolved_label", None)
+                            or ""
+                        )
+                        _dag_label = f"{_parent_label}.dag" if _parent_label else "dag"
+                        return MlodyValueValue(
+                            struct=make_dag_virtual_value(workspace, _port_name, _dag_label)
+                        )
                 traversed = ".".join(str_path[:i])
                 parent = f" on '{traversed}'" if traversed else ""
                 return MlodyUnresolvedValue(

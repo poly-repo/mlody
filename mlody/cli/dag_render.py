@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from mlody.core.dag import Edge, TaskNode, ancestors_subgraph
+from mlody.core.dag import Edge, TaskNode, ValueNode, ancestors_subgraph
 from mlody.core.targets import TargetAddress, parse_target
 from mlody.core.type_display import format_value_type_label
 
@@ -72,14 +72,24 @@ def build_dag_table(display_graph: networkx.MultiDiGraph, title: str) -> Table:
     table.add_column("Dependencies", style="white", ratio=5)
 
     for node_id in order:
-        task_node = display_graph.nodes[node_id]["task"]
-        task_struct = display_graph.nodes[node_id]["task_struct"]
+        node_data = display_graph.nodes[node_id]
 
         dependencies: list[str] = []
         for src_id, _, data in display_graph.in_edges(node_id, data=True):
             edge: Edge = data["edge"]
             dependencies.append(f"{src_id}\n  {edge.src_port} → {edge.dst_path}")
 
+        if "task" not in node_data:
+            value_node: ValueNode = node_data["value"]
+            table.add_row(
+                Text(f"value: {value_node.name}\n{node_id}"),
+                Text("—"),
+                Text("\n\n".join(dependencies) if dependencies else "—"),
+            )
+            continue
+
+        task_node = node_data["task"]
+        task_struct = node_data["task_struct"]
         inputs_str = format_value_list(getattr(task_struct, "inputs", []))
         outputs_str = format_value_list(getattr(task_struct, "outputs", []))
         config_str = format_value_list(getattr(task_struct, "config", []))
@@ -175,6 +185,8 @@ def _task_node_id_for_address(
         return None
 
     for node_id, data in dag.nodes(data=True):
+        if "task" not in data:
+            continue
         task_node: TaskNode = data["task"]
         if task_node.name == address.target_name:
             return node_id

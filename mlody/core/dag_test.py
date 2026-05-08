@@ -21,6 +21,7 @@ from mlody.core.dag import (
     PortLocationParseError,
     PortRef,
     TaskNode,
+    ValueNode,
     ancestors_subgraph,
     build_dag,
     parse_port_location,
@@ -746,3 +747,93 @@ class TestValidatePathsMultiSegment:
         assert len(errors) == 1
         assert errors[0].path == "lr"
         assert "lr" in errors[0].reason
+
+
+# ---------------------------------------------------------------------------
+# Section 7 — Standalone value nodes and source chains
+# ---------------------------------------------------------------------------
+
+# A task whose input sources a standalone value (not a task output).
+# config_val is a leaf (no source). task_t consumes it via in_t.
+_STANDALONE_VALUE_MLODY = _PREAMBLE + dedent("""\
+value(name="config_val", type=integer(), location=s3())
+value(name="out_t",      type=integer(), location=s3())
+value(name="in_t",       type=integer(), location=s3(), source=":config_val")
+action(name="act_t", inputs=[], outputs=[], implementation="dummy")
+task(name="t", inputs=["in_t"], outputs=["out_t"], action="act_t")
+""")
+
+# A chain: base_cfg → derived_cfg → task_u (via in_u).
+_VALUE_CHAIN_MLODY = _PREAMBLE + dedent("""\
+value(name="base_cfg",    type=integer(), location=s3())
+value(name="derived_cfg", type=integer(), location=s3(), source=":base_cfg")
+value(name="out_u",       type=integer(), location=s3())
+value(name="in_u",        type=integer(), location=s3(), source=":derived_cfg")
+action(name="act_u", inputs=[], outputs=[], implementation="dummy")
+task(name="u", inputs=["in_u"], outputs=["out_u"], action="act_u")
+""")
+
+
+class TestBuildDagValueNode:
+    """Standalone values referenced by task inputs become ValueNode nodes."""
+
+    def test_value_node_present(self) -> None:
+        dag = _build_dag_from_mlody({"test.mlody": _STANDALONE_VALUE_MLODY})
+        value_ids = [n for n in dag.nodes if n.startswith("value/")]
+        assert len(value_ids) == 1
+        assert value_ids[0] == "value/test:config_val"
+
+    def test_value_node_data(self) -> None:
+        dag = _build_dag_from_mlody({"test.mlody": _STANDALONE_VALUE_MLODY})
+        node_data = dag.nodes["value/test:config_val"]
+        assert "value" in node_data
+        assert isinstance(node_data["value"], ValueNode)
+        assert node_data["value"].name == "config_val"
+
+    def test_no_spurious_value_nodes_for_task_outputs(self) -> None:
+        # out_t is a task output — it must not also become a value node.
+        dag = _build_dag_from_mlody({"test.mlody": _STANDALONE_VALUE_MLODY})
+        assert "value/test:out_t" not in dag.nodes
+
+    def test_linear_chain_no_value_nodes(self) -> None:
+        # All sources are task outputs — no value nodes expected.
+        dag = _build_dag_from_mlody({"test.mlody": _LINEAR_CHAIN_MLODY})
+        value_ids = [n for n in dag.nodes if n.startswith("value/")]
+        assert value_ids == []
+
+
+class TestBuildDagValueEdges:
+    """Edges between value nodes and tasks are created correctly."""
+
+    def test_value_to_task_edge(self) -> None:
+        dag = _build_dag_from_mlody({"test.mlody": _STANDALONE_VALUE_MLODY})
+        val_id = "value/test:config_val"
+        task_id = "task/test:t"
+        assert dag.has_edge(val_id, task_id)
+
+    def test_value_chain_two_value_nodes(self) -> None:
+        dag = _build_dag_from_mlody({"test.mlody": _VALUE_CHAIN_MLODY})
+        value_ids = sorted(n for n in dag.nodes if n.startswith("value/"))
+        assert "value/test:base_cfg" in value_ids
+        assert "value/test:derived_cfg" in value_ids
+
+    def test_value_chain_edges(self) -> None:
+        dag = _build_dag_from_mlody({"test.mlody": _VALUE_CHAIN_MLODY})
+        assert dag.has_edge("value/test:base_cfg", "value/test:derived_cfg")
+        assert dag.has_edge("value/test:derived_cfg", "task/test:u")
+
+
+class TestAncestorsSubgraphWithValues:
+    """ancestors_subgraph includes value nodes that are upstream of the target."""
+
+    def test_value_node_in_subgraph(self) -> None:
+        dag = _build_dag_from_mlody({"test.mlody": _STANDALONE_VALUE_MLODY})
+        sub = ancestors_subgraph(dag, "out_t")
+        assert "value/test:config_val" in sub.nodes
+
+    def test_value_chain_all_in_subgraph(self) -> None:
+        dag = _build_dag_from_mlody({"test.mlody": _VALUE_CHAIN_MLODY})
+        sub = ancestors_subgraph(dag, "out_u")
+        assert "value/test:base_cfg" in sub.nodes
+        assert "value/test:derived_cfg" in sub.nodes
+        assert "task/test:u" in sub.nodes

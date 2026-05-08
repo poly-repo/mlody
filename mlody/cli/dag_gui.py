@@ -149,7 +149,8 @@ def _draw_nodes(
     patches: dict[str, object] = {}
     for nid, data in dag.nodes(data=True):
         x, y = pos[nid]
-        task_name: str = data["task"].name
+        node_meta = data.get("task") or data.get("value")
+        task_name: str = node_meta.name if node_meta is not None else nid
 
         patch = FancyBboxPatch(
             (x - node_hx, y - node_hw),

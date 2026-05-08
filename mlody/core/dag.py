@@ -61,6 +61,23 @@ class TaskNode:
 
 
 @dataclass(frozen=True)
+class ValueNode:
+    """Immutable metadata for a standalone value node in the workspace DAG.
+
+    Standalone values are registered ``value()`` entities that are not produced
+    by any task output port.  They appear as DAG nodes when referenced (directly
+    or via a source chain) by a task input or another value.
+
+    Args:
+        node_id: Canonical NetworkX key, e.g. ``"value/stem:name"``.
+        name: Bare value name from the ``.mlody`` file (display only).
+    """
+
+    node_id: str
+    name: str
+
+
+@dataclass(frozen=True)
 class Edge:
     """Immutable annotation on a directed edge in the workspace DAG.
 
@@ -176,6 +193,7 @@ def _iter_port_values(container: object) -> tuple[object, ...]:
 def _collect_edges(
     evaluator: Evaluator,
     tasks_index: dict[str, tuple[str, object]],
+    output_to_producer: dict[str, str],
 ) -> list[tuple[str, str, Edge]]:
     """Scan every task's inputs and outputs for cross-task port references.
 
@@ -189,14 +207,6 @@ def _collect_edges(
     3. String label ``:task.port_path`` (dot after colon) — port reference;
        ``parse_port_location`` extracts task name and port path.
     """
-    # Reverse index: output value name → producer node_id, for O(1) lookup.
-    _output_to_producer: dict[str, str] = {}
-    for _task_name, (prod_node_id, prod_struct) in tasks_index.items():
-        for v in _iter_port_values(getattr(prod_struct, "outputs", [])):  # type: ignore[attr-defined]
-            v_name = getattr(v, "name", "")
-            if v_name:
-                _output_to_producer[v_name] = prod_node_id
-
     triples: list[tuple[str, str, Edge]] = []
 
     for tasks_key, task_struct in evaluator.registry.tasks.by_key.items():
@@ -212,7 +222,7 @@ def _collect_edges(
             if source_val is not None and getattr(source_val, "kind", None) == "value":
                 # Form 1: resolved value struct.
                 src_name: str = getattr(source_val, "name", "")
-                prod = _output_to_producer.get(src_name)
+                prod = output_to_producer.get(src_name)
                 if prod is not None:
                     triples.append((prod, consumer_node_id, Edge(src_port=src_name, dst_path=dst_path)))
 
@@ -229,11 +239,113 @@ def _collect_edges(
                         triples.append((prod_id, consumer_node_id, Edge(src_port=ref.port, dst_path=dst_path)))
                 else:
                     # Form 3: value reference ":value_name".
-                    prod = _output_to_producer.get(after_colon)
+                    prod = output_to_producer.get(after_colon)
                     if prod is not None:
                         triples.append((prod, consumer_node_id, Edge(src_port=after_colon, dst_path=dst_path)))
 
     return triples
+
+
+def _resolve_source_name(source_val: object) -> str | None:
+    """Extract a value name from a ``source=`` field, or return ``None``."""
+    if source_val is None:
+        return None
+    if getattr(source_val, "kind", None) == "value":
+        name: str = getattr(source_val, "name", "")
+        return name or None
+    if isinstance(source_val, str) and source_val.startswith(":"):
+        after_colon = source_val[1:]
+        if "." not in after_colon:
+            return after_colon or None
+    return None
+
+
+def _build_output_index(
+    tasks_index: dict[str, tuple[str, object]],
+) -> dict[str, str]:
+    """Return ``{output_value_name: producer_task_node_id}`` for all task outputs."""
+    index: dict[str, str] = {}
+    for _task_name, (prod_node_id, prod_struct) in tasks_index.items():
+        for v in _iter_port_values(getattr(prod_struct, "outputs", [])):  # type: ignore[attr-defined]
+            v_name: str = getattr(v, "name", "")
+            if v_name:
+                index[v_name] = prod_node_id
+    return index
+
+
+def _collect_value_edges(
+    evaluator: Evaluator,
+    output_to_producer: dict[str, str],
+) -> tuple[list[tuple[str, object]], list[tuple[str, str, Edge]]]:
+    """Collect standalone value nodes and edges for values used as sources.
+
+    Scans every task's input and output ports for ``source=`` references to
+    values that are *not* task outputs, then follows each value's own
+    ``source=`` chain via BFS.
+
+    Args:
+        evaluator: The fully-evaluated workspace evaluator.
+        output_to_producer: Mapping of output value name → producer task node_id
+            (built by ``_build_output_index``).  Values present here are already
+            represented by their producer task node and are skipped.
+
+    Returns:
+        A pair ``(value_nodes, edges)`` where:
+        - ``value_nodes`` is a list of ``(node_id, value_struct)`` tuples for
+          standalone value nodes to add to the graph.
+        - ``edges`` is a list of ``(src_id, dst_id, Edge)`` triples covering
+          value→task and value→value (and task→value when a value sources from
+          a task output) connections.
+    """
+    values_by_name: dict[str, tuple[str, object]] = {}
+    for values_key, value_struct in evaluator.registry.values.by_key.items():
+        v_name: str = getattr(value_struct, "name", "")
+        if v_name:
+            values_by_name[v_name] = (f"value/{values_key}", value_struct)
+
+    value_nodes: list[tuple[str, object]] = []
+    edges: list[tuple[str, str, Edge]] = []
+    visited: set[str] = set()
+
+    # Work-queue items: (src_value_name, dst_node_id, dst_path)
+    pending: list[tuple[str, str, str]] = []
+
+    for tasks_key, task_struct in evaluator.registry.tasks.by_key.items():
+        consumer_id = f"task/{tasks_key}"
+        for port_val in (
+            *_iter_port_values(getattr(task_struct, "outputs", [])),  # type: ignore[attr-defined]
+            *_iter_port_values(getattr(task_struct, "inputs", [])),  # type: ignore[attr-defined]
+        ):
+            source_val = getattr(port_val, "source", None)  # type: ignore[attr-defined]
+            dst_path: str = getattr(port_val, "name", "")
+            src_name = _resolve_source_name(source_val)
+            if src_name is None:
+                continue
+            if src_name not in output_to_producer and src_name in values_by_name:
+                pending.append((src_name, consumer_id, dst_path))
+
+    while pending:
+        src_name, dst_id, dst_path = pending.pop()
+
+        src_node_id, src_struct = values_by_name[src_name]
+        edges.append((src_node_id, dst_id, Edge(src_port=src_name, dst_path=dst_path)))
+
+        if src_name in visited:
+            continue
+        visited.add(src_name)
+        value_nodes.append((src_node_id, src_struct))
+
+        upstream_name = _resolve_source_name(getattr(src_struct, "source", None))
+        if upstream_name is None:
+            continue
+
+        if upstream_name in output_to_producer:
+            task_id = output_to_producer[upstream_name]
+            edges.append((task_id, src_node_id, Edge(src_port=upstream_name, dst_path=src_name)))
+        elif upstream_name in values_by_name:
+            pending.append((upstream_name, src_node_id, src_name))
+
+    return value_nodes, edges
 
 
 def build_dag(workspace: Workspace) -> networkx.MultiDiGraph:
@@ -287,8 +399,21 @@ def build_dag(workspace: Workspace) -> networkx.MultiDiGraph:
         bare_name: str = getattr(task_struct, "name", "")  # type: ignore[attr-defined]
         tasks_index[bare_name] = (node_id, task_struct)
 
-    # Step 2: collect edges from value labels.
-    for src_id, dst_id, edge in _collect_edges(evaluator, tasks_index):
+    output_to_producer = _build_output_index(tasks_index)
+
+    # Step 2: collect task→task edges from value labels.
+    for src_id, dst_id, edge in _collect_edges(evaluator, tasks_index, output_to_producer):
+        dag.add_edge(src_id, dst_id, edge=edge)
+
+    # Step 3: collect standalone value nodes and their edges.
+    value_nodes, value_edges = _collect_value_edges(evaluator, output_to_producer)
+    for val_node_id, val_struct in value_nodes:
+        val_node = ValueNode(
+            node_id=val_node_id,
+            name=getattr(val_struct, "name", ""),  # type: ignore[attr-defined]
+        )
+        dag.add_node(val_node_id, value=val_node)
+    for src_id, dst_id, edge in value_edges:
         dag.add_edge(src_id, dst_id, edge=edge)
 
     return dag
@@ -311,8 +436,8 @@ def tasks_producing(dag: networkx.MultiDiGraph, value_name: str) -> set[str]:
     """
     result: set[str] = set()
     for node_id, node_data in dag.nodes(data=True):
-        task_node: TaskNode = node_data["task"]
-        if value_name in task_node.output_ports:
+        task_node: TaskNode | None = node_data.get("task")
+        if task_node is not None and value_name in task_node.output_ports:
             result.add(node_id)
     return result
 
@@ -359,11 +484,15 @@ def ancestors_subgraph(
         do not affect ``dag``.
     """
     producers = tasks_producing(dag, target_output)
+    for node_id, node_data in dag.nodes(data=True):
+        value_node: ValueNode | None = node_data.get("value")
+        if value_node is not None and value_node.name == target_output:
+            producers.add(node_id)
     if not producers:
         return networkx.MultiDiGraph()
     all_relevant: set[str] = set(producers)
-    for task_id in producers:
-        all_relevant |= networkx.ancestors(dag, task_id)
+    for node_id in producers:
+        all_relevant |= networkx.ancestors(dag, node_id)
     result: networkx.MultiDiGraph = dag.subgraph(all_relevant).copy()
     return result
 
@@ -385,6 +514,8 @@ def validate_paths(dag: networkx.MultiDiGraph) -> list[PathError]:
     errors: list[PathError] = []
 
     for _src, dst, _key, edge_data in dag.edges(keys=True, data=True):
+        if "task_struct" not in dag.nodes[dst]:
+            continue
         edge: Edge = edge_data["edge"]
         dst_path = edge.dst_path
         task_struct = dag.nodes[dst]["task_struct"]
