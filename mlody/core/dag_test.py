@@ -93,19 +93,13 @@ def _build_dag_from_mlody(files: dict[str, str]) -> networkx.MultiDiGraph:
 # ---------------------------------------------------------------------------
 
 
-class TestTaskNodeIsFrozen:
-    """FR: TaskNode must be a frozen dataclass (spec §3.1)."""
+class TestTaskNodeIsMutable:
+    """FR: TaskNode must be a mutable dataclass to allow traversal annotation."""
 
-    def test_task_node_is_frozen(self) -> None:
-        node = TaskNode(
-            node_id="task/test:n",
-            name="n",
-            action="a",
-            input_ports=("x",),
-            output_ports=("y",),
-        )
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            node.name = "other"  # type: ignore[misc]
+    def test_task_node_is_mutable(self) -> None:
+        node = TaskNode(node_id="task/test:n", name="n", task=None)  # type: ignore[arg-type]
+        node.name = "other"
+        assert node.name == "other"
 
 
 class TestEdgeIsFrozen:
@@ -143,21 +137,13 @@ class TestPortLocationParseErrorIsValueError:
 
 
 class TestTaskNodeFields:
-    """FR: TaskNode fields match spec §3.1."""
+    """FR: TaskNode fields — node_id, name, task reference."""
 
     def test_task_node_fields(self) -> None:
-        node = TaskNode(
-            node_id="task/s:n",
-            name="n",
-            action="a",
-            input_ports=("x",),
-            output_ports=("y",),
-        )
+        node = TaskNode(node_id="task/s:n", name="n", task=None)  # type: ignore[arg-type]
         assert node.node_id == "task/s:n"
         assert node.name == "n"
-        assert node.action == "a"
-        assert node.input_ports == ("x",)
-        assert node.output_ports == ("y",)
+        assert node.task is None
 
 
 # ---------------------------------------------------------------------------
@@ -243,23 +229,20 @@ class TestBuildDagIsolatedTask:
         assert node_id in dag.nodes
         task_node: TaskNode = dag.nodes[node_id]["task"]
         assert task_node.name == "solo"
-        assert task_node.action == "act"
-        assert task_node.input_ports == ()
-        assert task_node.output_ports == ()
+        assert task_node.task is not None
 
 
 class TestBuildDagNodeMetadata:
-    """US-002: dag.nodes[n]['task'] is a TaskNode; 'task_struct' is the raw struct."""
+    """US-002: dag.nodes[n]['task'] is a TaskNode whose .task is the RegisteredTask."""
 
     def test_node_metadata(self) -> None:
+        from mlody.common.task import RegisteredTask
+
         dag = _build_dag_from_mlody({"test.mlody": _ISOLATED_TASK_MLODY})
         node_id = "task/test:solo"
         task_node: TaskNode = dag.nodes[node_id]["task"]
         assert task_node.node_id == node_id
-        # task_struct must be the raw struct from the evaluator
-        task_struct = dag.nodes[node_id]["task_struct"]
-        assert task_struct is not None
-        assert getattr(task_struct, "kind", None) == "task"
+        assert isinstance(task_node.task, RegisteredTask)
 
 
 class TestBuildDagTwoIsolatedTasks:
@@ -784,11 +767,14 @@ class TestBuildDagValueNode:
         assert value_ids[0] == "value/test:config_val"
 
     def test_value_node_data(self) -> None:
+        from mlody.common.value import RegisteredValue
+
         dag = _build_dag_from_mlody({"test.mlody": _STANDALONE_VALUE_MLODY})
         node_data = dag.nodes["value/test:config_val"]
         assert "value" in node_data
         assert isinstance(node_data["value"], ValueNode)
         assert node_data["value"].name == "config_val"
+        assert isinstance(node_data["value"].value, RegisteredValue)
 
     def test_no_spurious_value_nodes_for_task_outputs(self) -> None:
         # out_t is a task output — it must not also become a value node.

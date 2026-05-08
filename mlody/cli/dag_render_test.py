@@ -102,22 +102,16 @@ def _make_graph() -> networkx.MultiDiGraph:
         task=TaskNode(
             node_id="task/test:upstream",
             name="upstream",
-            action="train_action",
-            input_ports=(),
-            output_ports=("weights",),
+            task=upstream_struct,  # type: ignore[arg-type]
         ),
-        task_struct=upstream_struct,
     )
     dag.add_node(
         "task/test:downstream",
         task=TaskNode(
             node_id="task/test:downstream",
             name="downstream",
-            action="export_action",
-            input_ports=("weights",),
-            output_ports=("model_checkpoint",),
+            task=downstream_struct,  # type: ignore[arg-type]
         ),
-        task_struct=downstream_struct,
     )
     dag.add_edge(
         "task/test:upstream",
@@ -230,11 +224,8 @@ def test_build_dag_table_renders_aggregate_type_labels() -> None:
         task=TaskNode(
             node_id="task/test:downstream",
             name="downstream",
-            action="export_action",
-            input_ports=("dataset",),
-            output_ports=(),
+            task=task_struct,  # type: ignore[arg-type]
         ),
-        task_struct=task_struct,
     )
 
     table = build_dag_table(dag, "Workspace DAG")

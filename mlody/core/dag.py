@@ -36,45 +36,52 @@ from typing import Iterator
 import networkx
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
+from mlody.common.task import RegisteredTask
+from mlody.common.value import RegisteredValue
 from mlody.core.workspace import Workspace
 
 # ── Section 1: Types ─────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True)
+@dataclass
 class TaskNode:
-    """Immutable metadata for a single task node in the workspace DAG.
+    """Mutable metadata for a single task node in the workspace DAG.
+
+    Holds only identity fields plus a live reference to the underlying
+    ``RegisteredTask`` dataclass, so traversal passes (e.g., typechecking)
+    can replace ``task`` with an annotated copy via ``task.updated(...)``.
 
     Args:
         node_id: Canonical NetworkX key, e.g. ``"task/stem:name"``.
         name: Bare task name from the ``.mlody`` file (display only).
-        action: Action name extracted from the resolved action struct.
-        input_ports: Value names declared as inputs on this task.
-        output_ports: Value names declared as outputs on this task.
+        task: The ``RegisteredTask`` dataclass for this node.
     """
 
     node_id: str
     name: str
-    action: str
-    input_ports: tuple[str, ...]
-    output_ports: tuple[str, ...]
+    task: RegisteredTask
 
 
-@dataclass(frozen=True)
+@dataclass
 class ValueNode:
-    """Immutable metadata for a standalone value node in the workspace DAG.
+    """Mutable metadata for a standalone value node in the workspace DAG.
 
     Standalone values are registered ``value()`` entities that are not produced
     by any task output port.  They appear as DAG nodes when referenced (directly
     or via a source chain) by a task input or another value.
 
+    Holds a live reference to the underlying ``RegisteredValue`` dataclass so
+    traversal passes can annotate it via ``value.updated(...)``.
+
     Args:
         node_id: Canonical NetworkX key, e.g. ``"value/stem:name"``.
         name: Bare value name from the ``.mlody`` file (display only).
+        value: The ``RegisteredValue`` dataclass for this node.
     """
 
     node_id: str
     name: str
+    value: RegisteredValue
 
 
 @dataclass(frozen=True)
@@ -176,7 +183,7 @@ def _iter_tasks(
         yield f"task/{tasks_key}", task_struct
 
 
-def _iter_port_values(container: object) -> tuple[object, ...]:
+def iter_port_values(container: object) -> tuple[object, ...]:
     """Return port objects from list- or mapping-shaped port collections."""
     if container is None:
         return ()
@@ -213,8 +220,8 @@ def _collect_edges(
         consumer_node_id = f"task/{tasks_key}"
 
         for port_val in (
-            *_iter_port_values(getattr(task_struct, "outputs", [])),  # type: ignore[attr-defined]
-            *_iter_port_values(getattr(task_struct, "inputs", [])),  # type: ignore[attr-defined]
+            *iter_port_values(getattr(task_struct, "outputs", [])),  # type: ignore[attr-defined]
+            *iter_port_values(getattr(task_struct, "inputs", [])),  # type: ignore[attr-defined]
         ):
             source_val = getattr(port_val, "source", None)  # type: ignore[attr-defined]
             dst_path: str = getattr(port_val, "name", "")
@@ -266,7 +273,7 @@ def _build_output_index(
     """Return ``{output_value_name: producer_task_node_id}`` for all task outputs."""
     index: dict[str, str] = {}
     for _task_name, (prod_node_id, prod_struct) in tasks_index.items():
-        for v in _iter_port_values(getattr(prod_struct, "outputs", [])):  # type: ignore[attr-defined]
+        for v in iter_port_values(getattr(prod_struct, "outputs", [])):  # type: ignore[attr-defined]
             v_name: str = getattr(v, "name", "")
             if v_name:
                 index[v_name] = prod_node_id
@@ -313,8 +320,8 @@ def _collect_value_edges(
     for tasks_key, task_struct in evaluator.registry.tasks.by_key.items():
         consumer_id = f"task/{tasks_key}"
         for port_val in (
-            *_iter_port_values(getattr(task_struct, "outputs", [])),  # type: ignore[attr-defined]
-            *_iter_port_values(getattr(task_struct, "inputs", [])),  # type: ignore[attr-defined]
+            *iter_port_values(getattr(task_struct, "outputs", [])),  # type: ignore[attr-defined]
+            *iter_port_values(getattr(task_struct, "inputs", [])),  # type: ignore[attr-defined]
         ):
             source_val = getattr(port_val, "source", None)  # type: ignore[attr-defined]
             dst_path: str = getattr(port_val, "name", "")
@@ -364,11 +371,11 @@ def build_dag(workspace: Workspace) -> networkx.MultiDiGraph:
 
     Returns:
         A ``networkx.MultiDiGraph``.  Each node key is a string of the
-        form ``'task/{stem}:{name}'``.  Node data:
-        ``dag.nodes[key]['task']`` is a ``TaskNode``;
-        ``dag.nodes[key]['task_struct']`` is the raw ``Struct`` from the
-        evaluator (for ``validate_paths``).  Edge data:
-        ``dag.edges[src, dst, k]['edge']`` is an ``Edge``.
+        form ``'task/{stem}:{name}'`` or ``'value/{stem}:{name}'``.
+        Node data: ``dag.nodes[key]['task']`` is a ``TaskNode`` whose
+        ``.task`` field holds the ``RegisteredTask``; ``dag.nodes[key]['value']``
+        is a ``ValueNode`` whose ``.value`` field holds the ``RegisteredValue``.
+        Edge data: ``dag.edges[src, dst, k]['edge']`` is an ``Edge``.
     """
     evaluator = workspace.evaluator
     dag: networkx.MultiDiGraph = networkx.MultiDiGraph()
@@ -378,24 +385,12 @@ def build_dag(workspace: Workspace) -> networkx.MultiDiGraph:
     tasks_index: dict[str, tuple[str, object]] = {}
 
     for node_id, task_struct in _iter_tasks(evaluator):
-        action_obj = getattr(task_struct, "action", None)  # type: ignore[attr-defined]
-        action_name: str = getattr(action_obj, "name", str(action_obj))  # type: ignore[attr-defined]
-        input_ports = tuple(
-            getattr(v, "name", "")
-            for v in _iter_port_values(getattr(task_struct, "inputs", []))  # type: ignore[attr-defined]
-        )
-        output_ports = tuple(
-            getattr(v, "name", "")
-            for v in _iter_port_values(getattr(task_struct, "outputs", []))  # type: ignore[attr-defined]
-        )
         task_node = TaskNode(
             node_id=node_id,
             name=getattr(task_struct, "name", ""),  # type: ignore[attr-defined]
-            action=action_name,
-            input_ports=input_ports,
-            output_ports=output_ports,
+            task=task_struct,  # type: ignore[arg-type]
         )
-        dag.add_node(node_id, task=task_node, task_struct=task_struct)
+        dag.add_node(node_id, task=task_node)
         bare_name: str = getattr(task_struct, "name", "")  # type: ignore[attr-defined]
         tasks_index[bare_name] = (node_id, task_struct)
 
@@ -411,6 +406,7 @@ def build_dag(workspace: Workspace) -> networkx.MultiDiGraph:
         val_node = ValueNode(
             node_id=val_node_id,
             name=getattr(val_struct, "name", ""),  # type: ignore[attr-defined]
+            value=val_struct,  # type: ignore[arg-type]
         )
         dag.add_node(val_node_id, value=val_node)
     for src_id, dst_id, edge in value_edges:
@@ -437,7 +433,10 @@ def tasks_producing(dag: networkx.MultiDiGraph, value_name: str) -> set[str]:
     result: set[str] = set()
     for node_id, node_data in dag.nodes(data=True):
         task_node: TaskNode | None = node_data.get("task")
-        if task_node is not None and value_name in task_node.output_ports:
+        if task_node is not None and any(
+            getattr(v, "name", "") == value_name
+            for v in iter_port_values(getattr(task_node.task, "outputs", None))  # type: ignore[attr-defined]
+        ):
             result.add(node_id)
     return result
 
@@ -514,11 +513,12 @@ def validate_paths(dag: networkx.MultiDiGraph) -> list[PathError]:
     errors: list[PathError] = []
 
     for _src, dst, _key, edge_data in dag.edges(keys=True, data=True):
-        if "task_struct" not in dag.nodes[dst]:
+        task_node: TaskNode | None = dag.nodes[dst].get("task")
+        if task_node is None:
             continue
         edge: Edge = edge_data["edge"]
         dst_path = edge.dst_path
-        task_struct = dag.nodes[dst]["task_struct"]
+        task_struct = task_node.task
 
         segments = dst_path.split(".")
         obj: object = task_struct

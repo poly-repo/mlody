@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from mlody.core.dag import Edge, TaskNode, ValueNode, ancestors_subgraph
+from mlody.core.dag import Edge, TaskNode, ValueNode, ancestors_subgraph, iter_port_values
 from mlody.core.targets import TargetAddress, parse_target
 from mlody.core.type_display import format_value_type_label
 
@@ -89,7 +89,7 @@ def build_dag_table(display_graph: networkx.MultiDiGraph, title: str) -> Table:
             continue
 
         task_node = node_data["task"]
-        task_struct = node_data["task_struct"]
+        task_struct = task_node.task
         inputs_str = format_value_list(getattr(task_struct, "inputs", []))
         outputs_str = format_value_list(getattr(task_struct, "outputs", []))
         config_str = format_value_list(getattr(task_struct, "config", []))
@@ -101,7 +101,7 @@ def build_dag_table(display_graph: networkx.MultiDiGraph, title: str) -> Table:
         )
         table.add_row(
             Text(task_cell),
-            Text(format_action_cell(getattr(task_struct, "action", None), task_node.action)),
+            Text(format_action_cell(getattr(task_struct, "action", None), task_node.name)),
             Text("\n\n".join(dependencies) if dependencies else "—"),
         )
 
@@ -214,10 +214,14 @@ def _suggest_label_fix(
     task_node: TaskNode = dag.nodes[node_id]["task"]
     base = _label_base(address)
 
+    task = task_node.task
+    out_names = {getattr(v, "name", "") for v in iter_port_values(getattr(task, "outputs", None))}
+    in_names = {getattr(v, "name", "") for v in iter_port_values(getattr(task, "inputs", None))}
+
     suggestions: list[str] = []
-    if port_name in task_node.output_ports:
+    if port_name in out_names:
         suggestions.append(f"'{base}.outputs.{port_name}'")
-    if port_name in task_node.input_ports:
+    if port_name in in_names:
         suggestions.append(f"'{base}.inputs.{port_name}'")
 
     if not suggestions:
