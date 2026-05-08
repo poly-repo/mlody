@@ -69,7 +69,9 @@ o_py_test(
     name = "label_value_test",
     srcs = ["label_value_test.py"],
     data = [
+        "//mlody/common:config.mlody",  # keep — read via fs.add_real_file in _make_workspace
         "//mlody/common:mm.mlody",  # keep — read via fs.add_real_file in _make_workspace
+        "//mlody/common:render.mlody",  # keep — read via fs.add_real_file in _make_workspace
         "//mlody/core:rule.mlody",  # keep — read via fs.add_real_file in _make_workspace
     ],
     deps = [
@@ -89,7 +91,9 @@ o_py_test(
     name = "parquet_integration_test",
     srcs = ["parquet_integration_test.py"],
     data = [
+        "//mlody/common:config.mlody",  # keep — copied to tmp_path workspace via shutil in _add_mm_files
         "//mlody/common:mm.mlody",  # keep — copied to tmp_path workspace via shutil in _add_mm_files
+        "//mlody/common:render.mlody",  # keep — copied to tmp_path workspace via shutil in _add_mm_files
         "//mlody/core:rule.mlody",  # keep — copied to tmp_path workspace via shutil in _add_mm_files
     ],
     deps = [

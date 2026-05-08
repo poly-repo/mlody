@@ -217,6 +217,7 @@ def wrap_registered_struct(kind: str, value: object) -> object:
 
 def _wrapper_for_kind(kind: str) -> type[object] | None:
     from mlody.common.action import RegisteredAction
+    from mlody.common.config import RegisteredConfig
     from mlody.common.root import RegisteredRoot
     from mlody.common.task import RegisteredTask
     from mlody.common.value import RegisteredValue
@@ -226,4 +227,5 @@ def _wrapper_for_kind(kind: str) -> type[object] | None:
         "value": RegisteredValue,
         "action": RegisteredAction,
         "task": RegisteredTask,
+        "config": RegisteredConfig,
     }.get(kind)

@@ -41,7 +41,7 @@ class WorkspaceLoader:
         self._convert_ports_to_structs = convert_ports_to_structs
         self._after_root_discovery = after_root_discovery
 
-    def load(self) -> None:
+    def load(self, *, workspace: object | None = None) -> None:
         self._phase1_root_discovery()
         if self._after_root_discovery is not None:
             self._after_root_discovery()
@@ -82,6 +82,14 @@ class WorkspaceLoader:
                 self._registry.eval_file(render_path)
             self._registry.propagate_globals_as_persistent_injections(
                 render_path, ["render_value", "render_element_preview", "render_element"]
+            )
+
+        config_path = self._monorepo_root / "mlody" / "common" / "config.mlody"
+        if self._roots_file.exists():
+            if not self._registry.is_loaded(config_path):
+                self._registry.eval_file(config_path)
+            self._registry.propagate_globals_as_persistent_injections(
+                config_path, ["config"]
             )
 
         self._root_infos.clear()

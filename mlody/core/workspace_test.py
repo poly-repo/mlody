@@ -29,18 +29,20 @@ from mlody.core.workspace import RootInfo, Workspace, WorkspaceLoadError
 
 ROOT = Path("/project")
 
-# Real source files that mm.mlody depends on; must be added to fake filesystems
-# via fs.add_real_file so workspace_loader can eval them during Phase 1.
+# Real source files that mm.mlody and config.mlody depend on; must be added to
+# fake filesystems via fs.add_real_file so workspace_loader can eval them during Phase 1.
 _REAL_RULE_MLODY = Path(__file__).parent / "rule.mlody"
 _REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
 _REAL_RENDER_MLODY = Path(__file__).parent.parent / "common" / "render.mlody"
+_REAL_CONFIG_MLODY = Path(__file__).parent.parent / "common" / "config.mlody"
 
 
 def _add_mm_files(fs: FakeFilesystem, root: Path) -> None:
-    """Add rule.mlody, mm.mlody, and render.mlody to the fake filesystem under root."""
+    """Add rule.mlody, mm.mlody, render.mlody, and config.mlody to the fake filesystem."""
     fs.add_real_file(_REAL_RULE_MLODY, target_path=str(root / "mlody/core/rule.mlody"))
     fs.add_real_file(_REAL_MM_MLODY, target_path=str(root / "mlody/common/mm.mlody"))
     fs.add_real_file(_REAL_RENDER_MLODY, target_path=str(root / "mlody/common/render.mlody"))
+    fs.add_real_file(_REAL_CONFIG_MLODY, target_path=str(root / "mlody/common/config.mlody"))
 
 
 BUILTINS_MLODY = """\

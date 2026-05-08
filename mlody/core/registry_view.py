@@ -126,6 +126,18 @@ class RegistryView:
     def value_values_snapshot(self) -> dict[str, object]:
         return dict(self._evaluator.registry.values.by_name)
 
+    def configs_snapshot(self) -> list[tuple[str, object]]:
+        """Return all registered configs sorted by registry key stem (shallower paths first).
+
+        Returns (registry_key, struct) pairs. Sorting by key ensures hierarchical
+        application order: configs from shallower package paths apply before
+        deeper-path configs, so deeper configs win when both target the same label.
+        """
+        return sorted(
+            self._evaluator.registry.configs.by_key.items(),
+            key=lambda item: (item[0].count("/"), item[0]),
+        )
+
     def set_root_value(self, root_name: str, value: object) -> None:
         self._evaluator.registry.roots.by_name[root_name] = self._evaluator.decorate_registered_value(
             "root",

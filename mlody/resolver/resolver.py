@@ -320,11 +320,67 @@ def _normalize_workspace_defaults(workspace: Workspace) -> Workspace:
     return workspace
 
 
+def _canonicalize_config_label(label: str, registry_key: str) -> str:
+    """Expand a relative config-rules label to an absolute //stem:name form.
+
+    Relative forms supported:
+      :name        → entity in the same file as the config
+      path:name    → entity in path relative to the config's directory
+      //...        → returned unchanged (already absolute)
+      @...         → returned unchanged (already absolute)
+    """
+    if label.startswith("//") or label.startswith("@"):
+        return label
+    config_file_stem = registry_key.rsplit(":", 1)[0]
+    config_dir = str(Path(config_file_stem).parent).replace("\\", "/")
+    if config_dir == ".":
+        config_dir = ""
+    if label.startswith(":"):
+        return f"//{config_file_stem}:{label[1:]}"
+    if ":" in label:
+        rel_path, name = label.split(":", 1)
+        stem = f"{config_dir}/{rel_path}" if config_dir else rel_path
+        return f"//{stem}:{name}"
+    return f"//{config_file_stem}:{label}"
+
+
+def _apply_registered_configs(workspace: Workspace) -> None:
+    """Apply all registered config rules after defaults have been normalised.
+
+    Called from configure_workspace after _normalize_workspace_defaults so that
+    the precedence chain is correct: DEFAULT < CONFIG < COMMAND_LINE.
+    """
+    from mlody.common.config import RegisteredConfig  # noqa: PLC0415
+    from mlody.core.setf import setf  # noqa: PLC0415
+
+    for registry_key, config_struct in workspace.registry_view.configs_snapshot():
+        registered = RegisteredConfig(config_struct)
+        for label, value in registered.rules.items():
+            label = _canonicalize_config_label(label, registry_key)
+            source = f"CONFIG: {registered.name}: {label}={value}"
+            try:
+                resolved = workspace.resolve(label)
+            except Exception:
+                resolved = None
+            if getattr(resolved, "kind", None) == "value":
+                location = getattr(resolved, "location", None)
+                if getattr(location, "type", None) == "inline":
+                    setf(
+                        f"{label}.location",
+                        _updated_location_payload(location, value),
+                        workspace=workspace,
+                        source=source,
+                    )
+                    continue
+            setf(label, value, workspace=workspace, source=source)
+
+
 def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspace:
     """Apply ``--with LABEL=VALUE`` overrides and return the configured workspace."""
     from mlody.core.setf import setf  # noqa: PLC0415
 
     _normalize_workspace_defaults(workspace)
+    _apply_registered_configs(workspace)
 
     for raw in config:
         ref, value = _parse_config_assignment(raw)

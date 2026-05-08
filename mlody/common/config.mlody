@@ -1,0 +1,28 @@
+def config(*, name=None, rules=None, description=""):
+    """Declare a named collection of label-to-value overrides for the workspace.
+
+    Registered under kind 'config' in the evaluator registry. Applied after
+    Phase 2 evaluation and before --with CLI overrides.
+    """
+    if name == None:
+        raise ValueError("config() 'name' is mandatory")
+    if not isinstance(name, str) or name == "":
+        raise ValueError("config() 'name' must be a non-empty string, got " + repr(name))
+    if rules == None:
+        raise ValueError("config() 'rules' is mandatory")
+    if not isinstance(rules, dict):
+        raise ValueError("config() 'rules' must be a dict")
+    for k in rules.keys():
+        if not isinstance(k, str):
+            raise ValueError(
+                "config 'rules' keys must be strings, got " + repr(type(k))
+            )
+
+    config_struct = Struct(
+        kind="config",
+        name=name,
+        description=description,
+        rules=rules,
+    )
+    builtins.register("config", config_struct)
+    return builtins.lookup("config", name)

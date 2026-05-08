@@ -22,6 +22,7 @@ _THIS_DIR = Path(__file__).parent
 _RULE_MLODY = (_THIS_DIR / "rule.mlody").read_text()
 _MM_MLODY = (_THIS_DIR.parent / "common" / "mm.mlody").read_text()
 _RENDER_MLODY = (_THIS_DIR.parent / "common" / "render.mlody").read_text()
+_CONFIG_MLODY = (_THIS_DIR.parent / "common" / "config.mlody").read_text()
 
 
 def _setup_project(
@@ -36,6 +37,7 @@ def _setup_project(
     if include_mm:
         fs.create_file(str(project / "mlody/common/mm.mlody"), contents=_MM_MLODY)
         fs.create_file(str(project / "mlody/common/render.mlody"), contents=_RENDER_MLODY)
+        fs.create_file(str(project / "mlody/common/config.mlody"), contents=_CONFIG_MLODY)
 
     # Minimal roots.mlody — registers one root pointing at the user dir
     fs.create_file(

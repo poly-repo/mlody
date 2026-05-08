@@ -971,3 +971,83 @@ class TestResolveWorkspaceValueDescription:
 
         assert sha is None
         assert called == []
+
+
+# ---------------------------------------------------------------------------
+# _apply_registered_configs tests (tasks 10.2, 10.3)
+# ---------------------------------------------------------------------------
+
+
+def test_apply_registered_configs_rules_applied_via_setf() -> None:
+    """_apply_registered_configs applies rules via setf with correct source string.
+
+    Ref: Scenario 'Phase 4 — Config application'.
+    """
+    from mlody.resolver.resolver import _apply_registered_configs  # noqa: PLC0415
+
+    config_struct = Struct(
+        kind="config",
+        name="defaults",
+        description="",
+        rules={":lr": 0.001, ":epochs": 10},
+    )
+    fake_workspace = MagicMock()
+    fake_workspace.registry_view.configs_snapshot.return_value = [
+        ("mlody/teams/lexica/config:defaults", config_struct)
+    ]
+
+    setf_calls: list[tuple[str, object, str]] = []
+
+    def fake_setf(label: str, value: object, *, workspace: object, source: str) -> None:
+        setf_calls.append((label, value, source))
+
+    with patch("mlody.core.setf.setf", side_effect=fake_setf):
+        import mlody.core.setf  # noqa: PLC0415
+        _apply_registered_configs(fake_workspace)
+
+    assert len(setf_calls) == 2
+    labels = {label for label, _v, _s in setf_calls}
+    # :lr and :epochs are in the same file as the config (mlody/teams/lexica/config)
+    assert labels == {"//mlody/teams/lexica/config:lr", "//mlody/teams/lexica/config:epochs"}
+    for label, value, source in setf_calls:
+        assert source == f"CONFIG: defaults: {label}={value}"
+
+
+def test_apply_registered_configs_hierarchical_order() -> None:
+    """Configs at shallower paths apply before deeper-path configs; deeper wins.
+
+    Ref: Scenario 'Config application respects hierarchical order'.
+    """
+    from mlody.resolver.resolver import _apply_registered_configs  # noqa: PLC0415
+
+    shallow_config = Struct(
+        kind="config",
+        name="root_defaults",
+        description="",
+        rules={":lr": 0.01},
+    )
+    deep_config = Struct(
+        kind="config",
+        name="team_defaults",
+        description="",
+        rules={":lr": 0.001},
+    )
+    fake_workspace = MagicMock()
+    fake_workspace.registry_view.configs_snapshot.return_value = [
+        ("mlody/config:root_defaults", shallow_config),
+        ("mlody/teams/pixella/config:team_defaults", deep_config),
+    ]
+
+    applied_order: list[tuple[str, object]] = []
+
+    def fake_setf(label: str, value: object, *, workspace: object, source: str) -> None:
+        applied_order.append((label, value))
+
+    with patch("mlody.core.setf.setf", side_effect=fake_setf):
+        import mlody.core.setf  # noqa: PLC0415
+        _apply_registered_configs(fake_workspace)
+
+    assert len(applied_order) == 2
+    # :lr resolves to the same file stem as each config; shallower path applies first
+    assert applied_order[0] == ("//mlody/config:lr", 0.01)
+    assert applied_order[1] == ("//mlody/teams/pixella/config:lr", 0.001)

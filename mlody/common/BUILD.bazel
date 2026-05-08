@@ -5,6 +5,7 @@ exports_files([
     "action.mlody",
     "attrs.mlody",
     "build_ref.mlody",
+    "config.mlody",
     "executor.mlody",
     "freshness.mlody",
     "implementation.mlody",
@@ -92,10 +93,11 @@ o_py_test(
 o_py_library(
     name = "common_lib",
     srcs = [
+        "__init__.py",
         "_registered_struct.py",
         "action.py",
         "build_ref.py",
-        "__init__.py",
+        "config.py",
         "context.py",
         "executor.py",
         "freshness.py",
@@ -109,7 +111,11 @@ o_py_library(
         "type.py",
         "value.py",
     ],
-    data = ["mm.mlody", "render.mlody"],  # keep — loaded at workspace startup
+    data = [
+        "config.mlody",  # keep — loaded at workspace startup
+        "mm.mlody",  # keep — loaded at workspace startup
+        "render.mlody",  # keep — loaded at workspace startup
+    ],
     visibility = ["//:__subpackages__"],
     deps = [
         "//common/python/starlarkish/core:core_lib",
@@ -130,6 +136,7 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
+        "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody:mlody_lib",
         "//mlody/core:core_lib",
@@ -152,6 +159,7 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
+        ":common_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody:mlody_lib",
         "//mlody/core:core_lib",
@@ -220,6 +228,7 @@ o_py_test(
         "//mlody/core:rule.mlody",
     ],
     deps = [
+        ":common_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody:mlody_lib",
         "//mlody/core:core_lib",
@@ -265,6 +274,29 @@ o_py_test(
         ":common_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody:mlody_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "config_test",
+    srcs = ["config_test.py"],
+    deps = [
+        ":common_lib",
+        "//mlody:mlody_lib",  # keep — sets up mlody package namespace correctly
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "config_rule_test",
+    srcs = ["config_rule_test.py"],
+    data = [
+        "config.mlody",  # keep — test loads config.mlody at runtime
+        "//mlody/core:rule.mlody",  # keep — config.mlody depends on rule.mlody
+    ],
+    deps = [
+        "//common/python/starlarkish/evaluator:evaluator_lib",
         "@pip//pytest",
     ],
 )

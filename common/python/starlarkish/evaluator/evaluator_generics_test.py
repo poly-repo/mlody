@@ -5,6 +5,7 @@ These tests verify:
 - register_method arity enforcement
 - get_methods returning an empty list for unknown names
 - per-instance registry isolation (two Evaluator instances, same process)
+- config kind registration and lookup
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from textwrap import dedent
 import pytest
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
+from common.python.starlarkish.evaluator.registry import SUPPORTED_REGISTRATION_KINDS
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 
 
@@ -240,3 +242,44 @@ def test_registry_clear_resets_methods() -> None:
     assert "render" in ev._method_registry
     ev._method_registry.clear()
     assert "render" not in ev._method_registry
+
+
+# ---------------------------------------------------------------------------
+# 5. Config kind registration (tasks 7.1, 7.2, 7.3)
+# ---------------------------------------------------------------------------
+
+
+def test_config_kind_in_supported_registration_kinds() -> None:
+    """'config' is present in SUPPORTED_REGISTRATION_KINDS.
+
+    Ref: Scenario '"config" is in SUPPORTED_REGISTRATION_KINDS'.
+    """
+    assert "config" in SUPPORTED_REGISTRATION_KINDS
+
+
+def test_registry_state_for_kind_config_returns_configs_bucket() -> None:
+    """RegistryState.for_kind('config') returns the configs NamedRegistry.
+
+    Ref: Scenario 'for_kind lookup succeeds'.
+    """
+    files = {"test.mlody": ""}
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root)
+        ev.eval_file(root / "test.mlody")
+
+    bucket = ev.registry.for_kind("config", operation="lookup")
+    assert bucket is ev.registry.configs
+
+
+def test_config_registration_roundtrip_via_builtins() -> None:
+    """builtins.register('config', struct(...)) stores in registry.configs.by_name.
+
+    Ref: Scenario 'config registration does not raise ValueError' and
+    Scenario '"config" registration round-trip'.
+    """
+    ev = _minimal_eval("""\
+        builtins.register("config", struct(name="team", kind="config", description="d", rules={}))
+    """)
+    assert "team" in ev.registry.configs.by_name
+    cfg = ev.registry.configs.by_name["team"]
+    assert getattr(cfg, "name") == "team"

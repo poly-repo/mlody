@@ -19,6 +19,7 @@ SUPPORTED_REGISTRATION_KINDS = (
     "build_ref",
     "executor",
     "generic",
+    "config",
 )
 
 
@@ -61,6 +62,7 @@ class RegistryState:
     build_refs: NamedRegistry = field(init=False)
     executors: NamedRegistry = field(init=False)
     generics: NamedRegistry = field(init=False)
+    configs: NamedRegistry = field(init=False)
 
     def __post_init__(self) -> None:
         self.roots = self._make_registry("root")
@@ -75,6 +77,7 @@ class RegistryState:
         self.build_refs = self._make_registry("build_ref")
         self.executors = self._make_registry("executor")
         self.generics = self._make_registry("generic")
+        self.configs = self._make_registry("config")
 
     def register(self, kind: str, key: str, thing: Named) -> None:
         self.for_kind(kind).register(key, thing)
@@ -111,6 +114,8 @@ class RegistryState:
                 return self.executors
             case "generic":
                 return self.generics
+            case "config":
+                return self.configs
             case _:
                 supported = ", ".join(repr(item) for item in SUPPORTED_REGISTRATION_KINDS)
                 if operation == "lookup":

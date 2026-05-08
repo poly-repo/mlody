@@ -172,7 +172,9 @@ o_py_test(
     srcs = ["setf_test.py"],
     data = [
         "rule.mlody",  # keep — read at runtime via fs.add_real_file in workspace fixture
+        "//mlody/common:config.mlody",  # keep — read at runtime via fs.add_real_file
         "//mlody/common:mm.mlody",  # keep — read at runtime via fs.add_real_file in workspace fixture
+        "//mlody/common:render.mlody",  # keep — read at runtime via fs.add_real_file
     ],
     deps = [
         ":core_lib",
@@ -399,7 +401,9 @@ o_py_test(
     srcs = ["workspace_test.py"],
     data = [
         "rule.mlody",  # keep — read at runtime via fs.add_real_file in the project fixture
+        "//mlody/common:config.mlody",  # keep — read at runtime via fs.add_real_file
         "//mlody/common:mm.mlody",  # keep — read at runtime via fs.add_real_file in the project fixture
+        "//mlody/common:render.mlody",  # keep — read at runtime via fs.add_real_file
     ],
     deps = [
         ":core_lib",
@@ -505,7 +509,9 @@ o_py_test(
     srcs = ["mm_workspace_loader_test.py"],
     data = [
         "rule.mlody",  # keep — mm.mlody depends on rule.mlody at runtime
+        "//mlody/common:config.mlody",  # keep — read at runtime by _setup_project
         "//mlody/common:mm.mlody",  # keep — loaded by workspace_loader in Phase 1
+        "//mlody/common:render.mlody",  # keep — read at runtime by _setup_project
     ],
     deps = [
         ":core_lib",

@@ -51,6 +51,7 @@ ROOT = Path("/project")
 _REAL_RULE_MLODY = Path(__file__).parent.parent / "core" / "rule.mlody"
 _REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
 _REAL_RENDER_MLODY = Path(__file__).parent.parent / "common" / "render.mlody"
+_REAL_CONFIG_MLODY = Path(__file__).parent.parent / "common" / "config.mlody"
 
 BUILTINS_MLODY = """\
 def root(name, path, description=""):
@@ -268,6 +269,7 @@ def _make_workspace(fs: FakeFilesystem, extra_files: dict[str, str] | None = Non
     fs.add_real_file(_REAL_RULE_MLODY, target_path=str(ROOT / "mlody/core/rule.mlody"))
     fs.add_real_file(_REAL_MM_MLODY, target_path=str(ROOT / "mlody/common/mm.mlody"))
     fs.add_real_file(_REAL_RENDER_MLODY, target_path=str(ROOT / "mlody/common/render.mlody"))
+    fs.add_real_file(_REAL_CONFIG_MLODY, target_path=str(ROOT / "mlody/common/config.mlody"))
 
     if extra_files:
         for rel_path, contents in extra_files.items():

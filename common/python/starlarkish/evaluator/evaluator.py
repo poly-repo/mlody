@@ -105,6 +105,8 @@ _LEGACY_REGISTRY_ATTRS = {
     "_executors_by_name": ("executors", "by_name"),
     "generics": ("generics", "by_key"),
     "_generics_by_name": ("generics", "by_name"),
+    "configs": ("configs", "by_key"),
+    "_configs_by_name": ("configs", "by_name"),
 }
 
 

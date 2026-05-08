@@ -470,7 +470,7 @@ class Workspace:
             convert_ports_to_structs=self._convert_ports_to_structs,
             after_root_discovery=self._refresh_workspace_attributes,
         )
-        loader.load()
+        loader.load(workspace=self)
         self._refresh_workspace_attributes()
 
     def resolve(self, target: str | TargetAddress) -> object:

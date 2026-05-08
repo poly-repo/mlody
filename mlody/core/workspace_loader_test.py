@@ -25,6 +25,7 @@ class _FakeRegistry:
     eval_calls: list[Path] = field(default_factory=list)
     placeholders: list[tuple[str, str, str]] = field(default_factory=list)
     resolved: bool = False
+    configs_to_return: list[tuple[str, object]] = field(default_factory=list)
 
     def eval_file(self, file_path: Path) -> None:
         self.eval_calls.append(file_path)
@@ -85,6 +86,9 @@ class _FakeRegistry:
             for key, value in self.registry_items
             if key[0] == "value"
         }
+
+    def configs_snapshot(self) -> list[tuple[str, object]]:
+        return list(self.configs_to_return)
 
 
 def test_workspace_loader_collects_all_phase_two_failures(
@@ -229,3 +233,42 @@ def test_workspace_loader_validates_contextual_values_before_port_conversion(
 
     assert registry.resolved is True
     assert converted == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Config application tests (tasks 10.1, 10.2, 10.3)
+# ---------------------------------------------------------------------------
+
+
+def test_workspace_loader_config_application_noop_when_no_configs(
+    fs: FakeFilesystem,
+) -> None:
+    """load() completes and calls convert_ports_to_structs even with no configs.
+
+    Ref: Scenario 'No configs — zero-cost no-op'.
+    Config application is in configure_workspace (resolver.py), not the loader.
+    """
+    project = Path("/workspace")
+    fs.create_dir(str(project / "mlody" / "teams" / "lexica"))
+    fs.create_file(str(project / "mlody" / "common" / "types.mlody"), contents="")
+
+    registry = _FakeRegistry(
+        root_infos_to_return={},
+        configs_to_return=[],
+    )
+    converted: list[str] = []
+    loader = WorkspaceLoader(
+        monorepo_root=project,
+        roots_file=project / "mlody" / "roots.mlody",
+        root_infos={},
+        registry=registry,  # type: ignore[arg-type]
+        extra_roots={},
+        lazy_roots={},
+        should_skip_mlody_file=lambda _path: False,
+        convert_ports_to_structs=lambda: converted.append("converted"),
+    )
+
+    loader.load()
+    assert converted == ["converted"]
+
+
