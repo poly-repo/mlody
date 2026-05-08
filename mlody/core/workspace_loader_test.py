@@ -127,6 +127,7 @@ def test_workspace_loader_collects_all_phase_two_failures(
         lazy_roots={},
         should_skip_mlody_file=lambda _path: False,
         convert_ports_to_structs=lambda: converted.append("converted"),
+        resolve_value_sources=lambda: None,
     )
 
     with pytest.raises(WorkspaceLoadError) as exc_info:
@@ -166,6 +167,7 @@ def test_workspace_loader_injects_extra_and_lazy_roots(
         lazy_roots={"mlody": "//mlody"},
         should_skip_mlody_file=lambda _path: False,
         convert_ports_to_structs=lambda: converted.append("converted"),
+        resolve_value_sources=lambda: None,
     )
 
     loader.load()
@@ -226,6 +228,7 @@ def test_workspace_loader_validates_contextual_values_after_port_conversion(
         lazy_roots={},
         should_skip_mlody_file=lambda _path: False,
         convert_ports_to_structs=lambda: converted.append("converted"),
+        resolve_value_sources=lambda: None,
     )
 
     with pytest.raises(ContextRestrictedValueValidationError):
@@ -266,6 +269,7 @@ def test_workspace_loader_config_application_noop_when_no_configs(
         lazy_roots={},
         should_skip_mlody_file=lambda _path: False,
         convert_ports_to_structs=lambda: converted.append("converted"),
+        resolve_value_sources=lambda: None,
     )
 
     loader.load()

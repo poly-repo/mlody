@@ -74,6 +74,7 @@ def _make_loader(
         lazy_roots={},
         should_skip_mlody_file=lambda _p: False,
         convert_ports_to_structs=lambda: None,
+        resolve_value_sources=lambda: None,
     )
     return loader, registry
 
@@ -131,6 +132,7 @@ def test_mm_not_evaluated_twice_when_already_loaded(fs: FakeFilesystem) -> None:
         lazy_roots={},
         should_skip_mlody_file=lambda _p: False,
         convert_ports_to_structs=lambda: None,
+        resolve_value_sources=lambda: None,
     )
     loader._phase1_root_discovery()
 

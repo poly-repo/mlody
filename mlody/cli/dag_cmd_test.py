@@ -27,7 +27,7 @@ from mlody.cli.main import cli
 # ---------------------------------------------------------------------------
 
 
-def _make_port(name: str, source: str = "") -> SimpleNamespace:
+def _make_port(name: str, source: object | None = None) -> SimpleNamespace:
     """Construct a minimal port/value namespace matching the task struct field shape."""
     return SimpleNamespace(name=name, source=source, type=SimpleNamespace(name="integer"))
 
@@ -138,7 +138,7 @@ _ALL_TASKS: dict[str, SimpleNamespace] = {
     "test:isolated_task": _ISOLATED,
 }
 
-# Note: the tasks above have no cross-task source references (`:task.port`)
+# Note: the tasks above have no cross-task source references
 # so build_dag will produce no edges between them.  That is fine for the CLI
 # rendering tests; ancestors_subgraph falls back to tasks_producing() which
 # scans output_ports — so filtering by "model_checkpoint" will find
@@ -152,7 +152,7 @@ _ALL_TASKS: dict[str, SimpleNamespace] = {
 # ---------------------------------------------------------------------------
 
 
-def _make_wired_port(name: str, source: str) -> SimpleNamespace:
+def _make_wired_port(name: str, source: object) -> SimpleNamespace:
     return SimpleNamespace(name=name, source=source)
 
 
@@ -173,15 +173,19 @@ def _wired_tasks() -> dict[str, SimpleNamespace]:
         kind="task",
         name="midstream",
         action=_make_action("eval_action"),
-        # source ":upstream.weights" means midstream consumes upstream.weights
-        inputs={"weights": _make_wired_port("weights", ":upstream.weights")},
+        # After the post-load resolution pass, source points at the producer port object.
+        inputs={"weights": _make_wired_port("weights", upstream.outputs["weights"])},
         outputs={"processed_weights": _make_port("processed_weights")},
     )
     downstream = SimpleNamespace(
         kind="task",
         name="downstream",
         action=_make_action("export_action"),
-        inputs={"processed_weights": _make_wired_port("processed_weights", ":midstream.processed_weights")},
+        inputs={
+            "processed_weights": _make_wired_port(
+                "processed_weights", midstream.outputs["processed_weights"]
+            )
+        },
         outputs={"model_checkpoint": _make_port("model_checkpoint")},
     )
     isolated = SimpleNamespace(

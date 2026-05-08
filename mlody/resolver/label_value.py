@@ -472,23 +472,18 @@ def _dag_target_name(value_struct: object) -> str:
     ``task.inputs.my_input.dag`` should return the DAG of whatever is wired to
     that input, not a (potentially empty) subgraph keyed on ``"my_input"``.
 
-    Handles the three source forms used elsewhere in the DAG builder:
-    - Resolved value struct (``kind="value"``): use ``source.name``.
-    - String ``":value_name"`` (no dot): use ``value_name``.
-    - String ``":task.port_path"`` (has dot): use the last segment of the port
-      path as the value name.
-    Falls back to the value's own name when source is absent or unrecognised.
+    Sources are dataclasses after the workspace resolution pass:
+    ``RegisteredValue`` for value labels and ``PortRef`` for ``:task.port``
+    labels. For task-path labels, the last path segment is the relevant target
+    value name. Falls back to the value's own name when source is absent.
     """
     source = getattr(value_struct, "source", None)
     if source is None:
         return getattr(value_struct, "name", None) or ""
-    if getattr(source, "kind", None) == "value":
-        return getattr(source, "name", None) or getattr(value_struct, "name", None) or ""
-    if isinstance(source, str) and source.startswith(":"):
-        after = source[1:]
-        name = after.split(".")[-1] if "." in after else after
-        return name or getattr(value_struct, "name", None) or ""
-    return getattr(value_struct, "name", None) or ""
+    if getattr(source, "task", None) is not None and getattr(source, "port", None) is not None:
+        port = getattr(source, "port", None) or ""
+        return port.split(".")[-1] or getattr(value_struct, "name", None) or ""
+    return getattr(source, "name", None) or getattr(value_struct, "name", None) or ""
 
 
 class StructTraversalStrategy:

@@ -429,6 +429,82 @@ class Workspace:
         for key, new_value in staging.items():
             self._registry.set_registry_entity(key, new_value)
 
+    def _resolve_value_sources(self) -> None:
+        """Resolve string and raw-Struct sources to dataclass references.
+
+        Runs after _convert_ports_to_structs so all port collections are already
+        dict[str, RegisteredValue]. Value labels resolve to RegisteredValue
+        instances; task-path labels resolve to PortRef dataclasses. Uses
+        object.__setattr__ to mutate frozen RegisteredValue dataclasses in place.
+        """
+        from mlody.common.action import RegisteredAction  # noqa: PLC0415
+        from mlody.common.task import RegisteredTask  # noqa: PLC0415
+        from mlody.common.value import RegisteredValue  # noqa: PLC0415
+        from mlody.core.dag import (  # noqa: PLC0415
+            PortLocationParseError,
+            PortRef,
+            parse_port_location,
+        )
+
+        task_outputs: dict[str, dict[str, RegisteredValue]] = {}
+        standalone_values: dict[str, RegisteredValue] = {}
+
+        for _key, entity in self._registry.iter_registry_items():
+            if isinstance(entity, RegisteredTask):
+                task_outputs[entity.name] = dict(entity.outputs)
+            elif isinstance(entity, RegisteredValue):
+                standalone_values[entity.name] = entity
+
+        def _resolve_one(rv: RegisteredValue) -> None:
+            src = rv.source
+            if src is None or isinstance(src, (RegisteredValue, PortRef)):
+                return
+
+            resolved: RegisteredValue | PortRef | None = None
+
+            if isinstance(src, str) and src.startswith(":"):
+                after = src[1:]
+                if "." in after:
+                    try:
+                        resolved = parse_port_location(src)
+                    except PortLocationParseError:
+                        resolved = None
+                else:
+                    for ports in task_outputs.values():
+                        if after in ports:
+                            resolved = ports[after]
+                            break
+                    if resolved is None:
+                        resolved = standalone_values.get(after)
+
+            elif is_struct_like(src) and getattr(src, "kind", None) == "value":
+                try:
+                    resolved = RegisteredValue(src)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    pass
+
+            if resolved is not None:
+                object.__setattr__(rv, "source", resolved)
+
+        for _key, entity in self._registry.iter_registry_items():
+            if isinstance(entity, RegisteredValue):
+                _resolve_one(entity)
+            elif isinstance(entity, RegisteredTask):
+                for rv in (
+                    *entity.inputs.values(),
+                    *entity.outputs.values(),
+                    *entity.config.values(),
+                ):
+                    _resolve_one(rv)
+                action = entity.action
+                if isinstance(action, RegisteredAction):
+                    for rv in (
+                        *action.inputs.values(),
+                        *action.outputs.values(),
+                        *action.config.values(),
+                    ):
+                        _resolve_one(rv)
+
     def _is_skipped_mlody_file(self, mlody_file: Path) -> bool:
         """Return True when a file matches the configured skip patterns.
 
@@ -471,6 +547,7 @@ class Workspace:
                 else self._is_skipped_mlody_file
             ),
             convert_ports_to_structs=self._convert_ports_to_structs,
+            resolve_value_sources=self._resolve_value_sources,
             after_root_discovery=self._refresh_workspace_attributes,
         )
         loader.load(workspace=self)

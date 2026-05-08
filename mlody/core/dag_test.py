@@ -15,6 +15,7 @@ import pytest
 
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
+from mlody.core.registry_view import RegistryView
 from mlody.core.dag import (
     Edge,
     PathError,
@@ -29,6 +30,7 @@ from mlody.core.dag import (
     tasks_producing,
     validate_paths,
 )
+from mlody.core.workspace import Workspace
 
 # ---------------------------------------------------------------------------
 # Base .mlody file set for task/value/action tests
@@ -64,27 +66,22 @@ _PREAMBLE = (
 )
 
 
-class _FakeWorkspace:
-    """Minimal workspace stub for tests — exposes only .evaluator."""
-
-    def __init__(self, evaluator: Evaluator) -> None:
-        self._evaluator = evaluator
-
-    @property
-    def evaluator(self) -> Evaluator:
-        return self._evaluator
-
-
 def _build_dag_from_mlody(files: dict[str, str]) -> networkx.MultiDiGraph:
     """Build a DAG from a dict of additional .mlody file contents.
 
     'test.mlody' in the dict is the entry point; BASE_FILES are pre-merged.
+    Run the same post-load normalization passes as production before building
+    the DAG so all sources are resolved to registered value objects.
     """
     with InMemoryFS(BASE_FILES | files, root="/project") as root:
         ev = Evaluator(root)
         ev.eval_file(root / "test.mlody")
         ev.resolve()
-    ws = _FakeWorkspace(ev)
+    ws = Workspace(monorepo_root=root)
+    ws._evaluator = ev
+    ws._registry = RegistryView(ev)
+    ws._convert_ports_to_structs()
+    ws._resolve_value_sources()
     return build_dag(ws)
 
 

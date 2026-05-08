@@ -29,6 +29,7 @@ class WorkspaceLoader:
         lazy_roots: Mapping[str, str],
         should_skip_mlody_file: Callable[[Path], bool],
         convert_ports_to_structs: Callable[[], None],
+        resolve_value_sources: Callable[[], None],
         after_root_discovery: Callable[[], None] | None = None,
     ) -> None:
         self._monorepo_root = monorepo_root
@@ -39,6 +40,7 @@ class WorkspaceLoader:
         self._lazy_roots = lazy_roots
         self._should_skip_mlody_file = should_skip_mlody_file
         self._convert_ports_to_structs = convert_ports_to_structs
+        self._resolve_value_sources = resolve_value_sources
         self._after_root_discovery = after_root_discovery
 
     def load(self, *, workspace: object | None = None) -> None:
@@ -50,6 +52,7 @@ class WorkspaceLoader:
             raise WorkspaceLoadError(load_errors)
         self._registry.resolve_all()
         self._convert_ports_to_structs()
+        self._resolve_value_sources()
         validate_context_restricted_values_registry(self._registry)
 
     def _phase1_root_discovery(self) -> None:

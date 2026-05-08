@@ -86,6 +86,15 @@ executor = rule(
     },
 )
 
+# ---------------------------------------------------------------------------
+# mlody: runs python or starlark code within the mlody framework
+# ---------------------------------------------------------------------------
+
+executor(
+    name="mlody",
+    attrs={},
+)
+
 
 # ---------------------------------------------------------------------------
 # host: runs directly on the execution host with no container or scheduler
@@ -93,6 +102,16 @@ executor = rule(
 
 executor(
     name="host",
+    attrs={},
+)
+
+
+# ---------------------------------------------------------------------------
+# docker: runs in docker
+# ---------------------------------------------------------------------------
+
+executor(
+    name="docker",
     attrs={},
 )
 

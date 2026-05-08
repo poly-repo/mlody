@@ -194,18 +194,16 @@ def _collect_edges(
     evaluator: Evaluator,
     tasks_index: dict[str, tuple[str, object]],
     output_to_producer: dict[str, str],
+    id_to_producer: dict[int, str],
 ) -> list[tuple[str, str, Edge]]:
     """Scan every task's inputs and outputs for cross-task port references.
 
     Returns a list of ``(src_node_id, dst_node_id, edge)`` triples.
 
-    Three source forms are handled (spec §3.3):
-    1. Resolved value struct (``kind="value"``) — src_port is the value's name;
-       producer found via reverse output-port index.
-    2. String label ``:value_name`` (no dot after colon) — value reference;
-       same reverse-index lookup.
-    3. String label ``:task.port_path`` (dot after colon) — port reference;
-       ``parse_port_location`` extracts task name and port path.
+    Sources are dataclasses after the workspace resolution pass:
+    ``RegisteredValue`` for value labels and ``PortRef`` for ``:task.port``
+    labels. The id-based index is checked first to correctly handle tasks that
+    share an output port name; name-based lookup is the fallback.
     """
     triples: list[tuple[str, str, Edge]] = []
 
@@ -217,65 +215,60 @@ def _collect_edges(
             *iter_port_values(getattr(task_struct, "inputs", {})),
         ):
             source_val = getattr(port_val, "source", None)
+            if source_val is None:
+                continue
             dst_path: str = getattr(port_val, "name", "")
-
-            if source_val is not None and getattr(source_val, "kind", None) == "value":
-                # Form 1: resolved value struct.
-                src_name: str = getattr(source_val, "name", "")
-                prod = output_to_producer.get(src_name)
-                if prod is not None:
-                    triples.append((prod, consumer_node_id, Edge(src_port=src_name, dst_path=dst_path)))
-
-            elif isinstance(source_val, str) and source_val.startswith(":"):
-                after_colon = source_val[1:]
-                if "." in after_colon:
-                    # Form 2: port reference ":task.port_path".
-                    try:
-                        ref = parse_port_location(source_val)
-                    except PortLocationParseError:
-                        continue
-                    if ref.task in tasks_index:
-                        prod_id, _ = tasks_index[ref.task]
-                        triples.append((prod_id, consumer_node_id, Edge(src_port=ref.port, dst_path=dst_path)))
-                else:
-                    # Form 3: value reference ":value_name".
-                    prod = output_to_producer.get(after_colon)
-                    if prod is not None:
-                        triples.append((prod, consumer_node_id, Edge(src_port=after_colon, dst_path=dst_path)))
+            if isinstance(source_val, PortRef):
+                producer = tasks_index.get(source_val.task)
+                if producer is not None:
+                    triples.append(
+                        (producer[0], consumer_node_id, Edge(src_port=source_val.port, dst_path=dst_path))
+                    )
+                continue
+            src_name: str = getattr(source_val, "name", "")
+            prod = id_to_producer.get(id(source_val)) or output_to_producer.get(src_name)
+            if prod is not None:
+                triples.append((prod, consumer_node_id, Edge(src_port=src_name, dst_path=dst_path)))
 
     return triples
 
 
 def _resolve_source_name(source_val: object) -> str | None:
-    """Extract a value name from a ``source=`` field, or return ``None``."""
+    """Extract a value name from a resolved ``source=`` field, or return ``None``."""
     if source_val is None:
         return None
-    if getattr(source_val, "kind", None) == "value":
-        name: str = getattr(source_val, "name", "")
-        return name or None
-    if isinstance(source_val, str) and source_val.startswith(":"):
-        after_colon = source_val[1:]
-        if "." not in after_colon:
-            return after_colon or None
-    return None
+    if isinstance(source_val, PortRef):
+        return None
+    return getattr(source_val, "name", None) or None
 
 
 def _build_output_index(
     tasks_index: dict[str, tuple[str, object]],
-) -> dict[str, str]:
-    """Return ``{output_value_name: producer_task_node_id}`` for all task outputs."""
-    index: dict[str, str] = {}
+) -> tuple[dict[str, str], dict[int, str]]:
+    """Return output-port lookup indexes for all task outputs.
+
+    Returns:
+        A pair ``(by_name, by_id)`` where ``by_name`` maps output port name to
+        producer task node ID, and ``by_id`` maps ``id(rv)`` to producer node ID.
+        ``by_id`` takes precedence in ``_collect_edges`` to correctly handle tasks
+        that share an output port name.
+    """
+    by_name: dict[str, str] = {}
+    by_id: dict[int, str] = {}
     for _task_name, (prod_node_id, prod_struct) in tasks_index.items():
         for v in iter_port_values(getattr(prod_struct, "outputs", {})):
             v_name: str = getattr(v, "name", "")
             if v_name:
-                index[v_name] = prod_node_id
-    return index
+                by_name[v_name] = prod_node_id
+                by_id[id(v)] = prod_node_id
+    return by_name, by_id
 
 
 def _collect_value_edges(
     evaluator: Evaluator,
+    tasks_index: dict[str, tuple[str, object]],
     output_to_producer: dict[str, str],
+    id_to_producer: dict[int, str],
 ) -> tuple[list[tuple[str, object]], list[tuple[str, str, Edge]]]:
     """Collect standalone value nodes and edges for values used as sources.
 
@@ -285,9 +278,10 @@ def _collect_value_edges(
 
     Args:
         evaluator: The fully-evaluated workspace evaluator.
-        output_to_producer: Mapping of output value name → producer task node_id
-            (built by ``_build_output_index``).  Values present here are already
-            represented by their producer task node and are skipped.
+        tasks_index: Mapping of bare task name → ``(node_id, task_struct)``.
+        output_to_producer: Mapping of output port name → producer task node_id.
+        id_to_producer: Mapping of ``id(rv)`` → producer task node_id; used for
+            accurate lookup when tasks share an output port name.
 
     Returns:
         A pair ``(value_nodes, edges)`` where:
@@ -317,11 +311,19 @@ def _collect_value_edges(
             *iter_port_values(getattr(task_struct, "inputs", {})),
         ):
             source_val = getattr(port_val, "source", None)
+            if source_val is None:
+                continue
+            if isinstance(source_val, PortRef):
+                continue
             dst_path: str = getattr(port_val, "name", "")
             src_name = _resolve_source_name(source_val)
             if src_name is None:
                 continue
-            if src_name not in output_to_producer and src_name in values_by_name:
+            is_task_output = (
+                id_to_producer.get(id(source_val)) is not None
+                or src_name in output_to_producer
+            )
+            if not is_task_output and src_name in values_by_name:
                 pending.append((src_name, consumer_id, dst_path))
 
     while pending:
@@ -335,12 +337,28 @@ def _collect_value_edges(
         visited.add(src_name)
         value_nodes.append((src_node_id, src_struct))
 
-        upstream_name = _resolve_source_name(getattr(src_struct, "source", None))
+        upstream_val = getattr(src_struct, "source", None)
+        if isinstance(upstream_val, PortRef):
+            producer = tasks_index.get(upstream_val.task)
+            if producer is not None:
+                edges.append(
+                    (producer[0], src_node_id, Edge(src_port=upstream_val.port, dst_path=src_name))
+                )
+            continue
+        upstream_name = _resolve_source_name(upstream_val)
         if upstream_name is None:
             continue
 
-        if upstream_name in output_to_producer:
-            task_id = output_to_producer[upstream_name]
+        upstream_is_task_output = (
+            id_to_producer.get(id(upstream_val)) is not None
+            if upstream_val is not None
+            else False
+        ) or upstream_name in output_to_producer
+        if upstream_is_task_output:
+            task_id = (
+                id_to_producer.get(id(upstream_val))
+                or output_to_producer[upstream_name]
+            )
             edges.append((task_id, src_node_id, Edge(src_port=upstream_name, dst_path=src_name)))
         elif upstream_name in values_by_name:
             pending.append((upstream_name, src_node_id, src_name))
@@ -387,14 +405,18 @@ def build_dag(workspace: Workspace) -> networkx.MultiDiGraph:
         bare_name: str = getattr(task_struct, "name", "")  # type: ignore[attr-defined]
         tasks_index[bare_name] = (node_id, task_struct)
 
-    output_to_producer = _build_output_index(tasks_index)
+    output_to_producer, id_to_producer = _build_output_index(tasks_index)
 
     # Step 2: collect task→task edges from value labels.
-    for src_id, dst_id, edge in _collect_edges(evaluator, tasks_index, output_to_producer):
+    for src_id, dst_id, edge in _collect_edges(
+        evaluator, tasks_index, output_to_producer, id_to_producer
+    ):
         dag.add_edge(src_id, dst_id, edge=edge)
 
     # Step 3: collect standalone value nodes and their edges.
-    value_nodes, value_edges = _collect_value_edges(evaluator, output_to_producer)
+    value_nodes, value_edges = _collect_value_edges(
+        evaluator, tasks_index, output_to_producer, id_to_producer
+    )
     for val_node_id, val_struct in value_nodes:
         val_node = ValueNode(
             node_id=val_node_id,
