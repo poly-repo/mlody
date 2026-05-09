@@ -181,10 +181,14 @@ def _type_impl(ctx):
     if representations != None:
         captured_reprs = representations
         captured_base_validator = python.getattr(base_type, "validator", None)
+        captured_canonical = python.getattr(ctx.attr, 'canonical', None)
         captured_predicate = predicate
         accepted_forms = ["canonical (" + ctx.attr.name + ")"] + [r.name for r in captured_reprs]
 
         def _coercion_validator(value):
+            canonical_error = None
+            repr_error = None
+            repr_matched = False
             # Step 1: try canonical type (base validator)
             try:
                 if captured_base_validator != None:
@@ -195,8 +199,8 @@ def _type_impl(ctx):
                     if res == False:
                         raise ValueError("predicate rejected value")
                 return True
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError) as exc:
+                canonical_error = exc
 
             # Step 2: try each repr in declaration order
             for r in captured_reprs:
@@ -204,12 +208,30 @@ def _type_impl(ctx):
                 try:
                     if repr_validator != None:
                         repr_validator(value)
+                except (TypeError, ValueError):
+                    continue
+
+                repr_matched = True
+                try:
+                    canonical_value = r.to_canonical(value)
+                    if captured_canonical != None:
+                        canonical_value = captured_canonical(canonical_value)
+                    if captured_base_validator != None:
+                        captured_base_validator(canonical_value)
+                    if captured_predicate != None:
+                        res = captured_predicate(canonical_value)
+                        if res == False:
+                            raise ValueError("predicate rejected value")
                     # Matched this repr — coercion succeeds
                     return True
-                except (TypeError, ValueError):
-                    pass
+                except (TypeError, ValueError) as exc:
+                    repr_error = exc
 
             # Step 3: nothing matched
+            if repr_matched and repr_error != None:
+                raise repr_error
+            if canonical_error != None and (isinstance(value, dict) or type(value) == "struct"):
+                raise canonical_error
             raise TypeError(
                 f"Value {value!r} does not match any accepted form for type "
                 f"{ctx.attr.name!r}. Accepted: {accepted_forms}"
@@ -435,6 +457,39 @@ typedef(
     attrs = {
 	"values": attr(type="string_list", mandatory=True),
     }
+)
+
+_POSIX_PATH_RE = r"(?:/|/?(?:(?!\.{1,2}(?:/|$))[^/]+)(?:/(?:(?!\.{1,2}(?:/|$))[^/]+))*/?)"
+
+typedef(
+    name = "posix_path",
+    base = string(pattern=_POSIX_PATH_RE),
+)
+
+
+def _uri_is_valid(value):
+    parsed = python.parse_uri(value)
+    scheme = parsed.get("scheme")
+    if not isinstance(scheme, str) or scheme == "":
+        raise TypeError("uri scheme must not be empty")
+    return True
+
+
+typedef(
+    name = "uri",
+    base = string(),
+    predicate = _uri_is_valid,
+    canonical = lambda value: python.format_uri(python.parse_uri(value)),
+    attrs = {
+        "scheme":   attr(type="string", mandatory=False),
+        "host":     attr(type="string", mandatory=False),
+        "port":     attr(type=integer(min=1, max=65535), mandatory=False),
+        "path":     attr(type="posix_path", mandatory=False),
+        "query":    attr(type="string", mandatory=False),
+        "fragment": attr(type="string", mandatory=False),
+        "username": attr(type="string", mandatory=False),
+        "password": attr(type="string", mandatory=False),
+    },
 )
 
 

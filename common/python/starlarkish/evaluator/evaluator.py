@@ -52,6 +52,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse, urlunparse
 
 import uuid_utils
 
@@ -388,11 +389,114 @@ def _expand_commit_sha(value: str) -> str:
     return full
 
 
+def _normalize_optional_uri_text(field_name: str, value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise TypeError(
+            f"uri {field_name} must be a string when provided, got {type(value).__name__!r}"
+        )
+    return value
+
+
+def _normalize_uri_mapping(value: object) -> dict[str, object]:
+    if isinstance(value, dict):
+        mapping = value
+    elif _is_struct_like(value):
+        mapping = _struct_like_as_mapping(value)
+    else:
+        raise TypeError(
+            f"uri must be a string or mapping, got {type(value).__name__!r}"
+        )
+
+    scheme = mapping.get("scheme")
+    if not isinstance(scheme, str):
+        raise TypeError("uri scheme must be a string")
+
+    host = _normalize_optional_uri_text("host", mapping.get("host"))
+    port = mapping.get("port")
+    if port is not None and (isinstance(port, bool) or not isinstance(port, int)):
+        raise TypeError(
+            f"uri port must be an integer when provided, got {type(port).__name__!r}"
+        )
+
+    path = mapping.get("path", "")
+    if path is None:
+        path = ""
+    if not isinstance(path, str):
+        raise TypeError("uri path must be a string when provided")
+
+    return {
+        "scheme": scheme,
+        "host": host,
+        "port": port,
+        "path": path,
+        "query": _normalize_optional_uri_text("query", mapping.get("query")),
+        "fragment": _normalize_optional_uri_text("fragment", mapping.get("fragment")),
+        "username": _normalize_optional_uri_text("username", mapping.get("username")),
+        "password": _normalize_optional_uri_text("password", mapping.get("password")),
+    }
+
+
+def _parse_uri(value: object) -> dict[str, object]:
+    if isinstance(value, str):
+        try:
+            parsed = urlparse(value)
+            port = parsed.port
+        except ValueError as exc:
+            raise TypeError(f"Invalid uri {value!r}: {exc}") from exc
+        return {
+            "scheme": parsed.scheme,
+            "host": parsed.hostname,
+            "port": port,
+            "path": parsed.path or "",
+            "query": parsed.query or None,
+            "fragment": parsed.fragment or None,
+            "username": parsed.username,
+            "password": parsed.password,
+        }
+    return _normalize_uri_mapping(value)
+
+
+def _format_uri(value: object) -> str:
+    normalized = _normalize_uri_mapping(value)
+    username = normalized["username"]
+    password = normalized["password"]
+    host = normalized["host"]
+    port = normalized["port"]
+
+    netloc = ""
+    if username:
+        netloc += str(username)
+        if password:
+            netloc += f":{password}"
+        netloc += "@"
+
+    if host:
+        netloc += str(host)
+
+    if port is not None:
+        netloc += f":{port}"
+
+    return urlunparse(
+        (
+            str(normalized["scheme"]),
+            netloc,
+            str(normalized["path"]),
+            "",
+            str(normalized["query"] or ""),
+            str(normalized["fragment"] or ""),
+        )
+    )
+
+
 # Python-specific builtins that are not part of the Starlark standard.
 # These will be exposed under a `python` object.
 PYTHON_SPECIFIC_BUILTINS = struct(
     hasattr=builtins.hasattr,
     getattr=builtins.getattr,
+    parse_uri=_parse_uri,
+    format_uri=_format_uri,
     parse_astropy_unit=_parse_astropy_unit,
     parse_quantity_string=_parse_quantity_string,
     format_quantity_string=_format_quantity_string,

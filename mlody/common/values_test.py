@@ -462,6 +462,22 @@ def test_value_default_valid_for_enum_is_accepted() -> None:
     assert v.default == "published"
 
 
+def test_value_default_uri_string_is_canonicalized() -> None:
+    ev = _eval(
+        'value(name="endpoint", type=uri(), location=inline(), '
+        'default="https://alice:secret@EXAMPLE.com:8443/api/v1?x=1#frag")'
+    )
+    v = ev.registry.values.by_name["endpoint"]
+    assert v.default == "https://alice:secret@example.com:8443/api/v1?x=1#frag"
+
+
+def test_value_default_relative_uri_string_raises() -> None:
+    with pytest.raises(TypeError, match="scheme"):
+        _eval(
+            'value(name="endpoint", type=uri(), location=inline(), default="relative/path")'
+        )
+
+
 def test_value_no_default_untyped_passes_through() -> None:
     ev = _eval('value(name="x")')
     v = ev.registry.values.by_name["x"]

@@ -247,6 +247,16 @@ def _validate_string(attrs: dict[str, python.Any], value: python.Any) -> None:
     max_len = attrs.get("max_length")
     pattern = attrs.get("pattern")
     allowed_values = attrs.get("values")
+    uri_attr_names = [
+        "scheme",
+        "host",
+        "port",
+        "path",
+        "query",
+        "fragment",
+        "username",
+        "password",
+    ]
     if min_len != None and len(value) < min_len:
         raise ValueError(f"len(value)={len(value)} < min_length {min_len}")
     if max_len != None and len(value) > max_len:
@@ -255,6 +265,17 @@ def _validate_string(attrs: dict[str, python.Any], value: python.Any) -> None:
         raise ValueError(f"value {value!r} does not match pattern {pattern!r}")
     if allowed_values != None and value not in allowed_values:
         raise ValueError(f"value {value!r} is not one of {allowed_values!r}")
+    if any(name in attrs for name in uri_attr_names):
+        parsed = python.parse_uri(value)
+        scheme = parsed.get("scheme")
+        if not isinstance(scheme, str) or scheme == "":
+            raise TypeError("uri scheme must not be empty")
+        for name in uri_attr_names:
+            if name in attrs and parsed.get(name) != attrs.get(name):
+                raise ValueError(
+                    f"uri constraint {name!r} not satisfied: "
+                    f"expected {attrs.get(name)!r}, got {parsed.get(name)!r}"
+                )
 
 
 def _validate_bool(attrs: dict[str, python.Any], value: python.Any) -> None:

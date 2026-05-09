@@ -624,6 +624,113 @@ def test_enum_validator_rejects_unknown_value() -> None:
         data.validator("random-status")  # type: ignore[attr-defined]
 
 
+def test_posix_path_validator_accepts_relative_and_absolute_paths() -> None:
+    """posix_path().validator accepts ordinary relative and absolute POSIX paths."""
+    ev = _eval("""\
+        builtins.register("root", struct(name="r", t=posix_path()))
+    """)
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
+    assert t.validator("team/service/config.yaml")  # type: ignore[attr-defined]
+    assert t.validator("/var/cache/mlody/artifacts/")  # type: ignore[attr-defined]
+    assert t.validator("/")  # type: ignore[attr-defined]
+    assert t.validator(".config/tooling.json")  # type: ignore[attr-defined]
+
+
+def test_posix_path_validator_rejects_dot_segments() -> None:
+    """posix_path().validator rejects '.' and '..' path segments."""
+    ev = _eval("""\
+        builtins.register("root", struct(name="r", t=posix_path()))
+    """)
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="does not match pattern"):
+        t.validator(".")  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="does not match pattern"):
+        t.validator("..")  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="does not match pattern"):
+        t.validator("./service/config.yaml")  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="does not match pattern"):
+        t.validator("service/../config.yaml")  # type: ignore[attr-defined]
+
+
+def test_uri_canonical_normalizes_to_string() -> None:
+    """uri().canonical normalizes URI strings into a canonical string form."""
+    ev = _eval("""\
+        builtins.register(
+            "root",
+            struct(
+                name="r",
+                canonical=uri().canonical("https://alice:secret@EXAMPLE.com:8443/api/v1?x=1#frag"),
+            ),
+        )
+    """)
+    root = ev.registry.roots.by_name["r"]
+    assert root.canonical == "https://alice:secret@example.com:8443/api/v1?x=1#frag"  # type: ignore[attr-defined]
+
+
+def test_uri_factory_enforces_typed_attrs() -> None:
+    """uri(...) enforces string attrs and a bounded integer port."""
+    ev = _eval("""\
+        builtins.register(
+            "root",
+            struct(
+                name="r",
+                t=uri(scheme="https", host="example.com", port=8443, path="/api"),
+            ),
+        )
+    """)
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
+    assert t.attributes == {  # type: ignore[attr-defined]
+        "scheme": "https",
+        "host": "example.com",
+        "port": 8443,
+        "path": "/api",
+    }
+
+    with pytest.raises(TypeError, match="Attribute 'host' expects type 'string'"):
+        _eval('uri(host=1)')
+
+    with pytest.raises(ValueError, match="max 65535"):
+        _eval('uri(port=70000)')
+
+    with pytest.raises(ValueError, match="min 1"):
+        _eval('uri(port=0)')
+
+    with pytest.raises(ValueError, match="does not match pattern"):
+        _eval('uri(path="./api")')
+
+
+def test_uri_validator_enforces_declared_constraints() -> None:
+    """uri(scheme=..., host=..., port=...).validator enforces parsed URI parts."""
+    ev = _eval("""\
+        builtins.register(
+            "root",
+            struct(name="r", t=uri(scheme="https", host="example.com", port=8443)),
+        )
+    """)
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
+    assert t.validator("https://example.com:8443/api")  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="host"):
+        t.validator("https://other.example.com:8443/api")  # type: ignore[attr-defined]
+
+    with pytest.raises(ValueError, match="port"):
+        t.validator("https://example.com:443/api")  # type: ignore[attr-defined]
+
+
+def test_uri_validator_rejects_relative_string_without_scheme() -> None:
+    """uri().validator rejects strings that do not parse into a schemed URI."""
+    ev = _eval("""\
+        builtins.register("root", struct(name="r", t=uri()))
+    """)
+    t = ev.registry.roots.by_name["r"].t  # type: ignore[attr-defined]
+    with pytest.raises(TypeError, match="scheme"):
+        t.validator("relative/path")  # type: ignore[attr-defined]
+
+
 # ---------------------------------------------------------------------------
 # 20. float() factory enforces min/max constraints
 # ---------------------------------------------------------------------------
