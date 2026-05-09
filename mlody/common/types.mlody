@@ -429,6 +429,15 @@ typedef(
     },
 )
 
+typedef(
+    name = "enum",
+    base = string(),
+    attrs = {
+	"values": attr(type="string_list", mandatory=True),
+    }
+)
+
+
 # ---- Domain scalar types ----
 
 _FULL_SHA_RE  = python.re.compile(r'^[0-9a-f]{40}$')

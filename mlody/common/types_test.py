@@ -591,6 +591,39 @@ def test_string_factory_via_typedef() -> None:
     assert data.attributes.get("pattern") == "[a-z]+"  # type: ignore[attr-defined]
 
 
+def test_enum_validator_accepts_configured_value() -> None:
+    """enum(values=[...]).validator accepts a listed string value."""
+    files = dict(_BASE_FILES)
+    files["test.mlody"] = dedent("""\
+        load("//mlody/common/types.mlody")
+        result = enum(values=["draft", "published", "archived"])
+        builtins.register("root", struct(name="r", data=result))
+    """)
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root)
+        ev.eval_file(root / "test.mlody")
+
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
+    assert data.validator("published")  # type: ignore[attr-defined]
+
+
+def test_enum_validator_rejects_unknown_value() -> None:
+    """enum(values=[...]).validator rejects strings outside the allowed set."""
+    files = dict(_BASE_FILES)
+    files["test.mlody"] = dedent("""\
+        load("//mlody/common/types.mlody")
+        result = enum(values=["draft", "published", "archived"])
+        builtins.register("root", struct(name="r", data=result))
+    """)
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root)
+        ev.eval_file(root / "test.mlody")
+
+    data = ev.registry.roots.by_name["r"].data  # type: ignore[attr-defined]
+    with pytest.raises(ValueError, match="not one of"):
+        data.validator("random-status")  # type: ignore[attr-defined]
+
+
 # ---------------------------------------------------------------------------
 # 20. float() factory enforces min/max constraints
 # ---------------------------------------------------------------------------

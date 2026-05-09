@@ -445,6 +445,23 @@ def test_value_default_opaque_type_passes_through() -> None:
     assert v.default == "any-value"
 
 
+def test_value_default_invalid_for_enum_raises() -> None:
+    with pytest.raises(ValueError, match="not one of"):
+        _eval(
+            'value(name="x", type=enum(values=["draft", "published"]), '
+            'location=inline(), default="random-status")'
+        )
+
+
+def test_value_default_valid_for_enum_is_accepted() -> None:
+    ev = _eval(
+        'value(name="x", type=enum(values=["draft", "published"]), '
+        'location=inline(), default="published")'
+    )
+    v = ev.registry.values.by_name["x"]
+    assert v.default == "published"
+
+
 def test_value_no_default_untyped_passes_through() -> None:
     ev = _eval('value(name="x")')
     v = ev.registry.values.by_name["x"]

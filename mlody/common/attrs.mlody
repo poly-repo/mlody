@@ -246,12 +246,15 @@ def _validate_string(attrs: dict[str, python.Any], value: python.Any) -> None:
     min_len = attrs.get("min_length")
     max_len = attrs.get("max_length")
     pattern = attrs.get("pattern")
+    allowed_values = attrs.get("values")
     if min_len != None and len(value) < min_len:
         raise ValueError(f"len(value)={len(value)} < min_length {min_len}")
     if max_len != None and len(value) > max_len:
         raise ValueError(f"len(value)={len(value)} > max_length {max_len}")
     if pattern != None and not python.re.fullmatch(pattern, value):
         raise ValueError(f"value {value!r} does not match pattern {pattern!r}")
+    if allowed_values != None and value not in allowed_values:
+        raise ValueError(f"value {value!r} is not one of {allowed_values!r}")
 
 
 def _validate_bool(attrs: dict[str, python.Any], value: python.Any) -> None:
