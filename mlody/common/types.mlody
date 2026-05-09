@@ -126,6 +126,10 @@ def _type_impl(ctx):
     canonical_for_attrs = python.getattr(ctx.attr, '_canonical_for_attrs', None)
     if canonical_for_attrs != None:
         other_fields['_canonical_for_attrs'] = canonical_for_attrs
+    location = python.getattr(ctx.attr, 'location', None)
+    if location != None:
+        validate_attr_value("location", location, "location")
+        other_fields['location'] = location
     predicate = python.getattr(ctx.attr, 'predicate', None)
 
     extra_attrs_spec = None
@@ -257,6 +261,7 @@ typedef = rule(
         "abstract":         attr(type="bool",       mandatory=False, default=None),
         "representations":  attr(type="repr_list",  mandatory=False, default=None),
         "virtual_attributes": attr(type="field_list", mandatory=False, default=None),
+        "location":         attr(type="location",   mandatory=False, default=None),
     }
 )
 

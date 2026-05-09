@@ -370,18 +370,6 @@ value = rule(
 )
 
 
-def _ensure_value_name_available(name):
-    try:
-        builtins.lookup("value", name)
-    except:
-        return
-    raise ValueError(
-        "cached_value(...) cannot register value "
-        + repr(name)
-        + " because that name is already in use"
-    )
-
-
 def cached_value(
     *,
     name,
@@ -416,9 +404,6 @@ def cached_value(
         raise ValueError(
             "cached_value(remote_name=...) must differ from name="
         )
-
-    _ensure_value_name_available(name)
-    _ensure_value_name_available(synthesized_remote_name)
 
     value(
         name=synthesized_remote_name,

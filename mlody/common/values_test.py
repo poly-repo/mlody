@@ -923,6 +923,44 @@ def test_cached_value_generated_values_share_call_source_range() -> None:
     assert local_range.end_line == remote_range.end_line == 10
 
 
+def test_cached_value_same_name_across_different_files_is_allowed() -> None:
+    files = dict(_BASE_FILES)
+    files["one.mlody"] = (
+        'load("//mlody/common/types.mlody")\n'
+        'load("//mlody/common/locations.mlody")\n'
+        'load("//mlody/common/representation.mlody")\n'
+        'load("//mlody/common/values.mlody")\n'
+        'cached_value(\n'
+        '  name="raw_employees",\n'
+        '  source=remote(uri="https://example.com/employees-a.csv"),\n'
+        '  location=posix(path="~/.cache/mlody/employees-a.csv"),\n'
+        '  representation=csv(),\n'
+        ')\n'
+    )
+    files["sub/two.mlody"] = (
+        'load("//mlody/common/types.mlody")\n'
+        'load("//mlody/common/locations.mlody")\n'
+        'load("//mlody/common/representation.mlody")\n'
+        'load("//mlody/common/values.mlody")\n'
+        'cached_value(\n'
+        '  name="raw_employees",\n'
+        '  source=remote(uri="https://example.com/employees-b.csv"),\n'
+        '  location=posix(path="~/.cache/mlody/employees-b.csv"),\n'
+        '  representation=csv(),\n'
+        ')\n'
+    )
+
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root)
+        ev.eval_file(root / "one.mlody")
+        ev.eval_file(root / "sub" / "two.mlody")
+
+    assert "one:raw_employees" in ev.registry.values.by_key
+    assert "sub/two:raw_employees" in ev.registry.values.by_key
+    assert "one:raw_employees-remote" in ev.registry.values.by_key
+    assert "sub/two:raw_employees-remote" in ev.registry.values.by_key
+
+
 def test_value_stores_group_and_context_policy() -> None:
     ev = _eval('value(name="artifact", type=string(), location=s3(), group="train")')
     value = ev.registry.values.by_name["artifact"]

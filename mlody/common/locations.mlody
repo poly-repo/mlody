@@ -1,6 +1,5 @@
 load("//mlody/core/rule.mlody", "rule")
 load("//mlody/common/attrs.mlody", "attr", "extend_attrs", "validate_attr_value")
-load("//mlody/common/types.mlody", "any")
 
 
 def _coerce_posix_path_value(path_value):
@@ -205,7 +204,7 @@ location(
 location(
     name = "inline",
     attrs = {
-        "data": attr(type=any(), mandatory=False),
+        "data": attr(type="any", mandatory=False),
     },
 )
 

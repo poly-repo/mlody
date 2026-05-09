@@ -99,6 +99,27 @@ builtins.register("root", struct(name="dup", value=2))
         evaluator.eval_file(project_root / "duplicate.mlody")
 
 
+def test_duplicate_registration_name_across_files_is_allowed(
+    fs: FakeFilesystem, project_root: Path
+) -> None:
+    fs.create_file(
+        "/project/one.mlody",
+        contents='builtins.register("root", struct(name="dup", value=1))\n',
+    )
+    fs.create_file(
+        "/project/sub/two.mlody",
+        contents='builtins.register("root", struct(name="dup", value=2))\n',
+    )
+
+    evaluator = Evaluator(project_root)
+    evaluator.eval_file(project_root / "one.mlody")
+    evaluator.eval_file(project_root / "sub" / "two.mlody")
+
+    assert evaluator.roots["one:dup"].value == 1  # type: ignore[attr-defined]
+    assert evaluator.roots["sub/two:dup"].value == 2  # type: ignore[attr-defined]
+    assert evaluator.registry.roots.by_name["dup"].value == 2  # type: ignore[attr-defined]
+
+
 def test_sandboxing(fs: FakeFilesystem, project_root: Path) -> None:
     """Test that scripts cannot access disallowed builtins."""
     evaluator = Evaluator(project_root)

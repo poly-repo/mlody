@@ -198,6 +198,24 @@ def test_remote_rejects_non_string_uri() -> None:
         _eval("result = remote(uri=123)")
 
 
+def test_inline_data_accepts_arbitrary_value_without_loading_types_module() -> None:
+    """inline(data=...) validates via the built-in 'any' attr type."""
+    script = "load(\"//mlody/common/locations.mlody\")\nresult = inline(data={'hello': [1, True, 3.0]})\n"
+    files = {
+        "mlody/core/rule.mlody": _RULE_MLODY,
+        "mlody/common/attrs.mlody": _ATTRS_MLODY,
+        "mlody/common/locations.mlody": _LOCATIONS_MLODY,
+        "test.mlody": script,
+    }
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root)
+        ev.eval_file(root / "test.mlody")
+    result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
+    assert result.kind == "location"
+    assert result.type == "inline"
+    assert result.data == {"hello": [1, True, 3.0]}
+
+
 # ---------------------------------------------------------------------------
 # TC-006: user-defined location with base registers and injects factory
 # ---------------------------------------------------------------------------

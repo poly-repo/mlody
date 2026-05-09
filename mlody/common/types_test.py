@@ -21,11 +21,13 @@ _THIS_DIR = Path(__file__).parent
 _RULE_MLODY = (_THIS_DIR.parent / "core" / "rule.mlody").read_text()
 _ATTRS_MLODY = (_THIS_DIR / "attrs.mlody").read_text()
 _TYPES_MLODY = (_THIS_DIR / "types.mlody").read_text()
+_LOCATIONS_MLODY = (_THIS_DIR / "locations.mlody").read_text()
 
 _BASE_FILES: dict[str, str] = {
     "mlody/core/rule.mlody": _RULE_MLODY,
     "mlody/common/attrs.mlody": _ATTRS_MLODY,
     "mlody/common/types.mlody": _TYPES_MLODY,
+    "mlody/common/locations.mlody": _LOCATIONS_MLODY,
 }
 
 
@@ -170,6 +172,78 @@ def test_typedef_with_attrs() -> None:
     t = ev.registry.types.by_name["stepped_int"]
     assert "step" in t._allowed_attrs  # type: ignore[attr-defined]
     assert t._allowed_attrs["step"] == "integer"  # type: ignore[attr-defined]
+
+
+def test_typedef_stores_location_on_type_struct() -> None:
+    """typedef(..., location=...) stores the location on the registered type."""
+    files = dict(_BASE_FILES)
+    files["test.mlody"] = dedent("""\
+        load("//mlody/common/types.mlody")
+        load("//mlody/common/locations.mlody")
+        typedef(
+            name = "artifact_ref",
+            base = string(),
+            location = posix(path="/tmp/artifact"),
+        )
+    """)
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root)
+        ev.eval_file(root / "test.mlody")
+
+    t = ev.registry.types.by_name["artifact_ref"]
+    assert t.location.kind == "location"  # type: ignore[attr-defined]
+    assert t.location.type == "posix"  # type: ignore[attr-defined]
+    assert t.location.attributes["path"] == ["/tmp/artifact"]  # type: ignore[attr-defined]
+
+
+def test_typedef_location_must_be_location_struct() -> None:
+    """typedef(..., location=...) rejects non-location values."""
+    files = dict(_BASE_FILES)
+    files["test.mlody"] = dedent("""\
+        load("//mlody/common/types.mlody")
+        typedef(
+            name = "artifact_ref",
+            base = string(),
+            location = "not-a-location",
+        )
+    """)
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root)
+        with pytest.raises(TypeError, match="location"):
+            ev.eval_file(root / "test.mlody")
+
+
+def test_typedef_location_inherits_and_can_override() -> None:
+    """Derived typedefs inherit base location unless they provide a new one."""
+    files = dict(_BASE_FILES)
+    files["test.mlody"] = dedent("""\
+        load("//mlody/common/types.mlody")
+        load("//mlody/common/locations.mlody")
+        typedef(
+            name = "artifact_ref",
+            base = string(),
+            location = posix(path="/tmp/base"),
+        )
+        typedef(
+            name = "derived_artifact_ref",
+            base = artifact_ref(),
+        )
+        typedef(
+            name = "overridden_artifact_ref",
+            base = artifact_ref(),
+            location = remote(uri="https://example.com/artifact.txt"),
+        )
+    """)
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root)
+        ev.eval_file(root / "test.mlody")
+
+    inherited = ev.registry.types.by_name["derived_artifact_ref"]
+    overridden = ev.registry.types.by_name["overridden_artifact_ref"]
+    assert inherited.location.type == "posix"  # type: ignore[attr-defined]
+    assert inherited.location.attributes["path"] == ["/tmp/base"]  # type: ignore[attr-defined]
+    assert overridden.location.type == "remote"  # type: ignore[attr-defined]
+    assert overridden.location.attributes["uri"] == "https://example.com/artifact.txt"  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

@@ -52,6 +52,7 @@ o_py_test(
     srcs = ["types_test.py"],
     data = [
         "attrs.mlody",
+        "locations.mlody",
         "types.mlody",
         "//mlody/core:rule.mlody",
     ],

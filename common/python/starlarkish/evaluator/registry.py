@@ -47,32 +47,6 @@ class NamedRegistry:
                 f"{existing_by_key.name!r} is already registered."
             )
 
-        existing_key = next(
-            (
-                registered_key
-                for registered_key, registered_thing in self.by_key.items()
-                if registered_thing.name == thing.name
-            ),
-            None,
-        )
-        bootstrap_shadow = (
-            existing_key is not None
-            and existing_key == thing.name
-            and ":" not in existing_key
-            and existing_key != key
-        )
-
-        if thing.name in self.by_name and not (replace and existing_key == key) and not bootstrap_shadow and not (allow_value_shadow and existing_key == key):
-            raise ValueError(
-                f"Duplicate {self.kind} name {thing.name!r}: already registered"
-                + (
-                    f" as {existing_key!r}"
-                    if existing_key is not None
-                    else ""
-                )
-                + f"; cannot register again as {key!r}."
-            )
-
         self.by_key[key] = thing
         self.by_name[thing.name] = thing
         stem = key.rsplit(":", 1)[0] if ":" in key else None
