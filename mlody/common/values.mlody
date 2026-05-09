@@ -368,3 +368,74 @@ value = rule(
     kind="value",
     attrs=_value_rule_attrs(),
 )
+
+
+def _ensure_value_name_available(name):
+    try:
+        builtins.lookup("value", name)
+    except:
+        return
+    raise ValueError(
+        "cached_value(...) cannot register value "
+        + repr(name)
+        + " because that name is already in use"
+    )
+
+
+def cached_value(
+    *,
+    name,
+    type=None,
+    source=None,
+    location=None,
+    freshness=None,
+    unit=None,
+    default=None,
+    representation=None,
+    remote_name=None,
+):
+    validate_attr_value("name", name, "string")
+    if remote_name != None:
+        validate_attr_value("remote_name", remote_name, "string")
+    if source == None:
+        raise TypeError("cached_value(source=...) is required")
+    if location == None:
+        raise TypeError("cached_value(location=...) is required")
+
+    remote_location = _resolve_location_ref(source)
+    if python.getattr(remote_location, "type", None) != "remote":
+        raise ValueError(
+            "cached_value(source=...) requires location=remote(...) in v1"
+        )
+    local_location = _resolve_location_ref(location)
+
+    synthesized_remote_name = (
+        remote_name if remote_name != None else name + "-remote"
+    )
+    if synthesized_remote_name == name:
+        raise ValueError(
+            "cached_value(remote_name=...) must differ from name="
+        )
+
+    _ensure_value_name_available(name)
+    _ensure_value_name_available(synthesized_remote_name)
+
+    value(
+        name=synthesized_remote_name,
+        type=type,
+        location=remote_location,
+        freshness=manual(),
+        unit=unit,
+        representation=representation,
+    )
+
+    return value(
+        name=name,
+        type=type,
+        location=local_location,
+        freshness=freshness,
+        unit=unit,
+        default=default,
+        source=":" + synthesized_remote_name,
+        representation=representation,
+    )

@@ -1063,7 +1063,7 @@ class Evaluator:
             fields["outputs"] = _resolve_port_collection(fields.get("outputs", []))
             fields["config"] = _resolve_port_collection(fields.get("config", []))
             new_entity = self.decorate_registered_value("action", Struct(**fields))
-            self.registry.register("action", key, new_entity)
+            self.registry.register("action", key, new_entity, replace=True)
 
         tasks = self.registry.tasks
         # Resolve tasks: string labels in inputs/outputs/config/action → entity structs
@@ -1074,4 +1074,4 @@ class Evaluator:
             fields["config"] = _resolve_port_collection(fields.get("config", []))
             fields["action"] = _resolve_action(fields.get("action"))
             new_entity = self.decorate_registered_value("task", Struct(**fields))
-            self.registry.register("task", key, new_entity)
+            self.registry.register("task", key, new_entity, replace=True)

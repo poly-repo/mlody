@@ -83,6 +83,22 @@ def test_load_and_registration(fs: FakeFilesystem, project_root: Path) -> None:
     assert root_obj.helper == "helper"  # type: ignore[attr-defined]
 
 
+def test_duplicate_registration_name_raises(
+    fs: FakeFilesystem, project_root: Path
+) -> None:
+    fs.create_file(
+        "/project/duplicate.mlody",
+        contents="""
+builtins.register("root", struct(name="dup", value=1))
+builtins.register("root", struct(name="dup", value=2))
+""",
+    )
+
+    evaluator = Evaluator(project_root)
+    with pytest.raises(ValueError, match="Duplicate root"):
+        evaluator.eval_file(project_root / "duplicate.mlody")
+
+
 def test_sandboxing(fs: FakeFilesystem, project_root: Path) -> None:
     """Test that scripts cannot access disallowed builtins."""
     evaluator = Evaluator(project_root)

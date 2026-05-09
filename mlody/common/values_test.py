@@ -9,6 +9,7 @@ import pytest
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 import mlody
+from mlody.core.source_parser import extract_entity_ranges
 from mlody.core.value_context_validation import (
     ContextRestrictedValueValidationError,
     validate_context_restricted_values_evaluator,
@@ -835,6 +836,91 @@ def test_value_plain_forward_source_does_not_require_lookup_success() -> None:
     value = ev.registry.values.by_name["raw_employees_local"]
     assert value.source == ":raw_employees"
     assert not hasattr(value, "_source_value")
+
+
+def test_cached_value_expands_to_remote_and_local_values() -> None:
+    ev = _eval(
+        'typedef(name="employee", base=record(fields=[\n'
+        '  field(name="name", type=string()),\n'
+        ']))\n'
+        'cached_value(\n'
+        '  name="raw_employees",\n'
+        '  type=vector(element_type=":employee"),\n'
+        '  source=remote(uri="https://example.com/employees.csv"),\n'
+        '  location=posix(path="~/.cache/mlody/employees.csv"),\n'
+        '  representation=csv(),\n'
+        '  freshness=ttl(duration="1day"),\n'
+        ')\n'
+    )
+
+    local_value = ev.registry.values.by_name["raw_employees"]
+    remote_value = ev.registry.values.by_name["raw_employees-remote"]
+
+    assert remote_value.location.type == "remote"
+    assert remote_value.freshness.name == "manual"
+    assert remote_value.representation.name == "csv"
+
+    assert local_value.location.type == "posix"
+    assert local_value.source == ":raw_employees-remote"
+    assert local_value._source_value.name == "raw_employees-remote"
+    assert local_value.freshness.name == "ttl"
+    assert local_value.representation.name == "csv"
+
+
+def test_cached_value_respects_custom_remote_name() -> None:
+    ev = _eval(
+        'cached_value(\n'
+        '  name="raw_employees",\n'
+        '  remote_name="raw_employees_origin",\n'
+        '  source=remote(uri="https://example.com/employees.csv"),\n'
+        '  location=posix(path="~/.cache/mlody/employees.csv"),\n'
+        '  representation=csv(),\n'
+        ')\n'
+    )
+
+    assert "raw_employees" in ev.registry.values.by_name
+    assert "raw_employees_origin" in ev.registry.values.by_name
+    assert ev.registry.values.by_name["raw_employees"].source == ":raw_employees_origin"
+
+
+def test_cached_value_requires_remote_source_location() -> None:
+    with pytest.raises(ValueError, match="location=remote"):
+        _eval(
+            'cached_value(\n'
+            '  name="raw_employees",\n'
+            '  source=posix(path="data/employees.csv"),\n'
+            '  location=posix(path="~/.cache/mlody/employees.csv"),\n'
+            '  representation=csv(),\n'
+            ')\n'
+        )
+
+
+def test_cached_value_generated_values_share_call_source_range() -> None:
+    script = (
+        'load("//mlody/common/types.mlody")\n'
+        'load("//mlody/common/locations.mlody")\n'
+        'load("//mlody/common/representation.mlody")\n'
+        'load("//mlody/common/values.mlody")\n'
+        'cached_value(\n'
+        '  name="raw_employees",\n'
+        '  source=remote(uri="https://example.com/employees.csv"),\n'
+        '  location=posix(path="~/.cache/mlody/employees.csv"),\n'
+        '  representation=csv(),\n'
+        ')\n'
+    )
+    files = dict(_BASE_FILES)
+    files["test.mlody"] = script
+
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root, line_range_extractor=extract_entity_ranges)
+        ev.eval_file(root / "test.mlody")
+
+    local_range = ev.registry.values.by_name["raw_employees"]._source_range
+    remote_range = ev.registry.values.by_name["raw_employees-remote"]._source_range
+
+    assert local_range.filepath == remote_range.filepath
+    assert local_range.start_line == remote_range.start_line == 5
+    assert local_range.end_line == remote_range.end_line == 10
 
 
 def test_value_stores_group_and_context_policy() -> None:

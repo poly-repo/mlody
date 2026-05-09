@@ -14,6 +14,12 @@ Two call forms are recognised at any nesting level:
   Helper:  root("foo", ...)  /  task(name="foo", ...)  /  action("foo", ...)
            and any other name in _HELPER_KINDS
 
+Special helper expansion:
+
+  cached_value(name="foo", ...) contributes source ranges for both
+  ("value", "foo") and ("value", "foo-remote") unless a literal
+  remote_name="..." overrides the synthesized name.
+
 The entity name is extracted from either the first positional string argument
 or a ``name=`` keyword argument. Entities whose name is not a literal string
 are silently skipped. Duplicate (kind, name) pairs within the same file raise
@@ -104,26 +110,65 @@ def _keyword_arg_name(
     arg_list: tree_sitter.Node,  # type: ignore[type-arg]
 ) -> str | None:
     """Return the string value of the ``name=`` keyword argument, or None."""
+    return _keyword_arg_string(arg_list, "name")
+
+
+def _keyword_arg_string(
+    arg_list: tree_sitter.Node,  # type: ignore[type-arg]
+    key_name: str,
+) -> str | None:
+    """Return the string value of a keyword argument, or None."""
     for child in arg_list.children:
         if child.type == "keyword_argument" and len(child.children) >= 3:
             key_node = child.children[0]
             val_node = child.children[2]
-            if key_node.type == "identifier" and key_node.text == b"name":
+            if key_node.type == "identifier" and key_node.text == key_name.encode():
                 return _string_value(val_node)
     return None
 
 
+def _has_keyword_arg(
+    arg_list: tree_sitter.Node,  # type: ignore[type-arg]
+    key_name: str,
+) -> bool:
+    for child in arg_list.children:
+        if child.type == "keyword_argument" and len(child.children) >= 1:
+            key_node = child.children[0]
+            if key_node.type == "identifier" and key_node.text == key_name.encode():
+                return True
+    return False
+
+
+def _cached_value_entries(
+    arg_list: tree_sitter.Node,  # type: ignore[type-arg]
+) -> list[tuple[str, str]]:
+    """Expand cached_value(...) into the value names it will register."""
+    name = _first_positional_string(arg_list)
+    if name is None:
+        name = _keyword_arg_name(arg_list)
+    if name is None:
+        return []
+
+    remote_name = _keyword_arg_string(arg_list, "remote_name")
+    if remote_name is None:
+        if _has_keyword_arg(arg_list, "remote_name"):
+            return [("value", name)]
+        remote_name = name + "-remote"
+
+    return [("value", name), ("value", remote_name)]
+
+
 def _process_call(
     call_node: tree_sitter.Node,  # type: ignore[type-arg]
-) -> tuple[str, str] | None:
-    """Return (kind, name) from a registration call node, or None if not recognised."""
+) -> list[tuple[str, str]]:
+    """Return registration entries from a call node, or an empty list."""
     if call_node.child_count < 2:
-        return None
+        return []
 
     func_node = call_node.children[0]
     arg_list = call_node.children[1]
     if arg_list.type != "argument_list":
-        return None
+        return []
 
     # Direct form: builtins.register("kind", struct(name="foo", ...))
     if func_node.type == "attribute":
@@ -143,25 +188,28 @@ def _process_call(
                     kind = _string_value(positional_args[0])
                     name = _extract_name_from_struct_call(positional_args[1])
                     if kind is not None and name is not None:
-                        return (kind, name)
-        return None
+                        return [(kind, name)]
+        return []
 
     # Helper form: root("foo", ...) / task(name="foo", ...) etc.
     if func_node.type == "identifier":
         func_name = func_node.text
         if func_name is None:
-            return None
-        kind = _HELPER_KINDS.get(func_name.decode())
+            return []
+        decoded_name = func_name.decode()
+        if decoded_name == "cached_value":
+            return _cached_value_entries(arg_list)
+        kind = _HELPER_KINDS.get(decoded_name)
         if kind is None:
-            return None
+            return []
         # Try positional string first, then keyword name= argument.
         name = _first_positional_string(arg_list)
         if name is None:
             name = _keyword_arg_name(arg_list)
         if name is not None:
-            return (kind, name)
+            return [(kind, name)]
 
-    return None
+    return []
 
 
 def _walk_node(
@@ -180,8 +228,8 @@ def _walk_node(
         return  # skip broken subtree entirely; has_error on parents is propagated
 
     if node.type == "call":
-        entry = _process_call(node)
-        if entry is not None:
+        entries = _process_call(node)
+        for entry in entries:
             start_line = node.start_point[0] + 1  # row is 0-based
             end_line = node.end_point[0] + 1
             if entry in result:

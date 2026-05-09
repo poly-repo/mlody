@@ -47,6 +47,37 @@ def test_helper_call_action() -> None:
     assert result == {("action", "run-eval"): (1, 1)}
 
 
+def test_cached_value_contributes_local_and_remote_value_ranges() -> None:
+    source = """\
+cached_value(
+    name="employees",
+    source=remote(uri="https://example.com/employees.csv"),
+    location=posix(path="~/.cache/mlody/employees.csv"),
+)
+"""
+    result = extract_entity_ranges(_fake_path(), source)
+    assert result == {
+        ("value", "employees"): (1, 5),
+        ("value", "employees-remote"): (1, 5),
+    }
+
+
+def test_cached_value_uses_literal_remote_name_override() -> None:
+    source = """\
+cached_value(
+    name="employees",
+    remote_name="employees-origin",
+    source=remote(uri="https://example.com/employees.csv"),
+    location=posix(path="~/.cache/mlody/employees.csv"),
+)
+"""
+    result = extract_entity_ranges(_fake_path(), source)
+    assert result == {
+        ("value", "employees"): (1, 6),
+        ("value", "employees-origin"): (1, 6),
+    }
+
+
 def test_multiple_entities() -> None:
     source = """\
 root("lexica", path="//mlody/teams/lexica")
