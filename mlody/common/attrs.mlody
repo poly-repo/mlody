@@ -492,7 +492,7 @@ def extend_attrs(
     return Struct(**merged_fields)
 
 
-def attr(*, type=None, mandatory=True, default=None, allowed_in=None):
+def attr(*, type=None, mandatory=True, default=None, allowed_in=None, **kwargs):
     return {
         "type": type,
         "metadata": {

@@ -216,6 +216,18 @@ location(
     },
 )
 
+# We'd like something like the following for postgres (and maybe even passing database as path fragment)
+#location(
+#    name = "postgres",
+#    base = rds(db_type="postgres"),
+#    attrs = {
+#        "uri": attr(type="uri", mandatory=False, schema="postgresql", _default_port=5432)
+#        "connection_id": attr(type="string", mandatory=False),
+#        "database": attr(type="string", mandatory=False),
+#        "table": attr(type="string", mandatory=False),
+#    },
+#)
+
 location(
     name = "postgres",
     base = rds(db_type="postgres"),
