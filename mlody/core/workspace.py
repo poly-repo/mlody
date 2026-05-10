@@ -536,6 +536,7 @@ class Workspace:
         _ = verbose
         loader = WorkspaceLoader(
             monorepo_root=self._monorepo_root,
+            workspace_root=self._workspace_root,
             roots_file=self._roots_file,
             root_infos=self._root_infos,
             registry=self._registry,

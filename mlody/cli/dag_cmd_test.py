@@ -107,6 +107,42 @@ def _invoke_dag(
     return result
 
 
+def test_dag_forwards_workspace_root_to_workspace_constructor(tmp_path: Path) -> None:
+    """The dag command forwards --workspace context into Workspace(...)."""
+    runner = CliRunner()
+    workspace_root = tmp_path / "sandbox"
+    workspace_root.mkdir()
+    ws_mock = MagicMock()
+    ws_mock.dag = MagicMock()
+
+    with (
+        patch("mlody.cli.dag_cmd.Workspace") as mock_cls,
+        patch("mlody.cli.dag_cmd.render_dag_table"),
+    ):
+        mock_cls.return_value = ws_mock
+        result = runner.invoke(
+            cli,
+            ["dag"],
+            obj={
+                "monorepo_root": tmp_path,
+                "workspace_root": workspace_root,
+                "roots": None,
+                "verbose": False,
+                "full_workspace": False,
+            },
+        )
+
+    assert result.exit_code == 0
+    mock_cls.assert_called_once_with(
+        monorepo_root=tmp_path,
+        roots_file=None,
+        full_workspace=False,
+        extra_roots={"workspace": "sandbox"},
+        lazy_roots=None,
+        workspace_root=workspace_root,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shared fixture tasks
 #

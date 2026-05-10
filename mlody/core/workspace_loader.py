@@ -22,6 +22,7 @@ class WorkspaceLoader:
         self,
         *,
         monorepo_root: Path,
+        workspace_root: Path | None = None,
         roots_file: Path,
         root_infos: MutableMapping[str, RootInfo],
         registry: RegistryView,
@@ -33,6 +34,7 @@ class WorkspaceLoader:
         after_root_discovery: Callable[[], None] | None = None,
     ) -> None:
         self._monorepo_root = monorepo_root
+        self._workspace_root = workspace_root if workspace_root is not None else monorepo_root
         self._roots_file = roots_file
         self._root_infos = root_infos
         self._registry = registry
@@ -95,6 +97,10 @@ class WorkspaceLoader:
                 config_path, ["config"]
             )
 
+        workspace_path = self._workspace_root / "workspace.mlody"
+        if workspace_path.exists() and not self._registry.is_loaded(workspace_path):
+            self._registry.eval_file(workspace_path)
+
         self._root_infos.clear()
         self._root_infos.update(self._registry.build_root_infos())
 
@@ -129,6 +135,11 @@ class WorkspaceLoader:
             if not root_abs.is_dir():
                 continue
             for mlody_file in sorted(root_abs.glob("**/*.mlody")):
+                if (
+                    self._workspace_root != self._monorepo_root
+                    and mlody_file == self._monorepo_root / "workspace.mlody"
+                ):
+                    continue
                 if self._should_skip_mlody_file(mlody_file):
                     _logger.debug("Skipping %s due to workspace skip list", mlody_file)
                     continue

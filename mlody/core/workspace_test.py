@@ -249,6 +249,34 @@ class TestTwoPhaseLoading:
         ws.load()  # must not raise
         assert ws.root_infos == {}
 
+    def test_workspace_mlody_at_monorepo_root_is_loaded(self, project: Path) -> None:
+        (project / "workspace.mlody").write_text(
+            'builtins.register("root", struct(name="workspace_only", value=1))\n'
+        )
+
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        assert "workspace_only" in ws.evaluator.registry.roots.by_name
+
+    def test_workspace_mlody_uses_workspace_root_without_monorepo_fallback(
+        self, project: Path
+    ) -> None:
+        (project / "workspace.mlody").write_text(
+            'builtins.register("root", struct(name="monorepo_workspace_only", value=1))\n'
+        )
+        workspace_dir = project / "sandboxes" / "exp1"
+        workspace_dir.mkdir(parents=True)
+        (workspace_dir / "workspace.mlody").write_text(
+            'builtins.register("root", struct(name="subworkspace_only", value=1))\n'
+        )
+
+        ws = Workspace(monorepo_root=project, workspace_root=workspace_dir)
+        ws.load()
+
+        assert "subworkspace_only" in ws.evaluator.registry.roots.by_name
+        assert "monorepo_workspace_only" not in ws.evaluator.registry.roots.by_name
+
     def test_no_roots_registered(self, fs: FakeFilesystem) -> None:
         root = Path("/no_roots")
         root.mkdir()

@@ -70,6 +70,7 @@ def dag_cmd(ctx: click.Context, label: str | None, gui: bool) -> None:
         full_workspace=full_workspace,
         extra_roots=extra_roots,
         lazy_roots=lazy_roots,
+        workspace_root=workspace_root if workspace_root != monorepo_root else None,
     )
     try:
         workspace.load(verbose=verbose)
