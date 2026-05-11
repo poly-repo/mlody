@@ -196,6 +196,26 @@ def _wrap_struct_item(
 def wrap_registered_struct(kind: str, value: object) -> object:
     """Wrap a registered evaluator Struct in its typed dataclass when possible."""
     wrapper = _wrapper_for_kind(kind)
+    return _wrap_struct_with_wrapper(wrapper, value)
+
+
+def wrap_method_result(value: object) -> object:
+    """Wrap a method-returned Struct in its typed dataclass when possible."""
+    if isinstance(value, RegisteredStructBase):
+        return value
+    if not isinstance(value, Struct):
+        return value
+    kind = getattr(value, "kind", None)
+    if not isinstance(kind, str):
+        return value
+    wrapper = _method_wrapper_for_kind(kind)
+    return _wrap_struct_with_wrapper(wrapper, value)
+
+
+def _wrap_struct_with_wrapper(
+    wrapper: type[object] | None,
+    value: object,
+) -> object:
     if wrapper is None:
         return value
     if isinstance(value, wrapper):
@@ -224,5 +244,37 @@ def _wrapper_for_kind(kind: str) -> type[object] | None:
         "action": RegisteredAction,
         "task": RegisteredTask,
         "user": RegisteredUser,
+        "config": RegisteredConfig,
+    }.get(kind)
+
+
+def _method_wrapper_for_kind(kind: str) -> type[object] | None:
+    from mlody.common.action import RegisteredAction
+    from mlody.common.build_ref import RegisteredBuildRef
+    from mlody.common.config import RegisteredConfig
+    from mlody.common.executor import RegisteredExecutor
+    from mlody.common.freshness import RegisteredFreshness
+    from mlody.common.implementation import RegisteredImplementation
+    from mlody.common.location import RegisteredLocation
+    from mlody.common.representation import RegisteredRepresentation
+    from mlody.common.root import RegisteredRoot
+    from mlody.common.task import RegisteredTask
+    from mlody.common.type import RegisteredType
+    from mlody.common.user import RegisteredUser
+    from mlody.common.value import RegisteredValue
+
+    return {
+        "root": RegisteredRoot,
+        "type": RegisteredType,
+        "location": RegisteredLocation,
+        "freshness": RegisteredFreshness,
+        "representation": RegisteredRepresentation,
+        "value": RegisteredValue,
+        "action": RegisteredAction,
+        "task": RegisteredTask,
+        "user": RegisteredUser,
+        "build_ref": RegisteredBuildRef,
+        "implementation": RegisteredImplementation,
+        "executor": RegisteredExecutor,
         "config": RegisteredConfig,
     }.get(kind)

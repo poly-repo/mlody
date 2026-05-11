@@ -27,6 +27,7 @@ class RegisteredType(RegisteredStructBase):
     _canonical_for_attrs: object | None = None
     virtual_attributes: object | None = None
     _attrs_mandatory: set[str] | None = None
+    methods: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)

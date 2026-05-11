@@ -19,6 +19,28 @@ def _normalize_location_kwargs(loc_struct, kwargs):
     return normalized
 
 
+def _location_info(location, enclosing):
+    _ = enclosing
+    return "location: " + location.name
+
+
+def _effective_location_methods(methods):
+    if methods == None:
+        return struct(info=_location_info)
+
+    methods_type = type(methods)
+    if methods_type == "struct":
+        methods_mapping = methods.as_mapping()
+    else:
+        methods_mapping = methods
+    if "info" in methods_mapping:
+        return methods
+
+    merged_methods = dict(methods_mapping)
+    merged_methods["info"] = _location_info
+    return struct(**merged_methods)
+
+
 def _make_location_factory(loc_struct):
     allowed = python.getattr(loc_struct, "_allowed_attrs", {})
     mandatory = python.getattr(loc_struct, "_attrs_mandatory", set())
@@ -77,6 +99,7 @@ def _make_location_factory(loc_struct):
 
 def _location_impl(ctx):
     base_type = python.getattr(ctx.attr, 'base', None)
+    methods = _effective_location_methods(python.getattr(ctx.attr, "methods", None))
 
     if base_type == None:
         # No base: bootstrap a minimal no-op base for this location kind.
@@ -91,6 +114,8 @@ def _location_impl(ctx):
     other_fields = {}
     if python.hasattr(ctx.attr, 'description'):
         other_fields['description'] = ctx.attr.description
+    if methods != None:
+        other_fields["methods"] = methods
 
     predicate = python.getattr(ctx.attr, 'predicate', None)
 
@@ -134,7 +159,7 @@ def _location_impl(ctx):
         extra_validator=predicate,
         **other_fields
     )
-    builtins.register(ctx.kind, new_loc_struct)
+    new_loc_struct = builtins.register(ctx.kind, new_loc_struct)
     injectable = python.getattr(ctx.attr, 'injectable', True)
     if injectable != False:
         builtins.inject(ctx.attr.name, _make_location_factory(new_loc_struct))

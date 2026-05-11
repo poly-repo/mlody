@@ -16,6 +16,10 @@ _COMMON_ATTRS = {
         "type": "string",
         "metadata": {"mandatory": False, "default": ""},
     },
+    "methods": {
+        "type": "dict",
+        "metadata": {"mandatory": False, "default": None},
+    },
 }
 
 
@@ -43,6 +47,30 @@ def _validate_name(name):
 
 def _validate_attr_definitions(defs):
     return True
+
+def _validate_methods(methods):
+    if methods == None:
+        return
+
+    methods_type = type(methods)
+    if methods_type != "dict" and methods_type != "struct":
+        raise TypeError(
+            "'methods' must be a dict or struct of callables, got "
+            + repr(methods_type)
+        )
+
+    items = methods.items() if methods_type == "dict" else methods.as_mapping().items()
+    for method_name, method_body in items:
+        if type(method_name) != "string" or method_name == "":
+            raise TypeError(
+                "'methods' keys must be non-empty strings, got "
+                + repr(method_name)
+            )
+        if not callable(method_body):
+            raise TypeError(
+                "'methods[" + method_name + "]' must be callable, got "
+                + repr(type(method_body))
+            )
 
 def _validate_args(kwargs, attrs):
     _validate_attr_definitions(attrs)
@@ -90,10 +118,9 @@ def rule(*, implementation, kind, attrs=None):
         # Fill in defaults for optional attrs that the caller omitted.
         for attr_name, definition in state['attrs'].items():
             if attr_name not in kwargs:
-                default_val = definition['metadata']['default']
-                if default_val != None:
-                    kwargs[attr_name] = default_val
+                kwargs[attr_name] = definition['metadata']['default']
         _validate_name(kwargs["name"])
+        _validate_methods(kwargs["methods"])
         _resolve_references(kwargs, state['attrs'])
         ctx = struct(kind=kind, attr=struct(**kwargs))
         thing = implementation(ctx)

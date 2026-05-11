@@ -41,6 +41,9 @@ def _make_executor_factory(exec_struct):
             "type": exec_struct.type,
             "name": exec_struct.name,
         }
+        methods = python.getattr(exec_struct, "methods", None)
+        if methods != None:
+            fields["methods"] = methods
         for k, v in kwargs.items():
             fields[k] = v
         for k, attr_def in allowed.items():
@@ -70,9 +73,10 @@ def _executor_impl(ctx):
         name=ctx.attr.name,
         _allowed_attrs=allowed,
         _predicate=predicate,
+        methods=python.getattr(ctx.attr, "methods", None),
     )
 
-    builtins.register(ctx.kind, exec_struct)
+    exec_struct = builtins.register(ctx.kind, exec_struct)
     builtins.inject(ctx.attr.name, _make_executor_factory(exec_struct))
     return {}
 

@@ -17,12 +17,15 @@ def _user_impl(ctx):
         "description": ctx.attr.description,
         "groups": list(ctx.attr.groups),
     }
+    methods = python.getattr(ctx.attr, "methods", None)
+    if methods != None:
+        user_fields["methods"] = methods
     if entity_type != None:
         user_fields["_entity_type"] = entity_type
 
     user_struct = Struct(**user_fields)
-    builtins.register(ctx.kind, user_struct)
-    return builtins.lookup("user", ctx.attr.name)
+    user_struct = builtins.register(ctx.kind, user_struct)
+    return user_struct
 
 
 user = rule(

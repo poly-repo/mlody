@@ -31,6 +31,7 @@ class RegisteredTask(RegisteredStructBase):
     raw: object | None = None
     lineage: object | None = None
     _hash: object | None = None
+    methods: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)

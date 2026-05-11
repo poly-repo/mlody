@@ -163,6 +163,19 @@ class TestConflictOnDescriptionKey:
         assert "description" in str(exc)
 
 
+class TestConflictOnMethodsKey:
+    """Scenario: Conflict on methods key raises at definition time."""
+
+    def test_methods_key_conflict_raises_value_error(self) -> None:
+        exc = _eval_raises("""\
+            def _impl(ctx):
+                return {}
+            rule(implementation=_impl, kind="representation", attrs={"methods": attr(type="dict", mandatory=False)})
+        """)
+        assert isinstance(exc, ValueError)
+        assert "methods" in str(exc)
+
+
 class TestConflictOnBothKeys:
     """Scenario: Conflict on multiple keys names all conflicting keys."""
 
@@ -274,3 +287,31 @@ class TestMergeNonConflictingAttrs:
         assert thing.name == "mything"
         assert thing.extra == "hello"
         assert thing.description == ""
+
+
+class TestMethodsDefaultsAndValidation:
+    """Scenarios covering the shared methods field."""
+
+    def test_methods_defaults_to_none(self) -> None:
+        ev = _eval_script("""\
+            def _impl(ctx):
+                builtins.register("representation", struct(
+                    name=ctx.attr.name,
+                    methods=ctx.attr.methods,
+                ))
+            r = rule(implementation=_impl, kind="representation", attrs={})
+            r(name="mything")
+        """)
+        thing = ev.registry.all.get(("representation", "test", "mything"))
+        assert thing is not None
+        assert thing.methods is None
+
+    def test_methods_rejects_non_callable_entries(self) -> None:
+        exc = _eval_raises("""\
+            def _impl(ctx):
+                return {}
+            r = rule(implementation=_impl, kind="representation", attrs={})
+            r(name="bad", methods={"info": 1})
+        """)
+        assert isinstance(exc, TypeError)
+        assert "methods[info]" in str(exc)

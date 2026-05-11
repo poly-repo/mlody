@@ -60,6 +60,8 @@ try:
     from mlody.common.struct import (
         is_struct_like as _is_struct_like,
         struct_like_as_mapping as _struct_like_as_mapping,
+        struct_like_to_struct as _struct_like_to_struct,
+        struct_like_updated as _struct_like_updated,
     )
 except ModuleNotFoundError:
     def _is_struct_like(value: object) -> bool:
@@ -68,6 +70,18 @@ except ModuleNotFoundError:
     def _struct_like_as_mapping(value: object) -> Any:
         if isinstance(value, Struct):
             return value.as_mapping()
+        raise TypeError(f"expected Struct-like value, got {type(value).__name__}")
+
+    def _struct_like_to_struct(value: object) -> Any:
+        if isinstance(value, Struct):
+            return value
+        raise TypeError(f"expected Struct-like value, got {type(value).__name__}")
+
+    def _struct_like_updated(value: object, **changes: Any) -> Any:
+        if isinstance(value, Struct):
+            mapping = dict(value.as_mapping())
+            mapping.update(changes)
+            return Struct(**mapping)
         raise TypeError(f"expected Struct-like value, got {type(value).__name__}")
 
 from common.python.starlarkish.core.struct import Struct, struct
@@ -112,6 +126,24 @@ _LEGACY_REGISTRY_ATTRS = {
     "configs": ("configs", "by_key"),
     "_configs_by_name": ("configs", "by_name"),
 }
+_METHOD_ENTITY_KINDS = frozenset(
+    {
+        "root",
+        "type",
+        "location",
+        "freshness",
+        "representation",
+        "value",
+        "action",
+        "task",
+        "user",
+        "build_ref",
+        "implementation",
+        "executor",
+        "config",
+    }
+)
+_METHOD_RESERVED_ATTRIBUTE_NAMES = frozenset({"raw", "lineage"})
 
 
 def _wrap_registered_value(kind: str, value: object) -> object:
@@ -121,6 +153,205 @@ def _wrap_registered_value(kind: str, value: object) -> object:
         return value
 
     return wrap_registered_struct(kind, value)
+
+
+def _wrap_method_result_value(value: object) -> object:
+    try:
+        from mlody.common._registered_struct import wrap_method_result  # noqa: PLC0415
+    except ModuleNotFoundError:
+        return value
+
+    return wrap_method_result(value)
+
+
+def _method_items(methods: object) -> tuple[tuple[str, object], ...]:
+    if methods is None:
+        return ()
+    if isinstance(methods, Struct):
+        return tuple(
+            (str(name), method)
+            for name, method in methods.as_mapping().items()
+            if isinstance(name, str)
+        )
+    if isinstance(methods, dict):
+        return tuple(
+            (str(name), method)
+            for name, method in methods.items()
+            if isinstance(name, str)
+        )
+    raise TypeError(
+        f"'methods' must be a Struct or dict mapping strings to callables, got {type(methods)!r}.",
+    )
+
+
+def _method_collision_names(fields: dict[str, Any]) -> set[str]:
+    reserved = {name for name in fields if name != "methods"}
+    reserved.update(_METHOD_RESERVED_ATTRIBUTE_NAMES)
+
+    for descriptor_key in ("type", "_entity_type"):
+        for spec in _declared_child_specs(fields.get(descriptor_key)):
+            name = getattr(spec, "name", None)
+            if isinstance(name, str):
+                reserved.add(name)
+
+    allowed_attrs = fields.get("_allowed_attrs")
+    if isinstance(allowed_attrs, Struct):
+        reserved.update(
+            str(name)
+            for name in allowed_attrs.as_mapping()
+            if isinstance(name, str)
+        )
+    elif isinstance(allowed_attrs, dict):
+        reserved.update(str(name) for name in allowed_attrs if isinstance(name, str))
+
+    return reserved
+
+
+def _validate_method_names(fields: dict[str, Any], methods: object) -> None:
+    reserved = _method_collision_names(fields)
+    collisions = sorted(name for name, _method in _method_items(methods) if name in reserved)
+    if collisions:
+        raise ValueError(
+            "method names must not collide with concrete or synthetic attributes: "
+            f"{collisions!r}",
+        )
+
+
+def _wrap_starlark_method(
+    method_name: str,
+    method: object,
+    *,
+    default_enclosing: object | None,
+) -> Callable[..., object]:
+    raw_method = getattr(method, "__mlody_raw_callable__", method)
+    if not callable(raw_method):
+        raise TypeError(
+            f"'methods[{method_name}]' must be callable, got {type(method)!r}.",
+        )
+
+    def _wrapped_method(
+        entity: object,
+        enclosing_entity: object | None = _MISSING,
+    ) -> object:
+        actual_enclosing = (
+            default_enclosing
+            if enclosing_entity is _MISSING
+            else enclosing_entity
+        )
+        entity_struct = _struct_like_to_struct(entity)
+        enclosing_struct = (
+            None
+            if actual_enclosing is None
+            else _struct_like_to_struct(actual_enclosing)
+        )
+        result = raw_method(entity_struct, enclosing_struct)
+        normalized_result = _normalize_methods_recursively(
+            result,
+            enclosing_entity=None,
+        )
+        return _wrap_method_result_value(normalized_result)
+
+    setattr(_wrapped_method, "__mlody_method_wrapper__", True)
+    setattr(_wrapped_method, "__mlody_raw_callable__", raw_method)
+    return _wrapped_method
+
+
+def _normalize_method_mapping(
+    methods: object,
+    *,
+    default_enclosing: object | None,
+) -> Struct:
+    return Struct(
+        **{
+            name: _wrap_starlark_method(
+                name,
+                method,
+                default_enclosing=default_enclosing,
+            )
+            for name, method in _method_items(methods)
+        }
+    )
+
+
+def _normalize_methods_recursively(
+    value: object,
+    *,
+    enclosing_entity: object | None,
+) -> object:
+    if _is_struct_like(value) and not isinstance(value, Struct):
+        return value
+
+    if isinstance(value, Struct):
+        mapping = dict(value.as_mapping())
+        current_kind = mapping.get("kind")
+        current_is_entity = (
+            isinstance(current_kind, str)
+            and current_kind in _METHOD_ENTITY_KINDS
+        )
+        child_enclosing = value if current_is_entity else enclosing_entity
+
+        normalized_fields: dict[str, object] = {}
+        changed = False
+        for field_name, child in mapping.items():
+            if field_name == "methods":
+                continue
+            normalized_child = _normalize_methods_recursively(
+                child,
+                enclosing_entity=child_enclosing,
+            )
+            normalized_fields[field_name] = normalized_child
+            if normalized_child is not child:
+                changed = True
+
+        methods_value = mapping.get("methods", _MISSING)
+        if methods_value is not _MISSING:
+            if current_is_entity:
+                _validate_method_names(mapping, methods_value)
+                normalized_methods = _normalize_method_mapping(
+                    methods_value,
+                    default_enclosing=enclosing_entity,
+                )
+            else:
+                normalized_methods = _normalize_methods_recursively(
+                    methods_value,
+                    enclosing_entity=child_enclosing,
+                )
+            normalized_fields["methods"] = normalized_methods
+            if normalized_methods is not methods_value:
+                changed = True
+
+        if not changed:
+            return value
+        return Struct(**normalized_fields)
+
+    if isinstance(value, dict):
+        changed = False
+        normalized_dict: dict[object, object] = {}
+        for key, child in value.items():
+            normalized_child = _normalize_methods_recursively(
+                child,
+                enclosing_entity=enclosing_entity,
+            )
+            normalized_dict[key] = normalized_child
+            if normalized_child is not child:
+                changed = True
+        return normalized_dict if changed else value
+
+    if isinstance(value, list):
+        normalized_list = [
+            _normalize_methods_recursively(child, enclosing_entity=enclosing_entity)
+            for child in value
+        ]
+        return normalized_list if normalized_list != value else value
+
+    if isinstance(value, tuple):
+        normalized_tuple = tuple(
+            _normalize_methods_recursively(child, enclosing_entity=enclosing_entity)
+            for child in value
+        )
+        return normalized_tuple if normalized_tuple != value else value
+
+    return value
 
 
 def _declared_child_specs(value_type: object) -> tuple[object, ...]:
@@ -565,7 +796,7 @@ SAFE_BUILTINS: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
 
 @dataclass
 class Builtins:
-    register: Callable[[str, Named], None]
+    register: Callable[[str, Named], Any]
     lookup: Callable[[str, str], Any]
     ctx: Struct
     inject: Callable[[str, Any], None]
@@ -753,6 +984,16 @@ class Evaluator:
                 fields["_source_range"] = decorated_source_range
                 changed = True
 
+        normalized_value = _normalize_methods_recursively(
+            Struct(**fields),
+            enclosing_entity=None,
+        )
+        if isinstance(normalized_value, Struct):
+            normalized_fields = dict(normalized_value.as_mapping())
+            if normalized_fields != fields:
+                fields = normalized_fields
+                changed = True
+
         materialized_specs = self._materialized_child_specs(kind, fields)
         owner_snapshot: Struct | None = None
         owner_name = str(fields.get("name", ""))
@@ -826,7 +1067,7 @@ class Evaluator:
                 if isinstance(kind, str) and kind in _ENTITY_DESCRIPTOR_TYPE_NAMES:
                     module_globals[name] = self.decorate_registered_value(kind, value)
 
-    def _register(self, kind: str, thing: Named, ctx: Struct) -> None:
+    def _register(self, kind: str, thing: Named, ctx: Struct) -> Any:
         try:
             rel_file = ctx.file.relative_to(self.root_path)
             _stem = str(rel_file.with_suffix(""))
@@ -837,14 +1078,13 @@ class Evaluator:
         if self._line_range_extractor is not None:
             sr = self._file_ranges.get(ctx.file, {}).get((kind, thing.name))
             if sr is not None and isinstance(thing, Struct):
-                thing = Struct(
-                    **thing.as_mapping(),
-                    _source_range=self._make_source_range_struct(
-                        rel_file=rel_file,
-                        start_line=sr[0],
-                        end_line=sr[1],
-                    ),
+                thing_fields = dict(thing.as_mapping())
+                thing_fields["_source_range"] = self._make_source_range_struct(
+                    rel_file=rel_file,
+                    start_line=sr[0],
+                    end_line=sr[1],
                 )
+                thing = Struct(**thing_fields)
 
         thing = self.decorate_registered_value(kind, thing)
 
@@ -852,6 +1092,7 @@ class Evaluator:
         if kind == "type":
             self._refresh_declared_entity_types()
         _log.debug("Registered %r as %s", key, kind)
+        return thing
 
     def _lookup(self, kind: str, name: str) -> Any:  # pyright: ignore[reportExplicitAny]
         # Strip leading ':' so local-reference syntax (":foo") resolves like "foo".
@@ -1003,7 +1244,7 @@ class Evaluator:
             # where the callable was created.  This matters when a loaded helper
             # function (e.g. root() in builtins.mlody) calls builtins.register on
             # behalf of the file that invoked it.
-            def _register_for_file(kind: str, thing: Named) -> None:
+            def _register_for_file(kind: str, thing: Named) -> Any:
                 current_file = self._eval_stack[-1] if self._eval_stack else file_path
                 call_ctx = Struct(
                     **{  # pyright: ignore[reportExplicitAny]
@@ -1016,7 +1257,7 @@ class Evaluator:
                         ),
                     }
                 )
-                self._register(kind, thing, ctx=call_ctx)
+                return self._register(kind, thing, ctx=call_ctx)
 
             def _inject_into_sandbox(name: str, value: Any) -> None:  # pyright: ignore[reportExplicitAny]
                 # Inject into the file that is CURRENTLY EXECUTING (top of eval

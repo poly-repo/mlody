@@ -151,6 +151,47 @@ def _synthetic_allowed_attribute(segment: str, allowed_spec: object) -> Struct |
     return Struct(name=segment, type=allowed_spec)
 
 
+def _runtime_method_items(methods: object) -> tuple[tuple[str, object], ...]:
+    if methods is None:
+        return ()
+    if is_struct_like(methods):
+        return tuple(
+            (str(name), method)
+            for name, method in struct_like_as_mapping(methods).items()
+            if isinstance(name, str)
+        )
+    if isinstance(methods, dict):
+        return tuple(
+            (str(name), method)
+            for name, method in methods.items()
+            if isinstance(name, str)
+        )
+    return ()
+
+
+def _synthetic_method_attribute(segment: str, method: object) -> Struct:
+    return Struct(
+        kind="field",
+        name=segment,
+        materializer=method,
+        mandatory=False,
+        _readonly=True,
+        _materializes_runtime_value=True,
+    )
+
+
+def iter_runtime_method_attributes(value: object) -> tuple[object, ...]:
+    methods = getattr(value, "methods", None)
+    attrs: list[object] = []
+    seen: set[str] = set()
+    for name, method in _runtime_method_items(methods):
+        if name in seen:
+            continue
+        attrs.append(_synthetic_method_attribute(name, method))
+        seen.add(name)
+    return tuple(attrs)
+
+
 def is_virtual_value(value: object) -> bool:
     """Return True when *value* is a typed virtual value Struct."""
     if not is_struct_like(value):
@@ -291,6 +332,10 @@ def lookup_runtime_attribute(value: object, segment: str) -> object | None:
         if isinstance(allowed_attrs, dict) and segment in allowed_attrs:
             return _synthetic_allowed_attribute(segment, allowed_attrs[segment])
 
+    for attr_spec in iter_runtime_method_attributes(value):
+        if getattr(attr_spec, "name", None) == segment:
+            return attr_spec
+
     if segment == "raw" and is_struct_like(value):
         return _synthetic_raw_attribute()
 
@@ -376,7 +421,7 @@ def synthesize_runtime_child(
     segment: str,
     *,
     label: str | None = None,
-) -> Struct | None:
+) -> object | None:
     """Build a typed virtual child from a declared runtime field when needed."""
     attr_spec = lookup_runtime_attribute(value, segment)
     if attr_spec is None:
@@ -385,6 +430,9 @@ def synthesize_runtime_child(
     if not callable(declared_materializer):
         if is_struct_like(value) or not hasattr(value, segment):
             return None
+    if getattr(attr_spec, "_materializes_runtime_value", False):
+        materializer = _declared_child_materializer(value, segment, attr_spec)
+        return materializer(value)
     child_type = getattr(attr_spec, "type", _SENTINEL)
     if child_type is _SENTINEL or child_type is None:
         return None

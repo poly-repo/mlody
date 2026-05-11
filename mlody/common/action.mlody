@@ -232,6 +232,9 @@ def _action_impl(ctx):
         "requirements": requirements,
         "implementation": implementation,
     }
+    methods = python.getattr(ctx.attr, "methods", None)
+    if methods != None:
+        action_fields["methods"] = methods
     if entity_type != None:
         action_fields["_entity_type"] = entity_type
 

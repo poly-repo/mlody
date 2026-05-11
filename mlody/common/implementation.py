@@ -24,6 +24,7 @@ class RegisteredImplementation(RegisteredStructBase):
     file: str | None = None
     interpreter: str | None = None
     path: str | None = None
+    methods: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)

@@ -274,6 +274,11 @@ def _value_impl(ctx):
         # must remain a plain Python dict (not coerced to Struct by struct())
         # so that callers can use attributes.get("field") consistently with how
         # other location kinds store their attributes via extend_attrs/Struct.
+        derived_methods = python.getattr(
+            builtins.lookup("location", "derived"),
+            "methods",
+            None,
+        )
         loc_ref = Struct(
             kind="location",
             type="derived",
@@ -287,6 +292,7 @@ def _value_impl(ctx):
                 "dialect": sql_dialect,
                 "output_path": output_path,
             },
+            methods=derived_methods,
         )
     else:
         source_ref = _resolve_source_ref(source_raw) if source_raw != None else None
@@ -353,6 +359,9 @@ def _value_impl(ctx):
         value_fields["_entity_type"] = entity_type
     if source_value != None:
         value_fields["_source_value"] = source_value
+    methods = python.getattr(ctx.attr, "methods", None)
+    if methods != None:
+        value_fields["methods"] = methods
     for field_name, field_value in _contextual_value_fields(ctx.attr).items():
         value_fields[field_name] = field_value
     if source_raw != None:

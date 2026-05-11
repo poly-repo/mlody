@@ -14,6 +14,7 @@ from mlody.core.place import AssignmentMode, MISSING_PLACE_VALUE, Place, PlaceSe
 from mlody.core.setf_strategies import (
     DictKeySetter,
     ListIndexSetter,
+    ReadOnlyFieldSetter,
     SequenceSliceSetter,
     StructFieldSetter,
     VirtualValueFieldSetter,
@@ -170,8 +171,19 @@ def _make_direct_place(
     selector = PathExpression(segments=prefix)
     lineage_on_current = _has_lineage(current_value)
     lineage_on_owner = _has_lineage(owner)
+    runtime_attr = (
+        lookup_runtime_attribute(owner, segment.name)
+        if isinstance(segment, FieldSegment)
+        else None
+    )
     if isinstance(segment, FieldSegment) and is_virtual_value(owner):
         strategy = VirtualValueFieldSetter()
+    elif (
+        isinstance(segment, FieldSegment)
+        and runtime_attr is not None
+        and getattr(runtime_attr, "_readonly", False)
+    ):
+        strategy = ReadOnlyFieldSetter()
     elif isinstance(segment, FieldSegment) and (
         is_struct_like(owner) or isinstance(owner, dict)
     ):

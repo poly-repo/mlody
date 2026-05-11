@@ -112,7 +112,10 @@ class _StructAdapter:
         mapping = struct_like_as_mapping(value)
         children = [(FieldSegment(name), child) for name, child in mapping.items()]
         seen = set(mapping)
-        from mlody.core.virtual_value import iter_declared_attributes  # noqa: PLC0415
+        from mlody.core.virtual_value import (  # noqa: PLC0415
+            iter_declared_attributes,
+            iter_runtime_method_attributes,
+        )
 
         for attr_spec in iter_declared_attributes(getattr(value, "type", None)):
             name = getattr(attr_spec, "name", None)
@@ -123,6 +126,13 @@ class _StructAdapter:
                     seen.add(name)
         entity_type = getattr(value, "_entity_type", None)
         for attr_spec in iter_declared_attributes(entity_type):
+            name = getattr(attr_spec, "name", None)
+            if isinstance(name, str) and name not in seen:
+                synthesized = _synthesized_runtime_child(value, name)
+                if synthesized is not None:
+                    children.append((FieldSegment(name), synthesized))
+                    seen.add(name)
+        for attr_spec in iter_runtime_method_attributes(value):
             name = getattr(attr_spec, "name", None)
             if isinstance(name, str) and name not in seen:
                 synthesized = _synthesized_runtime_child(value, name)

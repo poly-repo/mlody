@@ -48,6 +48,7 @@ def _make_freshness_factory(freshness_struct):
 
 def _freshness_impl(ctx):
     base_type = python.getattr(ctx.attr, "base", None)
+    methods = python.getattr(ctx.attr, "methods", None)
 
     if base_type == None:
         base_type = Struct(
@@ -64,6 +65,8 @@ def _freshness_impl(ctx):
     other_fields = {}
     if python.hasattr(ctx.attr, "description"):
         other_fields["description"] = ctx.attr.description
+    if methods != None:
+        other_fields["methods"] = methods
 
     predicate = python.getattr(ctx.attr, "predicate", None)
 
@@ -104,7 +107,7 @@ def _freshness_impl(ctx):
         extra_validator=predicate,
         **other_fields
     )
-    builtins.register(ctx.kind, new_freshness_struct)
+    new_freshness_struct = builtins.register(ctx.kind, new_freshness_struct)
     injectable = python.getattr(ctx.attr, "injectable", True)
     if injectable != False:
         builtins.inject(ctx.attr.name, _make_freshness_factory(new_freshness_struct))

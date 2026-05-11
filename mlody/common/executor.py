@@ -24,6 +24,7 @@ class RegisteredExecutor(RegisteredStructBase):
     pipeline_name: str | None = None
     experiment: str | None = None
     workflow_template: str | None = None
+    methods: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)

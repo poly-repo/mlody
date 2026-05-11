@@ -62,6 +62,23 @@ class VirtualValueFieldSetter:
         raise AssertionError("virtual value commit should be unreachable after preflight")
 
 
+class ReadOnlyFieldSetter:
+    """Explicit failure strategy for synthetic read-only runtime selectors."""
+
+    def preflight(self, place: Place, new_value: object, *, mode: AssignmentMode) -> None:
+        _ = (new_value, mode)
+        segment = _terminal_segment(place)
+        if not isinstance(segment, FieldSegment):
+            raise TypeError(f"expected FieldSegment, got {type(segment).__name__}")
+        raise NotImplementedError(
+            "assignment through read-only runtime selectors is not supported"
+        )
+
+    def commit(self, place: Place, new_value: object, *, mode: AssignmentMode) -> object:
+        self.preflight(place, new_value, mode=mode)
+        raise AssertionError("read-only runtime commit should be unreachable after preflight")
+
+
 class ListIndexSetter:
     """Placeholder strategy for direct index writes on list-like values."""
 

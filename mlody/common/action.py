@@ -30,6 +30,7 @@ class RegisteredAction(RegisteredStructBase):
     _source_range: object | None = None
     raw: object | None = None
     lineage: object | None = None
+    methods: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)

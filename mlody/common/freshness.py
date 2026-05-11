@@ -24,6 +24,7 @@ class RegisteredFreshness(RegisteredStructBase):
     _root_kind: str
     description: str | None = None
     _attrs_mandatory: set[str] | None = None
+    methods: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)

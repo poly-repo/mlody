@@ -45,6 +45,7 @@ def _type_impl(ctx):
     base_type = python.getattr(ctx.attr, 'base', None)
     virtual_attributes = python.getattr(ctx.attr, "virtual_attributes", None)
     declared_fields = python.getattr(ctx.attr, "fields", None)
+    methods = python.getattr(ctx.attr, "methods", None)
 
     merged_record_fields = None
     merged_record_strict = None
@@ -81,8 +82,9 @@ def _type_impl(ctx):
             _root_kind="map", validator=_map_validator,
             canonical=captured_canonical,
             virtual_attributes=virtual_attributes,
+            methods=methods,
         )
-        builtins.register(ctx.kind, new_type_struct)
+        new_type_struct = builtins.register(ctx.kind, new_type_struct)
         builtins.inject(ctx.attr.name, _make_factory(new_type_struct))
         return {}
 
@@ -105,8 +107,9 @@ def _type_impl(ctx):
             _root_kind="tuple", validator=_tuple_validator,
             canonical=captured_canonical,
             virtual_attributes=virtual_attributes,
+            methods=methods,
         )
-        builtins.register(ctx.kind, new_type_struct)
+        new_type_struct = builtins.register(ctx.kind, new_type_struct)
         builtins.inject(ctx.attr.name, _make_factory(new_type_struct))
         return {}
 
@@ -155,6 +158,8 @@ def _type_impl(ctx):
         other_fields["_attrs_mandatory"] = attrs_mandatory
     if virtual_attributes != None:
         other_fields["virtual_attributes"] = virtual_attributes
+    if methods != None:
+        other_fields["methods"] = methods
     if merged_record_fields != None:
         extra_attributes = {
             "fields": merged_record_fields,
@@ -252,7 +257,7 @@ def _type_impl(ctx):
         for k, v in other_fields.items():
             repr_fields[k] = v
         new_type_struct = Struct(**repr_fields)
-        builtins.register(ctx.kind, new_type_struct)
+        new_type_struct = builtins.register(ctx.kind, new_type_struct)
         builtins.inject(ctx.attr.name, _make_factory(new_type_struct))
         return {}
 
@@ -264,7 +269,7 @@ def _type_impl(ctx):
         extra_validator=predicate,
         **other_fields
     )
-    builtins.register(ctx.kind, new_type_struct)
+    new_type_struct = builtins.register(ctx.kind, new_type_struct)
     builtins.inject(ctx.attr.name, _make_factory(new_type_struct))
     return {}
 

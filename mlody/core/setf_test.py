@@ -328,6 +328,20 @@ class TestSetfModuleSkeleton:
         with pytest.raises(NotImplementedError, match="virtual value selectors"):
             can_setf(root, ".branch", "release")
 
+    def test_can_setf_rejects_read_only_runtime_method_targets(self) -> None:
+        """Synthetic method attributes are readable but not assignable."""
+        root = Struct(
+            kind="location",
+            type="inline",
+            name="inline",
+            methods=Struct(
+                info=lambda owner, _enclosing=None: f"location: {owner.name}",
+            ),
+        )
+
+        with pytest.raises(NotImplementedError, match="read-only runtime selectors"):
+            can_setf(root, ".info", "override")
+
     def test_setf_updates_direct_struct_field_without_mutating_original(self) -> None:
         """Task 3.1 / 4.4: direct Struct field writes rebuild the path safely."""
         root = Struct(config=Struct(learning_rate=0.1))

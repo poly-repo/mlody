@@ -509,6 +509,23 @@ builtins.register("value", struct(
 ))
 """
 
+VALUE_WITH_LOCATION_METHOD_MLODY = """\
+builtins.register("value", struct(
+    kind="value",
+    name="my_value",
+    type=struct(kind="type", type="string", name="string"),
+    location=struct(
+        kind="location",
+        type="inline",
+        name="inline",
+        methods=struct(
+            info=lambda location, enclosing: "location: " + location.name,
+        ),
+    ),
+    _lineage=[],
+))
+"""
+
 TOP_JSON_VALUE_MLODY = """\
 builtins.register("value", struct(
     kind="value",
@@ -577,6 +594,19 @@ class TestValueKind:
 
         assert isinstance(result, _RawAttrValue)
         assert result.value == "my_value"
+
+    def test_location_method_traversal_returns_raw_string(self, fs: FakeFilesystem) -> None:
+        """Method-backed traversal on nested locations materializes the method result."""
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/foo.mlody": VALUE_WITH_LOCATION_METHOD_MLODY},
+        )
+
+        label = parse_label("@myroot//pkg/foo:my_value.location.info")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, _RawAttrValue)
+        assert result.value == "location: inline"
 
     def test_missing_attribute_returns_unresolved(self, fs: FakeFilesystem) -> None:
         """Scenario: Attribute not present on the value struct."""

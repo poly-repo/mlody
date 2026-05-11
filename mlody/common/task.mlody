@@ -80,13 +80,16 @@ def _task_impl(ctx):
         "config": config,
         "executor": executor,
     }
+    methods = python.getattr(ctx.attr, "methods", None)
+    if methods != None:
+        task_fields["methods"] = methods
     if entity_type != None:
         task_fields["_entity_type"] = entity_type
 
     task_struct = Struct(
         **task_fields,
     )
-    builtins.register(ctx.kind, task_struct)
+    task_struct = builtins.register(ctx.kind, task_struct)
 
     def _register_scoped_value(prefix, v):
         if type(v) == "struct" and python.getattr(v, "kind", None) == "value":
@@ -108,7 +111,7 @@ def _task_impl(ctx):
         for v in python.getattr(resolved_action, "inputs", []) + python.getattr(resolved_action, "outputs", []):
             _register_scoped_value(action_prefix, v)
 
-    return builtins.lookup("task", ctx.attr.name)
+    return task_struct
 
 
 task = rule(

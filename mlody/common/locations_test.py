@@ -177,6 +177,27 @@ def test_posix_path_accepts_explicit_list() -> None:
     assert result.attributes["path"] == ["a", "b"]
 
 
+def test_location_info_method_returns_name_string() -> None:
+    """All locations expose info() as a Python-callable method wrapper."""
+    ev = _eval("result = s3()")
+    result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
+    assert result.methods.info(result) == "location: s3"
+
+
+def test_location_info_method_is_merged_with_custom_methods() -> None:
+    """Custom location methods keep the built-in info() method unless overridden."""
+    ev = _eval("""\
+        location(
+            name="custom_loc",
+            methods=struct(extra=lambda location, enclosing: location.name + ":" + enclosing.name if enclosing != None else location.name),
+        )
+        result = custom_loc()
+    """)
+    result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
+    assert result.methods.info(result) == "location: custom_loc"
+    assert result.methods.extra(result) == "custom_loc"
+
+
 def test_remote_requires_uri_and_stores_it() -> None:
     """remote(uri=...) creates a location struct carrying the URI."""
     ev = _eval('result = remote(uri="https://example.com/data.csv")')

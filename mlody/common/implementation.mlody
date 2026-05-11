@@ -44,6 +44,9 @@ def _make_implementation_factory(impl_struct):
             "type": impl_struct.type,
             "name": impl_struct.name,
         }
+        methods = python.getattr(impl_struct, "methods", None)
+        if methods != None:
+            fields["methods"] = methods
         for k, v in kwargs.items():
             fields[k] = v
         for k, attr_def in allowed.items():
@@ -73,9 +76,10 @@ def _implementation_impl(ctx):
         name=ctx.attr.name,
         _allowed_attrs=allowed,
         _predicate=predicate,
+        methods=python.getattr(ctx.attr, "methods", None),
     )
 
-    builtins.register(ctx.kind, impl_struct)
+    impl_struct = builtins.register(ctx.kind, impl_struct)
     builtins.inject(ctx.attr.name, _make_implementation_factory(impl_struct))
     return {}
 

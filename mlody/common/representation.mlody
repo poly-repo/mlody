@@ -35,6 +35,7 @@ def _make_representation_factory(rep_struct):
             "attributes": merged_attrs,
             "_allowed_attrs": allowed,
             "_attrs_mandatory": mandatory,
+            "methods": python.getattr(rep_struct, "methods", None),
         }
         for k, v in merged_attrs.items():
             rep_fields[k] = v
@@ -81,12 +82,13 @@ def _representation_impl(ctx):
         "attributes": default_attrs,
         "_allowed_attrs": attrs_spec,
         "_attrs_mandatory": attrs_mandatory,
+        "methods": python.getattr(ctx.attr, "methods", None),
     }
     for k, v in default_attrs.items():
         rep_fields[k] = v
 
     rep_struct = Struct(**rep_fields)
-    builtins.register(ctx.kind, rep_struct)
+    rep_struct = builtins.register(ctx.kind, rep_struct)
     builtins.inject(ctx.attr.name, _make_representation_factory(rep_struct))
     return rep_struct
 

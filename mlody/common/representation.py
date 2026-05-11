@@ -28,6 +28,7 @@ class RegisteredRepresentation(RegisteredStructBase):
     total_max_length: int | None = None
     separator: str | None = None
     header_required: bool | None = None
+    methods: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)

@@ -75,6 +75,20 @@ class TestTraversalRuntime:
         assert getattr(result, "kind", None) == "value"
         assert getattr(result, "label", None) == "'info.branch"
 
+    def test_step_segment_materializes_runtime_method_attribute(self) -> None:
+        location = Struct(
+            kind="location",
+            type="inline",
+            name="inline",
+            methods=Struct(
+                info=lambda owner, _enclosing=None: f"location: {owner.name}",
+            ),
+        )
+
+        result = step_segment(location, FieldSegment("info"))
+
+        assert result == "location: inline"
+
     def test_iter_children_returns_segments_for_struct_list_and_dict(self) -> None:
         struct_children = list(iter_children(Struct(answer=42)))
         list_children = list(iter_children(["a", "b"]))
@@ -83,6 +97,20 @@ class TestTraversalRuntime:
         assert struct_children == [(FieldSegment("answer"), 42)]
         assert list_children == [(IndexSegment(0), "a"), (IndexSegment(1), "b")]
         assert dict_children == [(KeySegment("answer"), 42)]
+
+    def test_iter_children_includes_runtime_method_attributes(self) -> None:
+        location = Struct(
+            kind="location",
+            type="inline",
+            name="inline",
+            methods=Struct(
+                info=lambda owner, _enclosing=None: f"location: {owner.name}",
+            ),
+        )
+
+        children = list(iter_children(location))
+
+        assert (FieldSegment("info"), "location: inline") in children
 
     def test_replace_child_updates_struct_list_and_dict_without_mutating_original(self) -> None:
         struct_value = Struct(answer=1)

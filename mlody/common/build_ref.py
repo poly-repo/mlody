@@ -20,6 +20,7 @@ class RegisteredBuildRef(RegisteredStructBase):
     _allowed_attrs: dict[str, object]
     _predicate: object | None = None
     target: str | None = None
+    methods: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)

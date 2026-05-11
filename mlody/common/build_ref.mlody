@@ -38,6 +38,9 @@ def _make_build_ref_factory(br_struct):
 
         # Merge discriminator fields + caller kwargs + defaults for optional attrs.
         fields = {"kind": br_struct.kind, "type": br_struct.type, "name": br_struct.name}
+        methods = python.getattr(br_struct, "methods", None)
+        if methods != None:
+            fields["methods"] = methods
         for k, v in kwargs.items():
             fields[k] = v
         for k, attr_def in allowed.items():
@@ -69,9 +72,10 @@ def _build_ref_impl(ctx):
         name=ctx.attr.name,
         _allowed_attrs=allowed,
         _predicate=predicate,
+        methods=python.getattr(ctx.attr, "methods", None),
     )
 
-    builtins.register(ctx.kind, br_struct)
+    br_struct = builtins.register(ctx.kind, br_struct)
     builtins.inject(ctx.attr.name, _make_build_ref_factory(br_struct))
     return {}
 
