@@ -1255,6 +1255,15 @@ class Evaluator:
             ctx_kwargs.update(self._extra_ctx.as_mapping())
         return Struct(**ctx_kwargs)
 
+    def update_extra_ctx(self, extra_ctx: Struct | None) -> None:
+        """Replace the shared runtime context and refresh loaded sandboxes."""
+        self._extra_ctx = extra_ctx
+        for file_path, sandbox_globals in self._module_globals.items():
+            self._install_sandbox_runtime_bindings(
+                file_path=file_path,
+                sandbox_globals=sandbox_globals,
+            )
+
     def _make_register_for_file(
         self,
         file_path: Path,

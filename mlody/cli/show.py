@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import dataclasses
 from functools import singledispatch
 import json
@@ -55,6 +56,7 @@ from mlody.resolver import (
     MlodyWorkspaceValue,
     configure_workspace,
     resolve_label_to_value,
+    resolve_workspace_baseline,
     resolve_workspace,
 )
 from mlody.resolver.errors import WorkspaceResolutionError
@@ -1351,6 +1353,75 @@ def _maybe_print_dag_plan(workspace: Workspace, label: str) -> None:
         _logger.debug("Skipping DAG plan rendering for %r: %s", label, exc)
 
 
+def _registered_users(workspace: object) -> list[tuple[str, str]]:
+    evaluator = getattr(workspace, "evaluator", None)
+    registry = getattr(evaluator, "registry", None)
+    users_bucket = getattr(registry, "users", None)
+    by_name = getattr(users_bucket, "by_name", None)
+    if not isinstance(by_name, Mapping):
+        return []
+
+    users: list[tuple[str, str]] = []
+    for raw_user in by_name.values():
+        name = getattr(raw_user, "name", None)
+        description = getattr(raw_user, "description", "")
+        if not isinstance(name, str):
+            continue
+        users.append((name, description if isinstance(description, str) else ""))
+    return sorted(users, key=lambda item: item[0])
+
+
+def _format_valid_users(users: list[tuple[str, str]]) -> str:
+    formatted: list[str] = []
+    for name, description in users:
+        if description and description != name:
+            formatted.append(f"{name} ({description})")
+        else:
+            formatted.append(name)
+    return ", ".join(formatted)
+
+
+def _validate_show_user(workspace: object, requested_user: str) -> str:
+    users = _registered_users(workspace)
+    if not users:
+        raise click.ClickException(
+            f"User {requested_user!r} is invalid because this workspace has no registered users.",
+        )
+
+    matches = {
+        name
+        for name, description in users
+        if requested_user == name or requested_user == description
+    }
+    if len(matches) == 1:
+        return next(iter(matches))
+    if len(matches) > 1:
+        raise click.ClickException(
+            "User "
+            f"{requested_user!r} is ambiguous; it matches multiple registered users. "
+            f"Valid users: {_format_valid_users(users)}",
+        )
+    raise click.ClickException(
+        f"User {requested_user!r} is not one of the valid registered users. "
+        f"Valid users: {_format_valid_users(users)}",
+    )
+
+
+def _workspace_with_show_user_context(
+    workspace: object,
+    *,
+    user: str,
+    resolved_sha: str | None,
+) -> object:
+    if isinstance(workspace, Workspace):
+        workspace = workspace.fork_request()
+
+    update_global_context = getattr(workspace, "update_global_context", None)
+    if callable(update_global_context):
+        update_global_context(user=user, resolved_sha=resolved_sha)
+    return workspace
+
+
 @cli.command()
 @click.option(
     "--with",
@@ -1358,9 +1429,19 @@ def _maybe_print_dag_plan(workspace: Workspace, label: str) -> None:
     multiple=True,
     help="Extra value; may be repeated.",
 )
+@click.option(
+    "--as",
+    "run_as",
+    help="Registered user name or description for this show invocation.",
+)
 @click.argument("targets", nargs=-1, required=True)
 @click.pass_context
-def show(ctx: click.Context, config: list[str], targets: tuple[str, ...]) -> None:
+def show(
+    ctx: click.Context,
+    config: list[str],
+    run_as: str | None,
+    targets: tuple[str, ...],
+) -> None:
     """Resolve and display pipeline values.
 
     TARGETS: One or more Bazel-style target references. A target may be
@@ -1369,7 +1450,7 @@ def show(ctx: click.Context, config: list[str], targets: tuple[str, ...]) -> Non
     """
     # Support legacy test injection of a pre-built workspace via ctx.obj
     if "workspace" in ctx.obj:
-        _show_with_legacy_workspace(ctx, config, targets)
+        _show_with_legacy_workspace(ctx, config, run_as, targets)
         return
 
     monorepo_root: Path = ctx.obj["monorepo_root"]
@@ -1383,15 +1464,34 @@ def show(ctx: click.Context, config: list[str], targets: tuple[str, ...]) -> Non
 
     for target in targets:
         try:
-            workspace, resolved_sha = resolve_workspace(
-                target,
-                monorepo_root=monorepo_root,
-                workspace_root=workspace_root,
-                config=config,
-                roots_file=roots,
-                full_workspace=full_workspace,
-                verbose=verbose,
-            )
+            selected_user: str | None = None
+            if run_as is None:
+                workspace, resolved_sha = resolve_workspace(
+                    target,
+                    monorepo_root=monorepo_root,
+                    workspace_root=workspace_root,
+                    config=config,
+                    roots_file=roots,
+                    full_workspace=full_workspace,
+                    verbose=verbose,
+                )
+            else:
+                baseline_workspace, resolved_sha = resolve_workspace_baseline(
+                    target,
+                    monorepo_root=monorepo_root,
+                    workspace_root=workspace_root,
+                    roots_file=roots,
+                    full_workspace=full_workspace,
+                    verbose=verbose,
+                )
+                selected_user = _validate_show_user(baseline_workspace, run_as)
+                workspace = _workspace_with_show_user_context(
+                    baseline_workspace,
+                    user=selected_user,
+                    resolved_sha=resolved_sha,
+                )
+                workspace = configure_workspace(workspace, config)
+
             if resolved_sha is not None:
                 _logger.debug("Resolved %s to %s", target.split("|")[0], resolved_sha)
 
@@ -1459,6 +1559,8 @@ def show(ctx: click.Context, config: list[str], targets: tuple[str, ...]) -> Non
 
                 if rendered_any_output or not _is_dag_value(mlody_value):
                     print()
+                if selected_user is not None:
+                    click.echo(f"Value for user '{selected_user}'")
                 _error_sink: list[bool] = []
                 _print_mlody_value(
                     mlody_value, workspace=workspace, _has_error=_error_sink
@@ -1490,6 +1592,7 @@ def show(ctx: click.Context, config: list[str], targets: tuple[str, ...]) -> Non
 def _show_with_legacy_workspace(
     ctx: click.Context,
     config: list[str],
+    run_as: str | None,
     targets: tuple[str, ...],
 ) -> None:
     """Handle the legacy test injection path where ctx.obj['workspace'] is set.
@@ -1499,6 +1602,15 @@ def _show_with_legacy_workspace(
     """
     workspace: Workspace = ctx.obj["workspace"]
     has_error = False
+    selected_user: str | None = None
+
+    if run_as is not None:
+        selected_user = _validate_show_user(workspace, run_as)
+        workspace = _workspace_with_show_user_context(
+            workspace,
+            user=selected_user,
+            resolved_sha=None,
+        )
 
     try:
         workspace = configure_workspace(workspace, config)
@@ -1531,6 +1643,8 @@ def _show_with_legacy_workspace(
             click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
             continue
 
+        if selected_user is not None:
+            click.echo(f"Value for user '{selected_user}'")
         click.echo(_format_value(value))
 
     if has_error:

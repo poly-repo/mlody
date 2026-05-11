@@ -12,6 +12,7 @@ from mlody.resolver.label_value import MlodyWorkspaceValue as MlodyWorkspaceValu
 from mlody.resolver.label_value import TraversalErrorPolicy as TraversalErrorPolicy
 from mlody.resolver.label_value import resolve_label_to_value as resolve_label_to_value
 from mlody.resolver.resolver import configure_workspace as configure_workspace
+from mlody.resolver.resolver import resolve_workspace_baseline as resolve_workspace_baseline
 from mlody.resolver.resolver import resolve_workspace as resolve_workspace
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "TraversalErrorPolicy",
     "configure_workspace",
     "resolve_label_to_value",
+    "resolve_workspace_baseline",
     "resolve_workspace",
 ]

@@ -406,6 +406,133 @@ class TestShowCommandVerbose:
 
 
 # ---------------------------------------------------------------------------
+# CLI show command — --as user selection
+# ---------------------------------------------------------------------------
+
+
+class TestShowCommandAsUser:
+    def test_as_accepts_full_description_and_prints_canonical_user(
+        self, tmp_path: Path
+    ) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@bert//models:lr"]
+        mock_ws.evaluator.registry.users.by_name = {
+            "agarcia": struct(
+                kind="user",
+                name="agarcia",
+                description="Ava Garcia",
+                groups=["framera"],
+            )
+        }
+        resolved_value = MlodyTaskValue(struct=struct(kind="task", name="lr"))
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace_baseline") as mock_baseline, \
+             patch("mlody.cli.show.configure_workspace") as mock_configure, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+            mock_baseline.return_value = (mock_ws, "a" * 40)
+            mock_configure.return_value = mock_ws
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "--as", "Ava Garcia", "@bert//models:lr"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "Value for user 'agarcia'" in result.output
+        assert result.output.index("Value for user 'agarcia'") < result.output.index("lr")
+
+    def test_as_updates_global_context_before_configure_workspace(
+        self, tmp_path: Path
+    ) -> None:
+        baseline_ws = MagicMock()
+        baseline_ws.root_infos = {}
+        baseline_ws.evaluator.registry.users.by_name = {
+            "agarcia": struct(
+                kind="user",
+                name="agarcia",
+                description="Ava Garcia",
+                groups=["framera"],
+            )
+        }
+        baseline_ws.update_global_context = MagicMock()
+
+        configured_ws = MagicMock()
+        configured_ws.root_infos = {}
+        configured_ws.expand_wildcard_label.return_value = ["@bert//models:lr"]
+        resolved_value = MlodyTaskValue(struct=struct(kind="task", name="lr"))
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace_baseline") as mock_baseline, \
+             patch("mlody.cli.show.configure_workspace") as mock_configure, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+            mock_baseline.return_value = (baseline_ws, "a" * 40)
+
+            def _configure(workspace: object, config: object) -> object:
+                baseline_ws.update_global_context.assert_called_once_with(
+                    user="agarcia",
+                    resolved_sha="a" * 40,
+                )
+                assert workspace is baseline_ws
+                assert config == ("@bert//models:cfg=abc123",)
+                return configured_ws
+
+            mock_configure.side_effect = _configure
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                [
+                    "show",
+                    "--as",
+                    "agarcia",
+                    "--with",
+                    "@bert//models:cfg=abc123",
+                    "@bert//models:lr",
+                ],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+
+    def test_as_rejects_unknown_user_before_configuration(
+        self, tmp_path: Path
+    ) -> None:
+        mock_ws = MagicMock()
+        mock_ws.evaluator.registry.users.by_name = {
+            "agarcia": struct(
+                kind="user",
+                name="agarcia",
+                description="Ava Garcia",
+                groups=["framera"],
+            ),
+            "jlee": struct(
+                kind="user",
+                name="jlee",
+                description="Jordan Lee",
+                groups=["sonora"],
+            ),
+        }
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace_baseline") as mock_baseline, \
+             patch("mlody.cli.show.configure_workspace") as mock_configure:
+            mock_baseline.return_value = (mock_ws, None)
+            result = runner.invoke(
+                cli,
+                ["show", "--as", "nobody", "@bert//models:lr"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 1
+        assert "nobody" in result.output
+        assert "agarcia (Ava Garcia)" in result.output
+        assert "jlee (Jordan Lee)" in result.output
+        mock_configure.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # CLI show command — output rendering
 # ---------------------------------------------------------------------------
 

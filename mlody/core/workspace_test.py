@@ -327,6 +327,30 @@ builtins.register(\"value\", Struct(
         assert baseline_custom.entries == [1]  # type: ignore[attr-defined]
         assert baseline_custom.nested.values == [1]
 
+    def test_update_global_context_refreshes_builtins_ctx(
+        self,
+        project: Path,
+    ) -> None:
+        workspace = Workspace(monorepo_root=project)
+        workspace.load()
+
+        workspace.update_global_context(
+            user="agarcia",
+            resolved_sha="a" * 40,
+        )
+
+        extra_ctx = workspace.evaluator._extra_ctx  # noqa: SLF001
+        assert extra_ctx is not None
+        assert extra_ctx.workspace.user == "agarcia"
+        assert extra_ctx.workspace.commit == "a" * 40
+        assert extra_ctx.workspace.directory == str(project)
+
+        for module_globals in workspace.evaluator._module_globals.values():  # noqa: SLF001
+            builtins_ctx = module_globals["builtins"].ctx
+            assert builtins_ctx.workspace.user == "agarcia"
+            assert builtins_ctx.workspace.commit == "a" * 40
+            assert builtins_ctx.workspace.directory == str(project)
+
     def test_explicit_reload_rebuilds_cwd_baseline_from_updated_files(
         self,
         project: Path,

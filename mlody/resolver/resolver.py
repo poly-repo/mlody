@@ -794,6 +794,68 @@ def _workspace_injections(
     return extra_roots, lazy_roots
 
 
+def resolve_workspace_baseline(
+    label: str,
+    monorepo_root: Path,
+    workspace_root: Path | None = None,
+    roots_file: Path | None = None,
+    full_workspace: bool = False,
+    print_fn: Callable[..., None] = print,
+    git_client: GitClient | None = None,
+    cache_root: Path | None = None,
+    verbose: bool = False,
+) -> tuple[Workspace, str | None]:
+    """Resolve a raw label to a loaded baseline workspace and optional SHA."""
+    committoid, _inner_label = parse_label(label)
+
+    if committoid is None:
+        ws_root = workspace_root if workspace_root is not None else monorepo_root
+        extra_roots, lazy_roots = _workspace_injections(monorepo_root, ws_root)
+        baseline = get_or_build_baseline_workspace(
+            mode="cwd",
+            monorepo_root=monorepo_root,
+            workspace_root=ws_root,
+            roots_file=roots_file,
+            full_workspace=full_workspace,
+            print_fn=print_fn,
+            extra_roots=extra_roots,
+            lazy_roots=lazy_roots,
+            verbose=verbose,
+        )
+        return (baseline, None)
+
+    client = git_client or GitClient(monorepo_root)
+    root = cache_root or (Path.home() / _DEFAULT_CACHE_SUFFIX)
+    ensure_cache_root(root)
+
+    resolved = resolve_sha(committoid, client)
+    _logger.debug("Resolved %s to %s", committoid, resolved.sha)
+
+    dest = materialise(
+        resolved.sha,
+        monorepo_root,
+        client,
+        root,
+        committoid,
+        local_only=resolved.local_only,
+    )
+
+    try:
+        baseline = get_or_build_baseline_workspace(
+            mode="commit",
+            monorepo_root=dest,
+            workspace_root=dest,
+            roots_file=None,
+            full_workspace=full_workspace,
+            print_fn=print_fn,
+            resolved_sha=resolved.sha,
+            verbose=verbose,
+        )
+        return (baseline, resolved.sha)
+    except FileNotFoundError:
+        raise NoMlodyAtCommitError(committoid, resolved.sha) from None
+
+
 def resolve_workspace(
     label: str,
     monorepo_root: Path,
@@ -824,43 +886,13 @@ def resolve_workspace(
     All error conditions raise WorkspaceResolutionError subclasses — callers
     are responsible for catching and formatting them.
     """
-    committoid, inner_label = parse_label(label)
+    committoid, _inner_label = parse_label(label)
 
-    if committoid is None:
-        ws_root = workspace_root if workspace_root is not None else monorepo_root
-        extra_roots, lazy_roots = _workspace_injections(monorepo_root, ws_root)
-        baseline = get_or_build_baseline_workspace(
-            mode="cwd",
-            monorepo_root=monorepo_root,
-            workspace_root=ws_root,
-            roots_file=roots_file,
-            full_workspace=full_workspace,
-            print_fn=print_fn,
-            extra_roots=extra_roots,
-            lazy_roots=lazy_roots,
-            verbose=verbose,
-        )
-        return (configure_workspace(baseline, config), None)
-
-    client = git_client or GitClient(monorepo_root)
-    root = cache_root or (Path.home() / _DEFAULT_CACHE_SUFFIX)
-    ensure_cache_root(root)
-
-    resolved = resolve_sha(committoid, client)
-    _logger.debug("Resolved %s to %s", committoid, resolved.sha)
-
-    dest = materialise(
-        resolved.sha,
-        monorepo_root,
-        client,
-        root,
-        committoid,
-        local_only=resolved.local_only,
-    )
-
-    if value_description:
+    if value_description and committoid is not None:
         from datetime import datetime, timezone
 
+        client = git_client or GitClient(monorepo_root)
+        resolved = resolve_sha(committoid, client)
         _record_evaluation_best_effort(
             resolved_sha=resolved.sha,
             committoid=committoid,
@@ -870,17 +902,15 @@ def resolve_workspace(
             value_description=value_description,
         )
 
-    try:
-        baseline = get_or_build_baseline_workspace(
-            mode="commit",
-            monorepo_root=dest,
-            workspace_root=dest,
-            roots_file=None,
-            full_workspace=full_workspace,
-            print_fn=print_fn,
-            resolved_sha=resolved.sha,
-            verbose=verbose,
-        )
-        return (configure_workspace(baseline, config), resolved.sha)
-    except FileNotFoundError:
-        raise NoMlodyAtCommitError(committoid, resolved.sha) from None
+    baseline, resolved_sha = resolve_workspace_baseline(
+        label,
+        monorepo_root=monorepo_root,
+        workspace_root=workspace_root,
+        roots_file=roots_file,
+        full_workspace=full_workspace,
+        print_fn=print_fn,
+        git_client=git_client,
+        cache_root=cache_root,
+        verbose=verbose,
+    )
+    return (configure_workspace(baseline, config), resolved_sha)

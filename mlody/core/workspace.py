@@ -173,6 +173,22 @@ class Workspace:
         """Workspace-level metadata backed by workspace-owned mutable state."""
         return self.get_workspace_attribute("info")
 
+    def update_global_context(
+        self,
+        *,
+        user: str | None = None,
+        resolved_sha: str | None = None,
+    ) -> None:
+        """Refresh the shared runtime ctx visible to loaded .mlody modules."""
+        updated_ctx = build_ctx(
+            self._monorepo_root,
+            workspace_root=self._workspace_root,
+            commit=resolved_sha,
+            user=user,
+            previous=self._evaluator._extra_ctx,  # noqa: SLF001
+        )
+        self._evaluator.update_extra_ctx(updated_ctx)
+
     @property
     def dag(self) -> "networkx.MultiDiGraph":
         """Task dependency graph; built once and cached per workspace instance."""
