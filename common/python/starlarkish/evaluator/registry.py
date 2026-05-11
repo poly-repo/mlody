@@ -53,6 +53,20 @@ class NamedRegistry:
         stem = key.rsplit(":", 1)[0] if ":" in key else None
         self._aggregate_sink((self.kind, stem, thing.name), thing)
 
+    def fork(
+        self,
+        *,
+        aggregate_sink: Callable[[object, Named], None],
+        value_transform: Callable[[Named], Named] | None = None,
+    ) -> NamedRegistry:
+        transform = value_transform or (lambda item: item)
+        return NamedRegistry(
+            kind=self.kind,
+            _aggregate_sink=aggregate_sink,
+            by_key={key: transform(value) for key, value in self.by_key.items()},
+            by_name={key: transform(value) for key, value in self.by_name.items()},
+        )
+
 
 @dataclass(slots=True)
 class RegistryState:
@@ -98,6 +112,37 @@ class RegistryState:
 
     def _store_all(self, key: object, thing: Named) -> None:
         self.all[key] = thing
+
+    def fork(
+        self,
+        *,
+        value_transform: Callable[[Named], Named] | None = None,
+    ) -> RegistryState:
+        forked = RegistryState()
+        transform = value_transform or (lambda item: item)
+        clone_cache: dict[int, Named] = {}
+
+        def _shared_transform(item: Named) -> Named:
+            cached = clone_cache.get(id(item))
+            if cached is not None:
+                return cached
+            cloned = transform(item)
+            clone_cache[id(item)] = cloned
+            return cloned
+
+        for kind in SUPPORTED_REGISTRATION_KINDS:
+            setattr(
+                forked,
+                f"{kind}s" if kind not in {"freshness", "build_ref"} else (
+                    "freshnesses" if kind == "freshness" else "build_refs"
+                ),
+                self.for_kind(kind).fork(
+                    aggregate_sink=forked._store_all,
+                    value_transform=_shared_transform,
+                ),
+            )
+        forked.all = {key: _shared_transform(value) for key, value in self.all.items()}
+        return forked
 
     def for_kind(self, kind: str, *, operation: str = "registration") -> NamedRegistry:
         match kind:

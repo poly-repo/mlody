@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from common.python.starlarkish.core.struct import Struct
 
+from mlody.core.workspace import Workspace, WorkspaceStateKind
 from mlody.resolver.errors import (
     AmbiguousRefError,
     BranchTagCollisionError,
@@ -255,6 +256,105 @@ class TestResolveShаLocalFallback:
 
 class TestConfigureWorkspace:
     """Requirement: CLI config overrides are applied through workspace-aware setf."""
+
+    def test_loaded_workspace_is_promoted_to_baseline_then_forked(self) -> None:
+        workspace = object.__new__(Workspace)
+        workspace._state_kind = WorkspaceStateKind.LOADED
+        workspace.mark_baseline = MagicMock(
+            side_effect=lambda: (
+                setattr(workspace, "_state_kind", WorkspaceStateKind.BASELINE) or workspace
+            )
+        )
+        request_workspace = MagicMock(spec=Workspace)
+        workspace.fork_request = MagicMock(return_value=request_workspace)
+
+        with (
+            patch("mlody.resolver.resolver._normalize_workspace_defaults") as mock_normalize,
+            patch("mlody.resolver.resolver._apply_registered_configs") as mock_configs,
+            patch(
+                "mlody.resolver.resolver.apply_request_overrides",
+                return_value=request_workspace,
+            ) as mock_apply_request,
+        ):
+            result = configure_workspace(workspace, ["//simple:flag=true"])
+
+        assert result is request_workspace
+        mock_normalize.assert_called_once_with(workspace)
+        mock_configs.assert_called_once_with(workspace)
+        workspace.mark_baseline.assert_called_once_with()
+        workspace.fork_request.assert_called_once_with()
+        mock_apply_request.assert_called_once_with(
+            request_workspace,
+            ["//simple:flag=true"],
+        )
+        assert workspace.state_kind is WorkspaceStateKind.BASELINE
+
+    def test_baseline_workspace_is_forked_without_reapplying_defaults(self) -> None:
+        baseline = object.__new__(Workspace)
+        baseline._state_kind = WorkspaceStateKind.BASELINE
+        request_workspace = MagicMock(spec=Workspace)
+        baseline.fork_request = MagicMock(return_value=request_workspace)
+
+        with (
+            patch("mlody.resolver.resolver._normalize_workspace_defaults") as mock_normalize,
+            patch("mlody.resolver.resolver._apply_registered_configs") as mock_configs,
+            patch(
+                "mlody.resolver.resolver.apply_request_overrides",
+                return_value=request_workspace,
+            ) as mock_apply_request,
+        ):
+            result = configure_workspace(baseline, [])
+
+        assert result is request_workspace
+        mock_normalize.assert_not_called()
+        mock_configs.assert_not_called()
+        baseline.fork_request.assert_called_once_with()
+        mock_apply_request.assert_called_once_with(request_workspace, [])
+
+    def test_request_workspace_applies_overrides_in_place(self) -> None:
+        request_workspace = object.__new__(Workspace)
+        request_workspace._state_kind = WorkspaceStateKind.REQUEST
+        request_workspace.fork_request = MagicMock()
+
+        with patch(
+            "mlody.resolver.resolver.apply_request_overrides",
+            return_value=request_workspace,
+        ) as mock_apply_request:
+            result = configure_workspace(request_workspace, ["//simple:flag=true"])
+
+        assert result is request_workspace
+        request_workspace.fork_request.assert_not_called()
+        mock_apply_request.assert_called_once_with(
+            request_workspace,
+            ["//simple:flag=true"],
+        )
+
+    def test_repeated_calls_on_same_baseline_return_isolated_request_workspaces(self) -> None:
+        workspace = object.__new__(Workspace)
+        workspace._state_kind = WorkspaceStateKind.BASELINE
+        request_a = MagicMock(spec=Workspace)
+        request_b = MagicMock(spec=Workspace)
+        workspace.fork_request = MagicMock(side_effect=[request_a, request_b])
+
+        def _record_config(request_workspace: Workspace, config: list[str]) -> Workspace:
+            request_workspace.applied_config = tuple(config)
+            return request_workspace
+
+        with patch(
+            "mlody.resolver.resolver.apply_request_overrides",
+            side_effect=_record_config,
+        ) as mock_apply_request:
+            result_a = configure_workspace(workspace, ["//simple:first=true"])
+            result_b = configure_workspace(workspace, ["//simple:second=true"])
+
+        assert result_a is request_a
+        assert result_b is request_b
+        assert request_a.applied_config == ("//simple:first=true",)
+        assert request_b.applied_config == ("//simple:second=true",)
+        assert not hasattr(workspace, "applied_config")
+        assert workspace.fork_request.call_count == 2
+        mock_apply_request.assert_any_call(request_a, ["//simple:first=true"])
+        mock_apply_request.assert_any_call(request_b, ["//simple:second=true"])
 
     def test_inline_value_target_updates_inline_location_payload(self) -> None:
         workspace = MagicMock()
@@ -677,14 +777,19 @@ class TestResolveWorkspaceCwdPath:
         self, tmp_path: Path
     ) -> None:
         # Scenario: cwd path — label starts with @
-        with patch("mlody.resolver.resolver.Workspace") as mock_ws_cls:
+        with (
+            patch("mlody.resolver.resolver.Workspace") as mock_ws_cls,
+            patch("mlody.resolver.resolver.configure_workspace") as mock_configure,
+        ):
             mock_ws = MagicMock()
+            request_ws = MagicMock()
             mock_ws_cls.return_value = mock_ws
+            mock_configure.return_value = request_ws
 
             ws, sha = resolve_workspace("@lexica//models:bert", monorepo_root=tmp_path)
 
         assert sha is None
-        assert ws is mock_ws
+        assert ws is request_ws
         mock_ws_cls.assert_called_once_with(
             monorepo_root=tmp_path,
             roots_file=None,
@@ -695,15 +800,22 @@ class TestResolveWorkspaceCwdPath:
             workspace_root=None,
         )
         mock_ws.load.assert_called_once()
+        mock_configure.assert_called_once_with(mock_ws, [])
 
     def test_double_slash_label_returns_cwd_workspace(self, tmp_path: Path) -> None:
-        with patch("mlody.resolver.resolver.Workspace") as mock_ws_cls:
+        with (
+            patch("mlody.resolver.resolver.Workspace") as mock_ws_cls,
+            patch("mlody.resolver.resolver.configure_workspace") as mock_configure,
+        ):
             mock_ws = MagicMock()
+            request_ws = MagicMock()
             mock_ws_cls.return_value = mock_ws
+            mock_configure.return_value = request_ws
 
             ws, sha = resolve_workspace("//models:bert", monorepo_root=tmp_path)
 
         assert sha is None
+        assert ws is request_ws
 
     def test_config_overrides_are_applied_before_return(self, tmp_path: Path) -> None:
         with (
@@ -727,6 +839,49 @@ class TestResolveWorkspaceCwdPath:
             ["@lexica//models:bert.config.token=abc123"],
         )
 
+    def test_repeated_cwd_resolves_construct_fresh_workspaces(self, tmp_path: Path) -> None:
+        raw_workspace_a = MagicMock()
+        raw_workspace_b = MagicMock()
+        request_workspace_a = MagicMock()
+        request_workspace_b = MagicMock()
+
+        with (
+            patch(
+                "mlody.resolver.resolver.Workspace",
+                side_effect=[raw_workspace_a, raw_workspace_b],
+            ) as mock_ws_cls,
+            patch(
+                "mlody.resolver.resolver.configure_workspace",
+                side_effect=[request_workspace_a, request_workspace_b],
+            ) as mock_configure,
+        ):
+            first_workspace, first_sha = resolve_workspace(
+                "@lexica//models:bert",
+                monorepo_root=tmp_path,
+                config=["@lexica//models:bert.config.token=first"],
+            )
+            second_workspace, second_sha = resolve_workspace(
+                "@lexica//models:bert",
+                monorepo_root=tmp_path,
+                config=["@lexica//models:bert.config.token=second"],
+            )
+
+        assert first_sha is None
+        assert second_sha is None
+        assert first_workspace is request_workspace_a
+        assert second_workspace is request_workspace_b
+        assert mock_ws_cls.call_count == 2
+        raw_workspace_a.load.assert_called_once_with(verbose=False)
+        raw_workspace_b.load.assert_called_once_with(verbose=False)
+        mock_configure.assert_any_call(
+            raw_workspace_a,
+            ["@lexica//models:bert.config.token=first"],
+        )
+        mock_configure.assert_any_call(
+            raw_workspace_b,
+            ["@lexica//models:bert.config.token=second"],
+        )
+
 
 class TestResolveWorkspaceCommittoidPath:
     """Requirement: resolve_workspace committoid path — branch cache miss."""
@@ -744,9 +899,14 @@ class TestResolveWorkspaceCommittoidPath:
         full_sha = SHA_MAIN
         client = self._make_fake_client(full_sha)
 
-        with patch("mlody.resolver.resolver.Workspace") as mock_ws_cls:
+        with (
+            patch("mlody.resolver.resolver.Workspace") as mock_ws_cls,
+            patch("mlody.resolver.resolver.configure_workspace") as mock_configure,
+        ):
             mock_ws = MagicMock()
+            request_ws = MagicMock()
             mock_ws_cls.return_value = mock_ws
+            mock_configure.return_value = request_ws
 
             ws, sha = resolve_workspace(
                 "main|@lexica//models:bert",
@@ -756,7 +916,7 @@ class TestResolveWorkspaceCommittoidPath:
             )
 
         assert sha == full_sha
-        assert ws is mock_ws
+        assert ws is request_ws
         # Workspace constructed from the cache dir
         dest = cache_root / full_sha
         mock_ws_cls.assert_called_once_with(
@@ -766,6 +926,7 @@ class TestResolveWorkspaceCommittoidPath:
             print_fn=print,
         )
         mock_ws.load.assert_called_once()
+        mock_configure.assert_called_once_with(mock_ws, [])
 
     def test_cache_hit_skips_clone(self, tmp_path: Path) -> None:
         # Scenario: committoid path — cache hit skips cloning

@@ -25,7 +25,7 @@ from mlody.core.targets import TargetAddress
 from mlody.core.value_context_validation import (
     ContextRestrictedValueValidationError,
 )
-from mlody.core.workspace import RootInfo, Workspace, WorkspaceLoadError
+from mlody.core.workspace import RootInfo, Workspace, WorkspaceLoadError, WorkspaceStateKind
 
 ROOT = Path("/project")
 
@@ -189,6 +189,168 @@ class TestWorkspaceConstructor:
         custom = project / "other" / "roots.mlody"
         ws = Workspace(monorepo_root=project, roots_file=custom)
         assert ws._roots_file == custom
+
+
+class TestWorkspaceForkRequest:
+    def test_fork_request_isolates_visible_state(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        module_path = ROOT / "mlody/teams/lexica/fork_state.mlody"
+        fs.create_file(
+            str(module_path),
+            contents="""\
+global_cfg = {"entries": [1]}
+builtins.register("value", Struct(
+    kind="value",
+    name="artifact",
+    payload={"entries": [1]},
+    _lineage=[],
+))
+""",
+        )
+
+        baseline = Workspace(monorepo_root=project)
+        baseline.load()
+        baseline.mark_baseline()
+        baseline._set_workspace_attribute(
+            "custom",
+            Struct(entries=[1], nested=Struct(values=[1])),
+        )
+        baseline._dag_cache = object()  # type: ignore[assignment]
+
+        request = baseline.fork_request()
+
+        assert baseline.state_kind is WorkspaceStateKind.BASELINE
+        assert request.state_kind is WorkspaceStateKind.REQUEST
+        assert request._dag_cache is None
+
+        request.evaluator._module_globals[module_path]["global_cfg"]["entries"].append(2)
+        request.evaluator.registry.values.by_name["artifact"].payload["entries"].append(2)  # type: ignore[attr-defined]
+        request_custom = request.get_workspace_attribute("custom")
+        assert isinstance(request_custom, Struct)
+        request_custom.entries.append(2)  # type: ignore[attr-defined]
+        request_custom.nested.values.append(2)  # type: ignore[attr-defined]
+
+        assert baseline.evaluator._module_globals[module_path]["global_cfg"]["entries"] == [1]
+        assert baseline.evaluator.registry.values.by_name["artifact"].payload["entries"] == [1]  # type: ignore[attr-defined]
+        baseline_custom = baseline.get_workspace_attribute("custom")
+        assert isinstance(baseline_custom, Struct)
+        assert baseline_custom.entries == [1]  # type: ignore[attr-defined]
+        assert baseline_custom.nested.values == [1]  # type: ignore[attr-defined]
+
+    def test_fork_request_lazy_module_load_does_not_leach_into_baseline(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        lazy_module = project / "standalone.mlody"
+        fs.create_file(
+            str(lazy_module),
+            contents='seed = "request-only"\n',
+        )
+
+        baseline = Workspace(monorepo_root=project)
+        baseline.load()
+        baseline.mark_baseline()
+
+        request = baseline.fork_request()
+
+        assert not baseline.registry_view.is_loaded(lazy_module)
+        assert not request.registry_view.is_loaded(lazy_module)
+
+        assert request.resolve("//standalone:seed") == "request-only"
+
+        assert request.registry_view.is_loaded(lazy_module)
+        assert not baseline.registry_view.is_loaded(lazy_module)
+        assert lazy_module in request.evaluator._module_globals
+        assert lazy_module not in baseline.evaluator._module_globals
+
+    def test_multiple_request_forks_are_isolated_from_each_other(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        module_path = ROOT / "mlody/teams/lexica/fork_state.mlody"
+        fs.create_file(
+            str(module_path),
+            contents="""\
+global_cfg = {\"entries\": [1]}
+builtins.register(\"value\", Struct(
+    kind=\"value\",
+    name=\"artifact\",
+    payload={\"entries\": [1]},
+    _lineage=[],
+))
+""",
+        )
+
+        baseline = Workspace(monorepo_root=project)
+        baseline.load()
+        baseline.mark_baseline()
+        baseline._set_workspace_attribute(
+            "custom",
+            Struct(entries=[1], nested=Struct(values=[1])),
+        )
+
+        request_a = baseline.fork_request()
+        request_b = baseline.fork_request()
+
+        request_a.evaluator._module_globals[module_path]["global_cfg"]["entries"].append(2)
+        request_a.evaluator.registry.values.by_name["artifact"].payload["entries"].append(2)  # type: ignore[attr-defined]
+        request_a_custom = request_a.get_workspace_attribute("custom")
+        assert isinstance(request_a_custom, Struct)
+        request_a_custom.entries.append(2)  # type: ignore[attr-defined]
+        request_a_custom.nested.values.append(2)  # type: ignore[attr-defined]
+
+        request_b.evaluator._module_globals[module_path]["global_cfg"]["entries"].append(3)
+        request_b.evaluator.registry.values.by_name["artifact"].payload["entries"].append(3)  # type: ignore[attr-defined]
+        request_b_custom = request_b.get_workspace_attribute("custom")
+        assert isinstance(request_b_custom, Struct)
+        request_b_custom.entries.append(3)  # type: ignore[attr-defined]
+        request_b_custom.nested.values.append(3)  # type: ignore[attr-defined]
+
+        assert request_a.evaluator._module_globals[module_path]["global_cfg"]["entries"] == [1, 2]
+        assert request_b.evaluator._module_globals[module_path]["global_cfg"]["entries"] == [1, 3]
+        assert request_a.evaluator.registry.values.by_name["artifact"].payload["entries"] == [1, 2]  # type: ignore[attr-defined]
+        assert request_b.evaluator.registry.values.by_name["artifact"].payload["entries"] == [1, 3]  # type: ignore[attr-defined]
+        assert request_a_custom.entries == [1, 2]  # type: ignore[attr-defined]
+        assert request_b_custom.entries == [1, 3]  # type: ignore[attr-defined]
+        assert request_a_custom.nested.values == [1, 2]  # type: ignore[attr-defined]
+        assert request_b_custom.nested.values == [1, 3]  # type: ignore[attr-defined]
+
+        assert baseline.evaluator._module_globals[module_path]["global_cfg"]["entries"] == [1]
+        assert baseline.evaluator.registry.values.by_name["artifact"].payload["entries"] == [1]  # type: ignore[attr-defined]
+        baseline_custom = baseline.get_workspace_attribute("custom")
+        assert isinstance(baseline_custom, Struct)
+        assert baseline_custom.entries == [1]  # type: ignore[attr-defined]
+        assert baseline_custom.nested.values == [1]
+
+    def test_explicit_reload_rebuilds_cwd_baseline_from_updated_files(
+        self,
+        project: Path,
+    ) -> None:
+        first_baseline = Workspace(monorepo_root=project)
+        first_baseline.load()
+        first_baseline.mark_baseline()
+        first_request = first_baseline.fork_request()
+
+        assert first_request.resolve("@lexica//models:bert.lr") == 0.001
+
+        models_file = project / "mlody/teams/lexica/models.mlody"
+        models_file.write_text(
+            'builtins.register("root", struct(name="bert", lr=0.002))',
+            encoding="utf-8",
+        )
+
+        reloaded_baseline = Workspace(monorepo_root=project)
+        reloaded_baseline.load()
+        reloaded_baseline.mark_baseline()
+        reloaded_request = reloaded_baseline.fork_request()
+
+        assert first_request.resolve("@lexica//models:bert.lr") == 0.001
+        assert reloaded_request.resolve("@lexica//models:bert.lr") == 0.002
 
 
 # ---------------------------------------------------------------------------

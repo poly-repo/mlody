@@ -786,3 +786,32 @@ def test_http_info_uses_github_api_for_raw_github_urls() -> None:
         "length": 321,
         "update_time": "2026-05-11T15:45:12Z",
     }
+
+
+def test_fork_rebinds_loaded_module_functions(project_root: Path, fs: FakeFilesystem) -> None:
+    fs.create_file(
+        "/project/forkable.mlody",
+        contents="""
+COUNTER = []
+
+def remember(value):
+    COUNTER.append(value)
+
+builtins.register("root", struct(name="callbacks", callback=remember))
+""",
+    )
+    evaluator = Evaluator(project_root)
+    evaluator.eval_file(project_root / "forkable.mlody")
+    evaluator._persistent_injections["remember"] = evaluator._module_globals[
+        project_root / "forkable.mlody"
+    ]["remember"]
+
+    forked = evaluator.fork()
+
+    forked.registry.roots.by_name["callbacks"].callback("registry")  # type: ignore[attr-defined]
+    forked._persistent_injections["remember"]("injection")
+
+    original_counter = evaluator._module_globals[project_root / "forkable.mlody"]["COUNTER"]
+    forked_counter = forked._module_globals[project_root / "forkable.mlody"]["COUNTER"]
+    assert original_counter == []
+    assert forked_counter == ["registry", "injection"]

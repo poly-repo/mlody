@@ -10,7 +10,7 @@ import socket
 from pathlib import Path
 from typing import Callable, Iterable, NamedTuple
 
-from mlody.core.workspace import Workspace
+from mlody.core.workspace import Workspace, WorkspaceStateKind
 from mlody.db.evaluations import open_db, write_evaluation
 from mlody.db.local_diff import compute_local_diff_sha, get_repo_root
 from mlody.resolver.cache import (
@@ -32,6 +32,7 @@ from mlody.resolver.errors import (
 from mlody.resolver.git_client import GitClient
 
 _logger = logging.getLogger(__name__)
+_WORKSPACE_TYPE = Workspace
 
 _DEFAULT_CACHE_SUFFIX = Path(".cache") / "mlody" / "workspaces"
 _DEFAULT_DB_SUFFIX = Path(".cache") / "mlody" / "mlody.sqlite"
@@ -375,12 +376,23 @@ def _apply_registered_configs(workspace: Workspace) -> None:
             setf(label, value, workspace=workspace, source=source)
 
 
-def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspace:
-    """Apply ``--with LABEL=VALUE`` overrides and return the configured workspace."""
-    from mlody.core.setf import setf  # noqa: PLC0415
+def build_baseline_workspace(workspace: Workspace) -> Workspace:
+    """Apply defaults and registered config rules exactly once on a loaded workspace."""
+    if not isinstance(workspace, _WORKSPACE_TYPE):
+        _normalize_workspace_defaults(workspace)
+        _apply_registered_configs(workspace)
+        return workspace
 
-    _normalize_workspace_defaults(workspace)
-    _apply_registered_configs(workspace)
+    if workspace.state_kind is WorkspaceStateKind.LOADED:
+        _normalize_workspace_defaults(workspace)
+        _apply_registered_configs(workspace)
+        workspace.mark_baseline()
+    return workspace
+
+
+def apply_request_overrides(workspace: Workspace, config: Iterable[str]) -> Workspace:
+    """Apply ``--with LABEL=VALUE`` overrides to a request-local workspace."""
+    from mlody.core.setf import setf  # noqa: PLC0415
 
     for raw in config:
         ref, value = _parse_config_assignment(raw)
@@ -428,6 +440,20 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
                     continue
             setf(concrete_ref, value, workspace=workspace, source=source)
     return workspace
+
+
+def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspace:
+    """Return a request-configured workspace without mutating a baseline in place."""
+    if not isinstance(workspace, _WORKSPACE_TYPE):
+        build_baseline_workspace(workspace)
+        return apply_request_overrides(workspace, config)
+
+    if workspace.state_kind is WorkspaceStateKind.REQUEST:
+        return apply_request_overrides(workspace, config)
+
+    baseline = build_baseline_workspace(workspace)
+    request_workspace = baseline.fork_request()
+    return apply_request_overrides(request_workspace, config)
 
 
 def resolve_sha(committoid: str, git_client: GitClient) -> ResolvedRef:

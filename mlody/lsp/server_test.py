@@ -14,8 +14,9 @@ Covers requirements:
 from __future__ import annotations
 
 import logging
+import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from lsprotocol import types
@@ -48,6 +49,48 @@ def _make_params(*uris: str) -> types.DidChangeWatchedFilesParams:
 class TestOnChangedWatchedFiles:
     """Requirement: Workspace hot-reload on workspace/didChangeWatchedFiles."""
 
+    def test_on_initialized_builds_baseline_workspace(
+        self, tmp_path: Path
+    ) -> None:
+        baseline_workspace = MagicMock()
+        baseline_workspace.evaluator = MagicMock()
+        raw_workspace = MagicMock()
+
+        with (
+            patch.object(server_module, "_evaluator", None),
+            patch.object(server_module, "_eval_error", None),
+            patch.object(server_module, "_monorepo_root", None),
+            patch.object(
+                server_module.server.protocol,
+                "_workspace",
+                MagicMock(root_uri=tmp_path.as_uri()),
+            ),
+            patch.object(logging.getLogger(), "addHandler"),
+            patch(
+                "mlody.lsp.server.Workspace", return_value=raw_workspace
+            ) as MockWorkspace,
+            patch(
+                "mlody.lsp.server.build_baseline_workspace",
+                return_value=baseline_workspace,
+            ) as mock_build,
+            patch.object(
+                server_module.server,
+                "client_register_capability_async",
+                AsyncMock(),
+            ) as mock_register,
+        ):
+            asyncio.run(server_module.on_initialized(types.InitializedParams()))
+
+            MockWorkspace.assert_called_once_with(
+                monorepo_root=tmp_path,
+                print_fn=_noop_print,
+                console=server_module._null_console,
+            )
+            raw_workspace.load.assert_called_once()
+            mock_build.assert_called_once_with(raw_workspace)
+            assert server_module._evaluator is baseline_workspace.evaluator
+            mock_register.assert_awaited_once()
+
     def test_on_changed_watched_files_reloads_workspace(
         self, tmp_path: Path
     ) -> None:
@@ -56,15 +99,20 @@ class TestOnChangedWatchedFiles:
         # The no-op print_fn must be passed so that sandbox print() calls in
         # user scripts do not corrupt the stdout JSON-RPC transport.
         mock_evaluator = MagicMock()
-        mock_workspace = MagicMock()
-        mock_workspace.evaluator = mock_evaluator
+        raw_workspace = MagicMock()
+        baseline_workspace = MagicMock()
+        baseline_workspace.evaluator = mock_evaluator
 
         with (
             patch.object(server_module, "_monorepo_root", tmp_path),
             patch.object(server_module, "_evaluator", None),
             patch(
-                "mlody.lsp.server.Workspace", return_value=mock_workspace
+                "mlody.lsp.server.Workspace", return_value=raw_workspace
             ) as MockWorkspace,
+            patch(
+                "mlody.lsp.server.build_baseline_workspace",
+                return_value=baseline_workspace,
+            ) as mock_build,
         ):
             on_changed_watched_files(_make_params("file:///mlody/foo.mlody"))
 
@@ -73,7 +121,8 @@ class TestOnChangedWatchedFiles:
                 print_fn=_noop_print,
                 console=server_module._null_console,
             )
-            mock_workspace.load.assert_called_once()
+            raw_workspace.load.assert_called_once()
+            mock_build.assert_called_once_with(raw_workspace)
             assert server_module._evaluator is mock_evaluator
 
     def test_on_changed_watched_files_sets_evaluator_none_on_load_failure(
@@ -99,13 +148,18 @@ class TestOnChangedWatchedFiles:
         # On a successful reload the server logs an info record that includes
         # the number of file-change events so operators can see what triggered
         # the reload in the LSP log.
-        mock_workspace = MagicMock()
-        mock_workspace.evaluator = MagicMock()
+        raw_workspace = MagicMock()
+        baseline_workspace = MagicMock()
+        baseline_workspace.evaluator = MagicMock()
 
         with (
             caplog.at_level(logging.INFO, logger="mlody.lsp.server"),
             patch.object(server_module, "_monorepo_root", tmp_path),
-            patch("mlody.lsp.server.Workspace", return_value=mock_workspace),
+            patch("mlody.lsp.server.Workspace", return_value=raw_workspace),
+            patch(
+                "mlody.lsp.server.build_baseline_workspace",
+                return_value=baseline_workspace,
+            ) as mock_build,
         ):
             on_changed_watched_files(
                 _make_params(
@@ -114,6 +168,8 @@ class TestOnChangedWatchedFiles:
                 )
             )
 
+        raw_workspace.load.assert_called_once()
+        mock_build.assert_called_once_with(raw_workspace)
         assert "reloaded" in caplog.text
         assert "2" in caplog.text
 

@@ -51,11 +51,12 @@ import json
 import logging
 import os
 import re
+import types
 from dataclasses import dataclass
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from urllib.error import HTTPError
 from urllib.parse import quote, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
@@ -995,6 +996,168 @@ SAFE_BUILTINS: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
     "Struct": Struct,
     "python": PYTHON_SPECIFIC_BUILTINS,
 }
+_RUNTIME_SANDBOX_BINDING_NAMES = frozenset(
+    {"__builtins__", "builtins", "load", "resolve", "force", "setf"}
+)
+
+
+def _copy_function_with_globals(
+    function: types.FunctionType,
+    globals_dict: dict[str, Any],
+) -> types.FunctionType:
+    copied = types.FunctionType(
+        function.__code__,
+        globals_dict,
+        name=function.__name__,
+        argdefs=function.__defaults__,
+        closure=function.__closure__,
+    )
+    copied.__kwdefaults__ = function.__kwdefaults__
+    copied.__annotations__ = dict(function.__annotations__)
+    copied.__doc__ = function.__doc__
+    copied.__qualname__ = function.__qualname__
+    copied.__module__ = function.__module__
+    copied.__dict__.update(function.__dict__)
+    return copied
+
+
+def _clone_runtime_visible_value(
+    value: object,
+    *,
+    module_globals_map: dict[int, dict[str, Any]],
+    function_cache: dict[tuple[int, int], types.FunctionType],
+    memo: dict[int, object],
+) -> object:
+    if isinstance(value, types.FunctionType):
+        target_globals = module_globals_map.get(id(value.__globals__))
+        if target_globals is None:
+            return value
+        cache_key = (id(value), id(target_globals))
+        cached = function_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        rebound = _copy_function_with_globals(value, target_globals)
+        function_cache[cache_key] = rebound
+        return rebound
+
+    if _is_struct_like(value):
+        existing = memo.get(id(value))
+        if existing is not None:
+            return existing
+        memo[id(value)] = value
+        changes: dict[str, Any] = {}
+        for name, child in _struct_like_as_mapping(value).items():
+            cloned_child = _clone_runtime_visible_value(
+                child,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=memo,
+            )
+            if cloned_child is not child:
+                changes[str(name)] = cloned_child
+        if not changes:
+            return value
+        if isinstance(value, Struct):
+            cloned_value = Struct(
+                **{
+                    **dict(value.as_mapping()),
+                    **changes,
+                }
+            )
+        else:
+            updated_fn = getattr(value, "updated", None)
+            cloned_value = (
+                updated_fn(**changes)
+                if callable(updated_fn)
+                else _struct_like_updated(value, **changes)
+            )
+        memo[id(value)] = cloned_value
+        return cloned_value
+
+    if isinstance(value, dict):
+        existing = memo.get(id(value))
+        if existing is not None:
+            return existing
+        cloned_dict: dict[object, object] = {}
+        memo[id(value)] = cloned_dict
+        for key, child in value.items():
+            cloned_dict[key] = _clone_runtime_visible_value(
+                child,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=memo,
+            )
+        return cloned_dict
+
+    if isinstance(value, list):
+        existing = memo.get(id(value))
+        if existing is not None:
+            return existing
+        cloned_list: list[object] = []
+        memo[id(value)] = cloned_list
+        cloned_list.extend(
+            _clone_runtime_visible_value(
+                child,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=memo,
+            )
+            for child in value
+        )
+        return cloned_list
+
+    if isinstance(value, tuple):
+        existing = memo.get(id(value))
+        if existing is not None:
+            return existing
+        memo[id(value)] = value
+        cloned_tuple = tuple(
+            _clone_runtime_visible_value(
+                child,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=memo,
+            )
+            for child in value
+        )
+        memo[id(value)] = cloned_tuple
+        return cloned_tuple
+
+    if isinstance(value, set):
+        existing = memo.get(id(value))
+        if existing is not None:
+            return existing
+        cloned_set: set[object] = set()
+        memo[id(value)] = cloned_set
+        cloned_set.update(
+            _clone_runtime_visible_value(
+                child,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=memo,
+            )
+            for child in value
+        )
+        return cloned_set
+
+    if isinstance(value, frozenset):
+        existing = memo.get(id(value))
+        if existing is not None:
+            return existing
+        memo[id(value)] = value
+        cloned_frozenset = frozenset(
+            _clone_runtime_visible_value(
+                child,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=memo,
+            )
+            for child in value
+        )
+        memo[id(value)] = cloned_frozenset
+        return cloned_frozenset
+
+    return value
 
 
 @dataclass
@@ -1082,6 +1245,183 @@ class Evaluator:
             raise AttributeError(msg)
         bucket_name, mapping_name = registry_attr
         return getattr(getattr(self.registry, bucket_name), mapping_name)
+
+    def _ctx_struct_for_file(self, file_path: Path) -> Struct:
+        ctx_kwargs: dict[str, Any] = {
+            "directory": file_path.parent,
+            "file": file_path,
+        }
+        if self._extra_ctx is not None:
+            ctx_kwargs.update(self._extra_ctx.as_mapping())
+        return Struct(**ctx_kwargs)
+
+    def _make_register_for_file(
+        self,
+        file_path: Path,
+    ) -> Callable[[str, Named], Any]:
+        def _register_for_file(kind: str, thing: Named) -> Any:
+            current_file = self._eval_stack[-1] if self._eval_stack else file_path
+            return self._register(
+                kind,
+                thing,
+                ctx=self._ctx_struct_for_file(current_file),
+            )
+
+        return _register_for_file
+
+    def _make_inject_for_file(
+        self,
+        file_path: Path,
+        sandbox_globals: dict[str, Any],
+    ) -> Callable[[str, Any], None]:
+        def _inject_into_sandbox(name: str, value: Any) -> None:  # pyright: ignore[reportExplicitAny]
+            current_file = self._eval_stack[-1] if self._eval_stack else file_path
+            target_globals = self._module_globals.get(current_file, sandbox_globals)
+            target_globals[name] = value
+
+        return _inject_into_sandbox
+
+    def _register_method_impl(self, generic_name: str, method: Any) -> None:  # pyright: ignore[reportExplicitAny]
+        entry = self._method_registry.setdefault(
+            generic_name, {"arity": None, "methods": []}
+        )
+        method_patterns: list[Any] = list(getattr(method, "patterns", []))  # pyright: ignore[reportExplicitAny]
+        new_arity = len(method_patterns)
+        existing_arity: int | None = entry["arity"]  # type: ignore[assignment]
+        if existing_arity is not None and existing_arity != new_arity:
+            raise ValueError(
+                f"generic {generic_name!r} has arity {existing_arity}; "
+                f"cannot attach method with {new_arity} patterns"
+            )
+        if existing_arity is None:
+            entry["arity"] = new_arity
+        entry["methods"].append(method)  # type: ignore[union-attr]
+
+    def _get_methods_impl(self, generic_name: str) -> list[Any]:  # pyright: ignore[reportExplicitAny]
+        entry = self._method_registry.get(generic_name)
+        if entry is None:
+            return []
+        return list(entry["methods"])  # type: ignore[index]
+
+    def _dispatch_method_impl(
+        self,
+        name: str,
+        args: Any,
+        methods: list[Any],  # pyright: ignore[reportExplicitAny]
+    ) -> Any:  # pyright: ignore[reportExplicitAny]
+        from mlody.core.multimethod import dispatch as _md
+
+        return _md(name, tuple(args), methods)
+
+    def _install_sandbox_runtime_bindings(
+        self,
+        *,
+        file_path: Path,
+        sandbox_globals: dict[str, Any],
+    ) -> None:
+        sandbox_globals["__builtins__"] = {**SAFE_BUILTINS, "print": self._print_fn}
+        sandbox_globals["__MLODY__"] = True
+        sandbox_globals["builtins"] = Builtins(
+            register=self._make_register_for_file(file_path),
+            lookup=self._lookup,
+            ctx=self._ctx_struct_for_file(file_path),
+            inject=self._make_inject_for_file(file_path, sandbox_globals),
+            register_method=self._register_method_impl,
+            get_methods=self._get_methods_impl,
+            dispatch_method=self._dispatch_method_impl,
+        )
+        if self._resolve_hook is not None:
+            sandbox_globals["resolve"] = self._resolve_hook
+        else:
+            sandbox_globals.pop("resolve", None)
+        if self._force_hook is not None:
+            sandbox_globals["force"] = self._force_hook
+        else:
+            sandbox_globals.pop("force", None)
+        if self._setf_hook is not None:
+            sandbox_globals["setf"] = self._setf_hook
+        else:
+            sandbox_globals.pop("setf", None)
+        sandbox_globals["load"] = functools.partial(
+            self._load,
+            current_file=file_path,
+            caller_globals=sandbox_globals,
+        )
+
+    def fork(
+        self,
+        *,
+        resolve_hook: Callable[[str], Any] | None = None,
+        force_hook: Callable[[object], Any] | None = None,
+        setf_hook: Callable[..., Any] | None = None,
+    ) -> "Evaluator":
+        if self._eval_stack:
+            raise RuntimeError("cannot fork evaluator while a file is still executing")
+
+        forked = Evaluator(
+            root=self.root_path,
+            print_fn=self._print_fn,
+            extra_ctx=self._extra_ctx,
+            line_range_extractor=self._line_range_extractor,
+            resolve_hook=self._resolve_hook if resolve_hook is None else resolve_hook,
+            force_hook=self._force_hook if force_hook is None else force_hook,
+            setf_hook=self._setf_hook if setf_hook is None else setf_hook,
+        )
+        module_globals_map: dict[int, dict[str, Any]] = {
+            id(globals_dict): {} for globals_dict in self._module_globals.values()
+        }
+        function_cache: dict[tuple[int, int], types.FunctionType] = {}
+        clone_memo: dict[int, object] = {}
+        for file_path, globals_dict in self._module_globals.items():
+            cloned_globals = module_globals_map[id(globals_dict)]
+            for name, value in globals_dict.items():
+                if name in _RUNTIME_SANDBOX_BINDING_NAMES:
+                    continue
+                cloned_globals[name] = _clone_runtime_visible_value(
+                    value,
+                    module_globals_map=module_globals_map,
+                    function_cache=function_cache,
+                    memo=clone_memo,
+                )
+            forked._install_sandbox_runtime_bindings(
+                file_path=file_path,
+                sandbox_globals=cloned_globals,
+            )
+        forked.loaded_files = set(self.loaded_files)
+        forked.registry = self.registry.fork(
+            value_transform=lambda value: _clone_runtime_visible_value(
+                value,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=clone_memo,
+            )
+        )
+        forked._method_registry = cast(
+            dict[str, dict[str, Any]],
+            _clone_runtime_visible_value(
+                self._method_registry,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=clone_memo,
+            ),
+        )
+        forked._module_globals = {
+            file_path: module_globals_map[id(globals_dict)]
+            for file_path, globals_dict in self._module_globals.items()
+        }
+        forked._persistent_injections = cast(
+            dict[str, Any],
+            _clone_runtime_visible_value(
+                self._persistent_injections,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=clone_memo,
+            ),
+        )
+        forked._file_ranges = {
+            file_path: dict(ranges) for file_path, ranges in self._file_ranges.items()
+        }
+        return forked
 
     def _decorate_source_range(self, value: Struct) -> Struct:
         source_range_type = self.registry.types.by_name.get("mlody-source-range")
@@ -1429,104 +1769,12 @@ class Evaluator:
             # files (e.g. `mm` from mm.mlody) are visible in every subsequent file
             # without an explicit load().
             sandbox_globals: dict[str, Any] = {  # pyright: ignore[reportExplicitAny]
-                "__builtins__": {**SAFE_BUILTINS, "print": self._print_fn},
-                "__MLODY__": True,
                 **self._persistent_injections,
             }
-
-            ctx_kwargs: dict[str, Any] = {
-                "directory": file_path.parent,
-                "file": file_path,
-            }  # pyright: ignore[reportExplicitAny]
-            if self._extra_ctx is not None:
-                ctx_kwargs.update(self._extra_ctx.as_mapping())
-            ctx_struct = Struct(**ctx_kwargs)
-
-            # The register callable computes ctx at call time so that ctx.directory
-            # reflects the file whose exec() is currently in progress — not the file
-            # where the callable was created.  This matters when a loaded helper
-            # function (e.g. root() in builtins.mlody) calls builtins.register on
-            # behalf of the file that invoked it.
-            def _register_for_file(kind: str, thing: Named) -> Any:
-                current_file = self._eval_stack[-1] if self._eval_stack else file_path
-                call_ctx = Struct(
-                    **{  # pyright: ignore[reportExplicitAny]
-                        "directory": current_file.parent,
-                        "file": current_file,
-                        **(
-                            self._extra_ctx.as_mapping()
-                            if self._extra_ctx is not None
-                            else {}
-                        ),
-                    }
-                )
-                return self._register(kind, thing, ctx=call_ctx)
-
-            def _inject_into_sandbox(name: str, value: Any) -> None:  # pyright: ignore[reportExplicitAny]
-                # Inject into the file that is CURRENTLY EXECUTING (top of eval
-                # stack), not necessarily the file where this closure was created.
-                # This mirrors _register_for_file's use of self._eval_stack[-1]
-                # so that typedef() injects the factory into the calling file's
-                # scope even when typedef is a function imported from another file.
-                current_file = self._eval_stack[-1] if self._eval_stack else file_path
-                target_globals = self._module_globals.get(current_file, sandbox_globals)
-                target_globals[name] = value
-
-            def _register_method(generic_name: str, method: Any) -> None:  # pyright: ignore[reportExplicitAny]
-                entry = self._method_registry.setdefault(
-                    generic_name, {"arity": None, "methods": []}
-                )
-                method_patterns: list[Any] = list(getattr(method, "patterns", []))  # pyright: ignore[reportExplicitAny]
-                new_arity = len(method_patterns)
-                existing_arity: int | None = entry["arity"]  # type: ignore[assignment]
-                if existing_arity is not None and existing_arity != new_arity:
-                    raise ValueError(
-                        f"generic {generic_name!r} has arity {existing_arity}; "
-                        f"cannot attach method with {new_arity} patterns"
-                    )
-                if existing_arity is None:
-                    entry["arity"] = new_arity
-                entry["methods"].append(method)  # type: ignore[union-attr]
-
-            def _get_methods(generic_name: str) -> list[Any]:  # pyright: ignore[reportExplicitAny]
-                entry = self._method_registry.get(generic_name)
-                if entry is None:
-                    return []
-                return list(entry["methods"])  # type: ignore[index]
-
-            def _dispatch_method(
-                name: str,
-                args: Any,
-                methods: list[Any],  # pyright: ignore[reportExplicitAny]
-            ) -> Any:  # pyright: ignore[reportExplicitAny]
-                # Lazy import so that targets without a dep on mlody.core.multimethod
-                # can still use the evaluator (e.g. rule_test, which has no mm dispatch).
-                from mlody.core.multimethod import dispatch as _md
-
-                return _md(name, tuple(args), methods)
-
-            builtins_obj = Builtins(
-                register=_register_for_file,
-                lookup=self._lookup,
-                ctx=ctx_struct,
-                inject=_inject_into_sandbox,
-                register_method=_register_method,
-                get_methods=_get_methods,
-                dispatch_method=_dispatch_method,
+            self._install_sandbox_runtime_bindings(
+                file_path=file_path,
+                sandbox_globals=sandbox_globals,
             )
-            sandbox_globals["builtins"] = builtins_obj
-            if self._resolve_hook is not None:
-                sandbox_globals["resolve"] = self._resolve_hook
-            if self._force_hook is not None:
-                sandbox_globals["force"] = self._force_hook
-            if self._setf_hook is not None:
-                sandbox_globals["setf"] = self._setf_hook
-
-            # create a load function that will inject into this sandbox's globals
-            load_func = functools.partial(
-                self._load, current_file=file_path, caller_globals=sandbox_globals
-            )
-            sandbox_globals["load"] = load_func
 
             # Register sandbox_globals BEFORE exec so that _inject_into_sandbox can
             # look up the current file's globals via self._module_globals during execution.

@@ -97,7 +97,10 @@ def _invoke_dag(
     ws_mock = _make_workspace_mock(tasks)
 
     runner = CliRunner()
-    with patch("mlody.cli.dag_cmd.Workspace") as mock_cls:
+    with (
+        patch("mlody.cli.dag_cmd.Workspace") as mock_cls,
+        patch("mlody.cli.dag_cmd.build_baseline_workspace", return_value=ws_mock),
+    ):
         mock_cls.return_value = ws_mock
         result = runner.invoke(
             cli,
@@ -117,6 +120,7 @@ def test_dag_forwards_workspace_root_to_workspace_constructor(tmp_path: Path) ->
 
     with (
         patch("mlody.cli.dag_cmd.Workspace") as mock_cls,
+        patch("mlody.cli.dag_cmd.build_baseline_workspace", return_value=ws_mock),
         patch("mlody.cli.dag_cmd.render_dag_table"),
     ):
         mock_cls.return_value = ws_mock
@@ -141,6 +145,28 @@ def test_dag_forwards_workspace_root_to_workspace_constructor(tmp_path: Path) ->
         lazy_roots=None,
         workspace_root=workspace_root,
     )
+
+
+def test_dag_builds_baseline_workspace_before_rendering(tmp_path: Path) -> None:
+    runner = CliRunner()
+    ws_mock = MagicMock()
+    ws_mock.dag = MagicMock()
+
+    with (
+        patch("mlody.cli.dag_cmd.Workspace") as mock_cls,
+        patch("mlody.cli.dag_cmd.build_baseline_workspace", return_value=ws_mock) as mock_build,
+        patch("mlody.cli.dag_cmd.render_dag_table"),
+    ):
+        mock_cls.return_value = ws_mock
+        result = runner.invoke(
+            cli,
+            ["dag"],
+            obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+        )
+
+    assert result.exit_code == 0
+    ws_mock.load.assert_called_once()
+    mock_build.assert_called_once_with(ws_mock)
 
 
 # ---------------------------------------------------------------------------

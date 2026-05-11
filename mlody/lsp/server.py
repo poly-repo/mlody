@@ -19,6 +19,7 @@ from mlody.lsp.definition import _resolve_load_path, get_definition
 from mlody.lsp.diagnostics import get_eval_diagnostics, get_parse_diagnostics
 from mlody.lsp.log_handler import LSPLogHandler
 from mlody.lsp.parser import CACHE, apply_incremental_changes, find_ancestor, node_at_position
+from mlody.resolver.resolver import build_baseline_workspace
 
 _logger = logging.getLogger(__name__)
 
@@ -231,6 +232,7 @@ async def on_initialized(params: types.InitializedParams) -> None:
     try:
         workspace = Workspace(monorepo_root=monorepo_root, print_fn=_noop_print, console=_null_console)
         workspace.load()
+        workspace = build_baseline_workspace(workspace)
         _evaluator = workspace.evaluator
         _eval_error = None
     except Exception as exc:  # noqa: BLE001
@@ -278,6 +280,7 @@ def on_changed_watched_files(params: types.DidChangeWatchedFilesParams) -> None:
     try:
         workspace = Workspace(monorepo_root=_monorepo_root, print_fn=_noop_print, console=_null_console)
         workspace.load()
+        workspace = build_baseline_workspace(workspace)
         _evaluator = workspace.evaluator
         _eval_error = None
         _logger.info(

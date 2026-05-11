@@ -13,6 +13,8 @@ from mlody.cli.dag_gui import show_dag_gui
 from mlody.cli.dag_render import render_dag_table, resolve_dag_selection
 from mlody.cli.main import cli
 from mlody.core.workspace import Workspace, WorkspaceLoadError
+from mlody.resolver.errors import WorkspaceResolutionError
+from mlody.resolver.resolver import build_baseline_workspace
 
 _console = Console()
 
@@ -74,7 +76,8 @@ def dag_cmd(ctx: click.Context, label: str | None, gui: bool) -> None:
     )
     try:
         workspace.load(verbose=verbose)
-    except WorkspaceLoadError as exc:
+        workspace = build_baseline_workspace(workspace)
+    except (WorkspaceLoadError, WorkspaceResolutionError, KeyError, AttributeError) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
         sys.exit(1)
 

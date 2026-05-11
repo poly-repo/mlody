@@ -239,6 +239,44 @@ class TestShowCommandCwdTarget:
         assert result.exit_code == 0
         mock_configure.assert_called_once_with(ws, ("@bert//models:cfg=abc123",))
 
+    def test_repeated_legacy_workspace_invocations_reconfigure_same_baseline(self) -> None:
+        baseline = MagicMock()
+        baseline.root_infos = {}
+
+        request_a = MagicMock()
+        request_a.root_infos = {}
+        request_a.resolve.return_value = "first"
+
+        request_b = MagicMock()
+        request_b.root_infos = {}
+        request_b.resolve.return_value = "second"
+
+        runner = CliRunner()
+        with patch(
+            "mlody.cli.show.configure_workspace",
+            side_effect=[request_a, request_b],
+        ) as mock_configure:
+            result_a = runner.invoke(
+                cli,
+                ["show", "--with", "@bert//models:cfg=first", "@bert//models:lr"],
+                obj={"workspace": baseline, "verbose": False},
+            )
+            result_b = runner.invoke(
+                cli,
+                ["show", "--with", "@bert//models:cfg=second", "@bert//models:lr"],
+                obj={"workspace": baseline, "verbose": False},
+            )
+
+        assert result_a.exit_code == 0
+        assert result_b.exit_code == 0
+        assert "first" in result_a.output
+        assert "second" in result_b.output
+        request_a.resolve.assert_called_once_with("@bert//models:lr")
+        request_b.resolve.assert_called_once_with("@bert//models:lr")
+        assert mock_configure.call_count == 2
+        mock_configure.assert_any_call(baseline, ("@bert//models:cfg=first",))
+        mock_configure.assert_any_call(baseline, ("@bert//models:cfg=second",))
+
 
 # ---------------------------------------------------------------------------
 # CLI show command — committoid target

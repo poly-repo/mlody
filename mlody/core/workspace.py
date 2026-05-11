@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
 
@@ -68,6 +69,37 @@ def force(v: object) -> object:
     return cast(Any, force_virtual_value(v))
 
 
+def _clone_workspace_visible_value(value: object) -> object:
+    if is_struct_like(value):
+        changes: dict[str, object] = {}
+        for name, child in value.as_mapping().items():
+            cloned_child = _clone_workspace_visible_value(child)
+            if cloned_child is not child:
+                changes[str(name)] = cloned_child
+        if not changes:
+            return value
+        return value.updated(**changes)
+    if isinstance(value, dict):
+        return {
+            key: _clone_workspace_visible_value(child) for key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [_clone_workspace_visible_value(child) for child in value]
+    if isinstance(value, tuple):
+        return tuple(_clone_workspace_visible_value(child) for child in value)
+    if isinstance(value, set):
+        return {_clone_workspace_visible_value(child) for child in value}
+    if isinstance(value, frozenset):
+        return frozenset(_clone_workspace_visible_value(child) for child in value)
+    return value
+
+
+class WorkspaceStateKind(str, Enum):
+    LOADED = "loaded"
+    BASELINE = "baseline"
+    REQUEST = "request"
+
+
 class Workspace:
     """Wraps the starlarkish Evaluator with two-phase loading and target resolution."""
 
@@ -82,6 +114,7 @@ class Workspace:
         extra_roots: dict[str, str] | None = None,
         lazy_roots: dict[str, str] | None = None,
         workspace_root: Path | None = None,
+        state_kind: WorkspaceStateKind = WorkspaceStateKind.LOADED,
     ) -> None:
         self._monorepo_root = monorepo_root
         self._workspace_root = workspace_root if workspace_root is not None else monorepo_root
@@ -117,6 +150,7 @@ class Workspace:
             "info": self._build_workspace_info(),
         }
         self._dag_cache: "networkx.MultiDiGraph | None" = None
+        self._state_kind = state_kind
 
     @property
     def evaluator(self) -> Evaluator:
@@ -131,6 +165,10 @@ class Workspace:
         return self._registry
 
     @property
+    def state_kind(self) -> WorkspaceStateKind:
+        return self._state_kind
+
+    @property
     def info(self) -> object:
         """Workspace-level metadata backed by workspace-owned mutable state."""
         return self.get_workspace_attribute("info")
@@ -143,6 +181,44 @@ class Workspace:
 
             self._dag_cache = build_dag(self)
         return self._dag_cache
+
+    def mark_baseline(self) -> Workspace:
+        self._state_kind = WorkspaceStateKind.BASELINE
+        return self
+
+    def fork_request(self) -> Workspace:
+        forked = Workspace(
+            monorepo_root=self._monorepo_root,
+            roots_file=self._roots_file,
+            full_workspace=self._full_workspace,
+            skipped_mlody_paths=self._skipped_mlody_paths,
+            print_fn=self._evaluator._print_fn,
+            console=self._console,
+            extra_roots=dict(self._extra_roots),
+            lazy_roots=dict(self._lazy_roots),
+            workspace_root=(
+                self._workspace_root
+                if self._workspace_root != self._monorepo_root
+                else None
+            ),
+            state_kind=WorkspaceStateKind.REQUEST,
+        )
+        forked._evaluator = self._evaluator.fork(
+            resolve_hook=forked._resolve_for_mlody,
+            force_hook=force,
+            setf_hook=forked._setf_for_mlody,
+        )
+        forked._registry = RegistryView(
+            forked._evaluator,
+            workspace_attribute_writer=forked._set_workspace_attribute,
+        )
+        forked._root_infos = dict(self._root_infos)
+        forked._workspace_attributes = {
+            name: _clone_workspace_visible_value(value)
+            for name, value in self._workspace_attributes.items()
+        }
+        forked._dag_cache = None
+        return forked
 
     def _git(self, *args: str) -> str:
         try:
