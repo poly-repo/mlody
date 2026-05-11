@@ -4,6 +4,9 @@ load("//mlody/common/attrs.mlody", "attr", "validate_attr_value")
 
 def _user_impl(ctx):
     validate_attr_value("groups", ctx.attr.groups, "string_list")
+    avatar = python.getattr(ctx.attr, "avatar", None)
+    if avatar != None:
+        validate_attr_value("avatar", avatar, "string")
 
     entity_type = None
     try:
@@ -17,6 +20,8 @@ def _user_impl(ctx):
         "description": ctx.attr.description,
         "groups": list(ctx.attr.groups),
     }
+    if avatar != None:
+        user_fields["avatar"] = avatar
     methods = python.getattr(ctx.attr, "methods", None)
     if methods != None:
         user_fields["methods"] = methods
@@ -33,5 +38,6 @@ user = rule(
     kind           = "user",
     attrs          = {
         "groups": attr(type="string_list"),
+        "avatar": attr(type="string", mandatory=False, default=None),
     },
 )

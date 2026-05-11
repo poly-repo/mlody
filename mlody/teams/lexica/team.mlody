@@ -4,16 +4,19 @@ user(
     name = "mcollins",
     description = "Maya Collins",
     groups = ["lexica", "lexica-admin"],
+    avatar = "assets/images/avatars/avatars-1-3.png",
 )
 
 user(
     name = "dpatel",
     description = "Daniel Patel",
     groups = ["lexica"],
+    avatar = "assets/images/avatars/avatars-2-0.png",
 )
 
 user(
     name = "rsullivan",
     description = "Riley Sullivan",
     groups = ["lexica"],
+    avatar = "assets/images/avatars/avatars-2-1.png",
 )

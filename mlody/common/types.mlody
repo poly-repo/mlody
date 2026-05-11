@@ -593,6 +593,9 @@ typedef(
 typedef(
     name = "mlody-user",
     base = builtins.lookup("type", "mlody-entity"),
+    fields = [
+        field(name = "avatar", type = string(), mandatory = False),
+    ],
 )
 
 typedef(

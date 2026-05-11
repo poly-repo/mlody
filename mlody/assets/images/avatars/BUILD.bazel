@@ -1,0 +1,5 @@
+filegroup(
+    name = "avatars",
+    srcs = glob(["*.png"]),
+    visibility = ["//visibility:public"],
+)

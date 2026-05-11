@@ -18,6 +18,7 @@ class RegisteredUser(RegisteredStructBase):
     name: str
     description: str
     groups: list[str]
+    avatar: str | None = None
     _entity_type: object | None = None
     _source_range: object | None = None
     raw: object | None = None

@@ -62,6 +62,15 @@ def test_user_stores_description_and_groups() -> None:
     assert user_value.groups == ["sonora"]
 
 
+def test_user_stores_avatar_when_provided() -> None:
+    ev = _eval(
+        'user(name="agarcia", description="Ava Garcia", groups=["framera"], '
+        'avatar="assets/images/avatars/avatars-1-0.png")\n'
+    )
+    user_value = ev.registry.users.by_name["agarcia"]
+    assert user_value.avatar == "assets/images/avatars/avatars-1-0.png"
+
+
 def test_user_groups_is_mandatory() -> None:
     with pytest.raises(ValueError, match="Missing mandatory argument"):
         _eval('user(name="mcollins", description="Maya Collins")\n')
@@ -70,6 +79,11 @@ def test_user_groups_is_mandatory() -> None:
 def test_user_groups_rejects_non_string_entries() -> None:
     with pytest.raises(TypeError, match="each element must be a string"):
         _eval('user(name="kchen", description="Kira Chen", groups=["pixelle", 1])\n')
+
+
+def test_user_avatar_rejects_non_string_value() -> None:
+    with pytest.raises(TypeError, match="expects type 'string'"):
+        _eval('user(name="kchen", description="Kira Chen", groups=["pixelle"], avatar=1)\n')
 
 
 def test_user_attaches_declared_entity_type() -> None:

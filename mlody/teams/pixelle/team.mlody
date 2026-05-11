@@ -4,16 +4,19 @@ user(
     name = "kchen",
     description = "Kira Chen",
     groups = ["pixelle", "pixelle-admin"],
+    avatar = "assets/images/avatars/avatars-2-2.png",
 )
 
 user(
     name = "amonroe",
     description = "Alex Monroe",
     groups = ["pixelle"],
+    avatar = "assets/images/avatars/avatars-2-3.png",
 )
 
 user(
     name = "tbennett",
     description = "Tessa Bennett",
     groups = ["pixelle"],
+    avatar = "assets/images/avatars/avatars-3-0.png",
 )

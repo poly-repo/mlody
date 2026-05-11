@@ -4,16 +4,19 @@ user(
     name = "agarcia",
     description = "Ava Garcia",
     groups = ["framera", "framera-admin"],
+    avatar = "assets/images/avatars/avatars-1-0.png",
 )
 
 user(
     name = "jlee",
     description = "Jordan Lee",
     groups = ["framera"],
+    avatar = "assets/images/avatars/avatars-1-1.png",
 )
 
 user(
     name = "pwalker",
     description = "Priya Walker",
     groups = ["framera"],
+    avatar = "assets/images/avatars/avatars-1-2.png",
 )
