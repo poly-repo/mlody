@@ -21,6 +21,11 @@ def _normalize_location_kwargs(loc_struct, kwargs):
 
 def _location_info(location, enclosing):
     _ = enclosing
+    if python.getattr(location, "type", None) == "remote":
+        attributes = python.getattr(location, "attributes", None)
+        uri = attributes.get("uri") if attributes != None else python.getattr(location, "uri", None)
+        if uri != None:
+            return Struct(**python.http_info(uri))
     return "location: " + location.name
 
 

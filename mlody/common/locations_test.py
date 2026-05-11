@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from textwrap import dedent
+from unittest.mock import patch
 
 import pytest
 
+from common.python.starlarkish.evaluator import evaluator as evaluator_module
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 
@@ -21,6 +23,31 @@ _BASE_FILES: dict[str, str] = {
     "mlody/common/types.mlody": _TYPES_MLODY,
     "mlody/common/locations.mlody": _LOCATIONS_MLODY,
 }
+
+
+class _FakeUrlResponse:
+    def __init__(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str] | None = None,
+        body: bytes = b"",
+    ) -> None:
+        self._url = url
+        self.headers = headers or {}
+        self._body = body
+
+    def geturl(self) -> str:
+        return self._url
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self) -> _FakeUrlResponse:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        return False
 
 
 def _eval(extra_mlody: str) -> Evaluator:
@@ -217,6 +244,32 @@ def test_remote_rejects_non_string_uri() -> None:
     """remote(uri=123) validates the uri type."""
     with pytest.raises(TypeError):
         _eval("result = remote(uri=123)")
+
+
+def test_remote_location_info_method_returns_http_metadata_struct() -> None:
+    """remote.info() delegates to python.http_info() and returns a struct-like result."""
+    ev = _eval('result = remote(uri="https://example.com/data.csv")')
+    result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
+
+    with patch.object(
+        evaluator_module,
+        "urlopen",
+        return_value=_FakeUrlResponse(
+            url="https://example.com/data.csv",
+            headers={
+                "Content-Length": "17",
+                "ETag": '"csv-etag"',
+                "Last-Modified": "Mon, 11 May 2026 14:32:11 GMT",
+            },
+        ),
+    ):
+        info = result.methods.info(result)
+
+    assert info.url == "https://example.com/data.csv"
+    assert info.digest == "csv-etag"
+    assert info.digest_type == "etag"
+    assert info.length == 17
+    assert info.update_time == "2026-05-11T14:32:11Z"
 
 
 def test_inline_data_accepts_arbitrary_value_without_loading_types_module() -> None:

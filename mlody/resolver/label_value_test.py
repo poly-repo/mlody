@@ -14,12 +14,14 @@ import json
 import uuid
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 from rich.console import Console
 
 from common.python.console import RichDomExecutor
+from common.python.starlarkish.evaluator import evaluator as evaluator_module
 from mlody.core.label import parse_label
 from mlody.core.virtual_value import force_virtual_value
 from mlody.core.workspace import Workspace
@@ -53,6 +55,10 @@ _REAL_RULE_MLODY = Path(__file__).parent.parent / "core" / "rule.mlody"
 _REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
 _REAL_RENDER_MLODY = Path(__file__).parent.parent / "common" / "render.mlody"
 _REAL_CONFIG_MLODY = Path(__file__).parent.parent / "common" / "config.mlody"
+_REAL_ATTRS_MLODY_TEXT = (Path(__file__).parent.parent / "common" / "attrs.mlody").read_text()
+_REAL_LOCATIONS_MLODY_TEXT = (
+    Path(__file__).parent.parent / "common" / "locations.mlody"
+).read_text()
 
 BUILTINS_MLODY = """\
 def root(name, path, description=""):
@@ -266,6 +272,46 @@ builtins.register("user", struct(
     groups=["myroot", "myroot-admin"],
 ))
 """
+
+
+REMOTE_VALUE_WITH_REAL_LOCATION_MLODY = """\
+load("//mlody/common/locations.mlody")
+
+builtins.register("value", struct(
+    kind="value",
+    name="my_value",
+    type=struct(kind="type", type="string", name="string"),
+    location=remote(uri="https://example.com/data.csv"),
+    default=None,
+    source=None,
+    _lineage=[],
+))
+"""
+
+
+class _FakeUrlResponse:
+    def __init__(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str] | None = None,
+        body: bytes = b"",
+    ) -> None:
+        self._url = url
+        self.headers = headers or {}
+        self._body = body
+
+    def geturl(self) -> str:
+        return self._url
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self) -> _FakeUrlResponse:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -607,6 +653,38 @@ class TestValueKind:
 
         assert isinstance(result, _RawAttrValue)
         assert result.value == "location: inline"
+
+    def test_remote_location_method_traversal_returns_nested_http_info_attribute(
+        self,
+        fs: FakeFilesystem,
+    ) -> None:
+        """Method-backed traversal continues through struct metadata returned by remote.info()."""
+        ws = _make_workspace(
+            fs,
+            extra_files={
+                "mlody/common/attrs.mlody": _REAL_ATTRS_MLODY_TEXT,
+                "mlody/common/locations.mlody": _REAL_LOCATIONS_MLODY_TEXT,
+                "teams/myroot/pkg/foo.mlody": REMOTE_VALUE_WITH_REAL_LOCATION_MLODY,
+            },
+        )
+
+        with patch.object(
+            evaluator_module,
+            "urlopen",
+            return_value=_FakeUrlResponse(
+                url="https://example.com/data.csv",
+                headers={
+                    "Content-Length": "17",
+                    "ETag": '"csv-etag"',
+                    "Last-Modified": "Mon, 11 May 2026 14:32:11 GMT",
+                },
+            ),
+        ):
+            label = parse_label("@myroot//pkg/foo:my_value.location.info.digest_type")
+            result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, _RawAttrValue)
+        assert result.value == "etag"
 
     def test_missing_attribute_returns_unresolved(self, fs: FakeFilesystem) -> None:
         """Scenario: Attribute not present on the value struct."""
