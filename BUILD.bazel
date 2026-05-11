@@ -1,9 +1,13 @@
 load("@aspect_rules_py//py:defs.bzl", "py_binary", "py_library")
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@gazelle//:def.bzl", "gazelle")
+load("@npm//:defs.bzl", "npm_link_all_packages")
 load("@pip//:requirements.bzl", "all_whl_requirements")
 load("@rules_python_gazelle_plugin//manifest:defs.bzl", "gazelle_python_manifest")
 load("@rules_python_gazelle_plugin//modules_mapping:def.bzl", "modules_mapping")
 load("//build/bzl:python.bzl", "o_py_binary", "o_py_library")
+
+npm_link_all_packages(name = "node_modules")
 
 # TODO this seems to do nothing
 exports_files(
@@ -17,6 +21,9 @@ exports_files(
 # gazelle:python_library_naming_convention $package_name$_lib
 # gazelle:python_test_naming_convention $package_name$_test
 # gazelle:exclude githooks/*
+# gazelle:exclude .agents
+# gazelle:exclude .claude
+# gazelle:exclude .codex
 gazelle(
     name = "gazelle",
     env = {
@@ -43,6 +50,7 @@ exports_files(
 # Don't walk into virtualenvs when looking for python sources.
 # We don't intend to plant BUILD files there.
 # gazelle:exclude **/*.venv
+# gazelle:exclude mlody/stage
 #
 # Fetches metadata for python packages we depend on.
 modules_mapping(

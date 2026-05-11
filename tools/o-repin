@@ -4,6 +4,9 @@
 # After adding a new third-party dependency, developers should run this script.
 set -o errexit -o nounset -o pipefail
 
+pnpm install --lockfile-only
+bazel run @npm//:sync
+
 bazel run //requirements:runtime.update
 bazel run //requirements:chatterbox.update
 bazel run //requirements:requirements.all.update

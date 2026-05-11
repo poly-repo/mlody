@@ -1,0 +1,52 @@
+load("@aspect_rules_esbuild//esbuild:defs.bzl", "esbuild_bundle")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+# Dev server: bazel run //mlody/stage:devserver
+sh_binary(
+    name = "devserver",
+    srcs = ["serve.sh"],
+    data = [":app"],
+)
+
+# TypeScript compilation
+ts_project(
+    name = "ts",
+    srcs = glob(["src/**/*.tsx", "src/**/*.ts"]),
+    declaration = True,
+    transpiler = "tsc",
+    tsconfig = ":tsconfig.json",
+    deps = [
+        "//:node_modules/@types/react",
+        "//:node_modules/@types/react-dom",
+        "//:node_modules/react",
+        "//:node_modules/react-dom",
+        "//:node_modules/react-router-dom",
+    ],
+)
+
+# Bundle: esbuild bundles the compiled JS into a single browser file
+esbuild_bundle(
+    name = "bundle",
+    srcs = [":ts"],
+    entry_point = "src/main.js",
+    output = "bundle.js",
+    tsconfig = ":tsconfig.json",
+    format = "esm",
+    platform = "browser",
+    deps = [
+        "//:node_modules/react",
+        "//:node_modules/react-dom",
+        "//:node_modules/react-router-dom",
+    ],
+)
+
+# Static assets for the dev server
+filegroup(
+    name = "app",
+    srcs = [
+        "index.html",
+        "styles.css",
+        ":bundle",
+    ],
+)
