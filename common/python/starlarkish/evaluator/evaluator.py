@@ -1374,6 +1374,13 @@ class Evaluator:
         clone_memo: dict[int, object] = {}
         for file_path, globals_dict in self._module_globals.items():
             cloned_globals = module_globals_map[id(globals_dict)]
+            # Seed sandbox builtins before cloning functions so copied Starlark
+            # callables bind to the fork's runtime helpers (for example the
+            # `python.*` helper object used by raw/lineage materializers).
+            forked._install_sandbox_runtime_bindings(
+                file_path=file_path,
+                sandbox_globals=cloned_globals,
+            )
             for name, value in globals_dict.items():
                 if name in _RUNTIME_SANDBOX_BINDING_NAMES:
                     continue

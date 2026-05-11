@@ -815,3 +815,28 @@ builtins.register("root", struct(name="callbacks", callback=remember))
     forked_counter = forked._module_globals[project_root / "forkable.mlody"]["COUNTER"]
     assert original_counter == []
     assert forked_counter == ["registry", "injection"]
+
+
+def test_fork_preserves_python_helpers_for_loaded_functions(
+    project_root: Path,
+    fs: FakeFilesystem,
+) -> None:
+    fs.create_file(
+        "/project/python_helper.mlody",
+        contents="""
+def read_payload(owner):
+    return python.getattr(owner, "payload", "missing")
+
+builtins.register("root", struct(name="callbacks", callback=read_payload))
+""",
+    )
+    evaluator = Evaluator(project_root)
+    evaluator.eval_file(project_root / "python_helper.mlody")
+
+    forked = evaluator.fork()
+
+    result = forked.registry.roots.by_name["callbacks"].callback(  # type: ignore[attr-defined]
+        Struct(payload="forked-ok")
+    )
+
+    assert result == "forked-ok"

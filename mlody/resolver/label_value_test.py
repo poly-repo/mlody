@@ -929,10 +929,13 @@ builtins.register("value", struct(
 """,
             },
         )
-        configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
-        configured = ws.resolve("@myroot//entities:my_value")
+        request_ws = configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
+        configured = request_ws.resolve("@myroot//entities:my_value")
 
-        result = resolve_label_to_value(parse_label("@myroot//entities:my_value.raw"), ws)
+        result = resolve_label_to_value(
+            parse_label("@myroot//entities:my_value.raw"),
+            request_ws,
+        )
 
         assert isinstance(result, MlodyValueValue)
         payload = json.loads(force_virtual_value(result.struct))
@@ -987,9 +990,9 @@ builtins.register("value", struct(
 """,
             },
         )
-        configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
+        request_ws = configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
 
-        configured = ws.resolve("@myroot//entities:my_value")
+        configured = request_ws.resolve("@myroot//entities:my_value")
 
         assert configured.location.data == "FOO"
         assert [event.source for event in configured._lineage[-2:]] == [
@@ -1015,9 +1018,12 @@ builtins.register("value", struct(
 """,
             },
         )
-        configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
+        request_ws = configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
 
-        result = resolve_label_to_value(parse_label("@myroot//entities:my_value.lineage"), ws)
+        result = resolve_label_to_value(
+            parse_label("@myroot//entities:my_value.lineage"),
+            request_ws,
+        )
 
         assert isinstance(result, MlodyValueValue)
         payload = force_virtual_value(result.struct)
