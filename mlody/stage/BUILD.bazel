@@ -45,6 +45,9 @@ esbuild_bundle(
 filegroup(
     name = "app",
     srcs = [
+        "apple-touch-icon.png",
+        "favicon-16.png",
+        "favicon-32.png",
         "index.html",
         "styles.css",
         ":bundle",

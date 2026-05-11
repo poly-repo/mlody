@@ -20,9 +20,11 @@ export function InputBar({ onSubmit, disabled = false }: InputBarProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (value.trim()) {
-        onSubmit(value.trim());
+      const command = value.trim();
+
+      if (command) {
         setValue("");
+        onSubmit(command);
       }
     }
   };

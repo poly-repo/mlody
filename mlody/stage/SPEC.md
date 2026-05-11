@@ -22,7 +22,7 @@ architecture.
 | Text input, Enter to execute               | `InputBar` component                                           |
 | Input grows vertically, anchored at bottom | CSS `max-height` + `overflow-y: auto` on textarea              |
 | Executing blocks with progressive output   | `ExecutionBlock` component + `ExecutionRecord` state           |
-| Multiple past executions, scrollable       | `OutputPane` rendering a list of `ExecutionRecord`             |
+| Multiple past executions, scrollable       | `OutputPane` rendering a bounded list of `ExecutionRecord`     |
 | Settings placeholder behind gear icon      | `SettingsPage` route                                           |
 | Design for structured command / targets    | `InputBar` props contract forwards to future `StructuredInput` |
 | Bazel build + dev server                   | `BUILD.bazel` following smoketest pattern                      |
@@ -114,7 +114,7 @@ export interface OutputChunk {
 
 /** Represents one submitted command and its execution state. */
 export interface ExecutionRecord {
-  id: string; // crypto.randomUUID()
+  id: string; // browser-safe unique id
   command: string;
   /** ISO timestamp when the command was submitted */
   submittedAt: string;
@@ -219,7 +219,7 @@ const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
 
 1. Guard: if `command.trim() === ""`, return immediately.
 2. Build a new `ExecutionRecord` with `status: "running"` and empty `output`.
-3. Call `setExecutions((prev) => [...prev, record])`.
+3. Call `setExecutions((prev) => [...prev, record].slice(-MAX_EXECUTIONS))`.
 4. Call `executor.run(command, (chunk) => { ... })` to append chunks:
    ```typescript
    setExecutions((prev) =>
@@ -489,7 +489,7 @@ visible at the bottom regardless of output volume.
      setValue("")
      textarea height resets to auto → 36px
 4. ReplPage.handleSubmit("show @lexica//models:bert"):
-     id = crypto.randomUUID()
+     id = createExecutionId()
      record = { id, command, submittedAt: new Date().toISOString(),
                 status: "running", output: [] }
      setExecutions(prev => [...prev, record])

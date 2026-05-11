@@ -7,7 +7,7 @@ export interface OutputChunk {
 
 /** Represents one submitted command and its execution state. */
 export interface ExecutionRecord {
-  id: string; // crypto.randomUUID()
+  id: string; // browser-safe unique id
   command: string;
   /** ISO timestamp when the command was submitted */
   submittedAt: string;

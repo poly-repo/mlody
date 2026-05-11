@@ -6,6 +6,18 @@ import { OutputPane } from "../components/OutputPane.js";
 import { stubExecutor } from "../executor.js";
 import type { Executor, ExecutionRecord } from "../types.js";
 
+const MAX_EXECUTIONS = 100;
+let executionSequence = 0;
+
+function createExecutionId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  executionSequence += 1;
+  return `execution-${Date.now()}-${executionSequence}`;
+}
+
 interface ReplPageProps {
   executor?: Executor;
 }
@@ -14,26 +26,28 @@ export function ReplPage({ executor = stubExecutor }: ReplPageProps) {
   const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
 
   const handleSubmit = (command: string) => {
-    //if (command.trim() === "") return;
+    if (command === "") return;
 
     const record: ExecutionRecord = {
-      id: crypto.randomUUID(),
+      id: createExecutionId(),
       command,
       submittedAt: new Date().toISOString(),
       status: "running",
       output: [],
     };
 
-    setExecutions((prev) => [...prev, record]);
+    setExecutions((prev) => [...prev, record].slice(-MAX_EXECUTIONS));
 
-    void executor
-      .run(command, (chunk) => {
-        setExecutions((prev) =>
-          prev.map((r) =>
-            r.id === record.id ? { ...r, output: [...r.output, chunk] } : r,
-          ),
-        );
-      })
+    void Promise.resolve()
+      .then(() =>
+        executor.run(command, (chunk) => {
+          setExecutions((prev) =>
+            prev.map((r) =>
+              r.id === record.id ? { ...r, output: [...r.output, chunk] } : r,
+            ),
+          );
+        }),
+      )
       .then(() => {
         setExecutions((prev) =>
           prev.map((r) =>
