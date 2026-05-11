@@ -1,4 +1,4 @@
-"""GUI rendering pipeline for the ``mlody dag --gui`` command.
+"""GUI rendering pipeline for DAG visualisation.
 
 This module exposes a single public function, :func:`show_dag_gui`, which
 accepts a ``networkx.MultiDiGraph`` produced by :func:`mlody.core.dag.build_dag`

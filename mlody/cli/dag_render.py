@@ -63,7 +63,7 @@ def format_action_cell(action_obj: object, fallback_name: str) -> str:
 
 
 def build_dag_table(display_graph: networkx.MultiDiGraph, title: str) -> Table:
-    """Build the Rich table used by ``mlody dag`` and DAG previews in ``show``."""
+    """Build the Rich table used by DAG displays in ``show``."""
     order = list(networkx.topological_sort(display_graph))
 
     table = Table(title=title, show_lines=True, expand=True)

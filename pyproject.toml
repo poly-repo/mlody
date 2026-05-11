@@ -70,7 +70,7 @@ dependencies = [
   # See: https://networkx.org/
   "networkx",
 
-  # interactive graph visualisation for `mlody dag --gui`.
+  # interactive graph visualisation support for DAG displays.
   # See: https://matplotlib.org/
   "matplotlib",
   # Qt backend for matplotlib GUI window (precompiled wheels, no C compilation).

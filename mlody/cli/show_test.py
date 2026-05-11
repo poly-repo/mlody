@@ -23,6 +23,7 @@ import mlody.cli.show
 from mlody.cli.dag_render import DagSelectionResult
 from mlody.cli.main import cli
 from mlody.cli.show import show_fn
+from mlody.core.dag_value import make_dag_virtual_value
 from mlody.core.label import parse_label as _parse_label
 from mlody.core.virtual_value import make_virtual_value
 from mlody.resolver.errors import UnknownRefError
@@ -508,6 +509,46 @@ class TestShowCommandOutput:
         assert "abc123" in result.output
         assert "virtual" not in result.output
         mock_dispatch.assert_not_called()
+
+    def test_dag_virtual_value_matches_removed_dag_command_title(
+        self, tmp_path: Path
+    ) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        target = "@common//huggingface/downloader:downloader.outputs.model.dag"
+        mock_ws.expand_wildcard_label.return_value = [target]
+        resolved_value = MlodyValueValue(
+            struct=make_dag_virtual_value(mock_ws, "model", target)
+        )
+        dag = networkx.MultiDiGraph()
+
+        runner = CliRunner()
+        with (
+            patch("mlody.cli.show.resolve_workspace") as mock_rw,
+            patch("mlody.cli.show._maybe_print_dag_plan"),
+            patch("mlody.cli.show.resolve_label_to_value") as mock_rlv,
+            patch("mlody.core.virtual_value.force_virtual_value", return_value=dag),
+            patch(
+                "mlody.cli.show.build_dag_table",
+                return_value="DAG-TABLE",
+            ) as mock_build,
+            patch.object(mlody.cli.show._console, "print") as mock_print,
+        ):
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", target],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert result.output == ""
+        mock_build.assert_called_once_with(
+            dag,
+            "DAG — ancestors of '@common//huggingface/downloader:downloader.outputs.model'",
+        )
+        mock_print.assert_called_once_with("DAG-TABLE")
 
     def test_raw_value_is_rendered_as_json_blob(self, tmp_path: Path) -> None:
         mock_ws = MagicMock()

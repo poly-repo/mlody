@@ -1030,6 +1030,25 @@ def _render_spec_to_dom(spec: object) -> RichDomNode:
     return panel(stack(*nodes) if nodes else text("(no content)"), title=title)
 
 
+def _is_dag_value(value: MlodyValue) -> bool:
+    if not isinstance(value, MlodyValueValue):
+        return False
+
+    from mlody.core.dag_value import MlodyDagType  # noqa: PLC0415
+
+    return isinstance(getattr(value.struct, "type", None), MlodyDagType)
+
+
+def _dag_title_for_value(value: MlodyValueValue) -> str:
+    dag_label = getattr(value.struct, "label", "") or ""
+    display_label = dag_label.removesuffix(".dag")
+    if display_label and display_label != "dag":
+        return f"DAG — ancestors of '{display_label}'"
+
+    port_name = getattr(value.struct, "name", "") or ""
+    return f"DAG — ancestors of '{port_name}'" if port_name else "DAG"
+
+
 def _print_mlody_value(
     value: MlodyValue,
     *,
@@ -1089,16 +1108,12 @@ def _print_mlody_value(
         return
 
     if isinstance(value, MlodyValueValue):
-        from mlody.core.dag_value import MlodyDagType  # noqa: PLC0415
         from mlody.core.virtual_value import force_virtual_value  # noqa: PLC0415
 
-        _value_type = getattr(value.struct, "type", None)
-        if isinstance(_value_type, MlodyDagType):
+        if _is_dag_value(value):
             graph = force_virtual_value(value.struct)
             if isinstance(graph, networkx.MultiDiGraph):
-                port_name = getattr(value.struct, "name", "") or ""
-                title = f"DAG — ancestors of '{port_name}'" if port_name else "DAG"
-                _console.print(build_dag_table(graph, title))
+                _console.print(build_dag_table(graph, _dag_title_for_value(value)))
             return
 
         display_payload = _display_payload(value)
@@ -1364,6 +1379,7 @@ def show(ctx: click.Context, config: list[str], targets: tuple[str, ...]) -> Non
 
     verbose: bool = ctx.obj.get("verbose", False)
     full_workspace: bool = ctx.obj.get("full_workspace", False)
+    rendered_any_output = False
 
     for target in targets:
         try:
@@ -1441,11 +1457,13 @@ def show(ctx: click.Context, config: list[str], targets: tuple[str, ...]) -> Non
                         value_description=_describe_mlody_value(mlody_value),
                     )
 
-                print()
+                if rendered_any_output or not _is_dag_value(mlody_value):
+                    print()
                 _error_sink: list[bool] = []
                 _print_mlody_value(
                     mlody_value, workspace=workspace, _has_error=_error_sink
                 )
+                rendered_any_output = True
                 if _error_sink:
                     has_error = True
         except WorkspaceLoadError as exc:

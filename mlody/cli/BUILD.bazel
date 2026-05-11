@@ -4,7 +4,6 @@ o_py_library(
     name = "cli_lib",
     srcs = [
         "__init__.py",
-        "dag_cmd.py",
         "dag_gui.py",
         "dag_render.py",
         "main.py",
@@ -120,14 +119,5 @@ o_py_test(
         ":cli_lib",
         "@pip//click",
         "@pip//pytest",
-    ],
-)
-
-o_py_test(
-    name = "dag_cmd_test",
-    srcs = ["dag_cmd_test.py"],
-    deps = [
-        ":cli_lib",
-        "@pip//click",
     ],
 )
