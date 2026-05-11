@@ -26,7 +26,7 @@ from mlody.cli.show import show_fn
 from mlody.core.dag_value import make_dag_virtual_value
 from mlody.core.label import parse_label as _parse_label
 from mlody.core.virtual_value import make_virtual_value
-from mlody.resolver.errors import UnknownRefError
+from mlody.resolver.errors import UnknownRefError, WorkspaceResolutionError
 from mlody.resolver.label_value import (
     MlodyActionValue,
     MlodyFolderValue,
@@ -72,6 +72,26 @@ def _make_type_struct(
         attributes=attributes or {},
         _allowed_attrs={},
     )
+
+
+def _attach_registered_user(
+    workspace: object,
+    *,
+    name: str = "mav",
+    description: str = "Maurizio Vitale",
+) -> None:
+    workspace.evaluator.registry.users.by_name = {
+        name: struct(
+            kind="user",
+            name=name,
+            description=description,
+            groups=["admin"],
+        )
+    }
+
+
+def _set_runtime_user(workspace: object, user: str) -> None:
+    workspace.evaluator._extra_ctx = struct(workspace=struct(user=user))
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +226,7 @@ class TestShowCommandCwdTarget:
             monorepo_root=tmp_path,
             workspace_root=tmp_path,
             config=("@bert//models:cfg=abc123",),
+            user="mav",
             roots_file=None,
             full_workspace=False,
             verbose=False,
@@ -216,6 +237,7 @@ class TestShowCommandCwdTarget:
         ws = MagicMock()
         ws.resolve.return_value = 0.001
         ws.root_infos = {}
+        _attach_registered_user(ws)
 
         runner = CliRunner()
         result = runner.invoke(cli, ["show", "@bert//models:lr"], obj={"workspace": ws, "verbose": False})
@@ -227,6 +249,7 @@ class TestShowCommandCwdTarget:
         ws = MagicMock()
         ws.resolve.return_value = 0.001
         ws.root_infos = {}
+        _attach_registered_user(ws)
 
         runner = CliRunner()
         with patch("mlody.cli.show.configure_workspace") as mock_configure:
@@ -243,6 +266,7 @@ class TestShowCommandCwdTarget:
     def test_repeated_legacy_workspace_invocations_reconfigure_same_baseline(self) -> None:
         baseline = MagicMock()
         baseline.root_infos = {}
+        _attach_registered_user(baseline)
 
         request_a = MagicMock()
         request_a.root_infos = {}
@@ -309,6 +333,7 @@ class TestShowCommandCommittoidTarget:
             monorepo_root=tmp_path,
             workspace_root=tmp_path,
             config=(),
+            user="mav",
             roots_file=None,
             full_workspace=False,
             verbose=False,
@@ -411,28 +436,49 @@ class TestShowCommandVerbose:
 
 
 class TestShowCommandAsUser:
+    def test_default_user_is_used_when_as_is_omitted(self, tmp_path: Path) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@bert//models:lr"]
+        resolved_value = MlodyTaskValue(struct=struct(kind="task", name="lr"))
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "@bert//models:lr"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "Value for user 'mav'" in result.output
+        mock_rw.assert_called_once_with(
+            "@bert//models:lr",
+            monorepo_root=tmp_path,
+            workspace_root=tmp_path,
+            config=(),
+            user="mav",
+            roots_file=None,
+            full_workspace=False,
+            verbose=False,
+        )
+
     def test_as_accepts_full_description_and_prints_canonical_user(
         self, tmp_path: Path
     ) -> None:
         mock_ws = MagicMock()
         mock_ws.root_infos = {}
         mock_ws.expand_wildcard_label.return_value = ["@bert//models:lr"]
-        mock_ws.evaluator.registry.users.by_name = {
-            "agarcia": struct(
-                kind="user",
-                name="agarcia",
-                description="Ava Garcia",
-                groups=["framera"],
-            )
-        }
+        _set_runtime_user(mock_ws, "agarcia")
         resolved_value = MlodyTaskValue(struct=struct(kind="task", name="lr"))
 
         runner = CliRunner()
-        with patch("mlody.cli.show.resolve_workspace_baseline") as mock_baseline, \
-             patch("mlody.cli.show.configure_workspace") as mock_configure, \
+        with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
              patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
-            mock_baseline.return_value = (mock_ws, "a" * 40)
-            mock_configure.return_value = mock_ws
+            mock_rw.return_value = (mock_ws, "a" * 40)
             mock_rlv.return_value = resolved_value
             result = runner.invoke(
                 cli,
@@ -443,85 +489,36 @@ class TestShowCommandAsUser:
         assert result.exit_code == 0
         assert "Value for user 'agarcia'" in result.output
         assert result.output.index("Value for user 'agarcia'") < result.output.index("lr")
+        mock_rw.assert_called_once_with(
+            "@bert//models:lr",
+            monorepo_root=tmp_path,
+            workspace_root=tmp_path,
+            config=(),
+            user="Ava Garcia",
+            roots_file=None,
+            full_workspace=False,
+            verbose=False,
+        )
 
-    def test_as_updates_global_context_before_configure_workspace(
+    def test_as_rejects_unknown_user_before_rendering(
         self, tmp_path: Path
     ) -> None:
-        baseline_ws = MagicMock()
-        baseline_ws.root_infos = {}
-        baseline_ws.evaluator.registry.users.by_name = {
-            "agarcia": struct(
-                kind="user",
-                name="agarcia",
-                description="Ava Garcia",
-                groups=["framera"],
-            )
-        }
-        baseline_ws.update_global_context = MagicMock()
-
-        configured_ws = MagicMock()
-        configured_ws.root_infos = {}
-        configured_ws.expand_wildcard_label.return_value = ["@bert//models:lr"]
-        resolved_value = MlodyTaskValue(struct=struct(kind="task", name="lr"))
-
         runner = CliRunner()
-        with patch("mlody.cli.show.resolve_workspace_baseline") as mock_baseline, \
-             patch("mlody.cli.show.configure_workspace") as mock_configure, \
-             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
-            mock_baseline.return_value = (baseline_ws, "a" * 40)
-
-            def _configure(workspace: object, config: object) -> object:
-                baseline_ws.update_global_context.assert_called_once_with(
-                    user="agarcia",
-                    resolved_sha="a" * 40,
-                )
-                assert workspace is baseline_ws
-                assert config == ("@bert//models:cfg=abc123",)
-                return configured_ws
-
-            mock_configure.side_effect = _configure
-            mock_rlv.return_value = resolved_value
+        with patch(
+            "mlody.cli.show.resolve_workspace",
+            side_effect=WorkspaceResolutionError(
+                "User 'nobody' is not one of the valid registered users. "
+                "Valid users: agarcia (Ava Garcia), jlee (Jordan Lee)"
+            ),
+        ) as mock_rw, patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
             result = runner.invoke(
                 cli,
                 [
                     "show",
                     "--as",
-                    "agarcia",
-                    "--with",
-                    "@bert//models:cfg=abc123",
+                    "nobody",
                     "@bert//models:lr",
                 ],
-                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
-            )
-
-        assert result.exit_code == 0
-
-    def test_as_rejects_unknown_user_before_configuration(
-        self, tmp_path: Path
-    ) -> None:
-        mock_ws = MagicMock()
-        mock_ws.evaluator.registry.users.by_name = {
-            "agarcia": struct(
-                kind="user",
-                name="agarcia",
-                description="Ava Garcia",
-                groups=["framera"],
-            ),
-            "jlee": struct(
-                kind="user",
-                name="jlee",
-                description="Jordan Lee",
-                groups=["sonora"],
-            ),
-        }
-
-        runner = CliRunner()
-        with patch("mlody.cli.show.resolve_workspace_baseline") as mock_baseline, \
-             patch("mlody.cli.show.configure_workspace") as mock_configure:
-            mock_baseline.return_value = (mock_ws, None)
-            result = runner.invoke(
-                cli,
-                ["show", "--as", "nobody", "@bert//models:lr"],
                 obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
             )
 
@@ -529,7 +526,8 @@ class TestShowCommandAsUser:
         assert "nobody" in result.output
         assert "agarcia (Ava Garcia)" in result.output
         assert "jlee (Jordan Lee)" in result.output
-        mock_configure.assert_not_called()
+        mock_rlv.assert_not_called()
+        mock_rw.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +542,7 @@ class TestShowCommandOutput:
         ws = MagicMock()
         ws.resolve.return_value = 0.001
         ws.root_infos = {}
+        _attach_registered_user(ws)
 
         runner = CliRunner()
         result = runner.invoke(cli, ["show", "@bert//models:lr"], obj={"workspace": ws, "verbose": False})
@@ -555,6 +554,7 @@ class TestShowCommandOutput:
         ws = MagicMock()
         ws.resolve.return_value = struct(name="bert", lr=0.001)
         ws.root_infos = {}
+        _attach_registered_user(ws)
 
         runner = CliRunner()
         result = runner.invoke(cli, ["show", "@bert//models:config"], obj={"workspace": ws, "verbose": False})
@@ -670,7 +670,7 @@ class TestShowCommandOutput:
             )
 
         assert result.exit_code == 0
-        assert result.output == ""
+        assert result.output == "Value for user 'mav'\n"
         mock_build.assert_called_once_with(
             dag,
             "DAG — ancestors of '@common//huggingface/downloader:downloader.outputs.model'",
@@ -715,6 +715,7 @@ class TestShowCommandOutput:
         ws = MagicMock()
         ws.resolve.side_effect = [0.001, "adam"]
         ws.root_infos = {}
+        _attach_registered_user(ws)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -1025,6 +1026,7 @@ class TestShowCommandDagPlan:
         ws = MagicMock()
         ws.resolve.return_value = "model-value"
         ws.root_infos = {}
+        _attach_registered_user(ws)
 
         dag = networkx.MultiDiGraph()
         dag.add_node("task/common/downloader:download")
@@ -1058,6 +1060,7 @@ class TestShowCommandDagPlan:
         ws = MagicMock()
         ws.resolve.return_value = "ok"
         ws.root_infos = {}
+        _attach_registered_user(ws)
 
         dag = networkx.MultiDiGraph()
 
@@ -1089,6 +1092,7 @@ class TestShowCommandErrors:
         ws = MagicMock()
         ws.resolve.side_effect = KeyError("NONEXISTENT")
         ws.root_infos = {"lexica": MagicMock(), "common": MagicMock()}
+        _attach_registered_user(ws)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -1104,6 +1108,7 @@ class TestShowCommandErrors:
         ws = MagicMock()
         ws.resolve.side_effect = AttributeError("'Struct' object has no attribute 'bad_field'")
         ws.root_infos = {}
+        _attach_registered_user(ws)
 
         runner = CliRunner()
         result = runner.invoke(cli, ["show", "@bert//models:bad_field"], obj={"workspace": ws, "verbose": False})
@@ -1115,6 +1120,7 @@ class TestShowCommandErrors:
         ws = MagicMock()
         ws.resolve.side_effect = [0.001, KeyError("MISSING")]
         ws.root_infos = {}
+        _attach_registered_user(ws)
 
         runner = CliRunner()
         result = runner.invoke(

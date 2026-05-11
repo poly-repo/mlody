@@ -9,7 +9,7 @@ import pwd
 import shutil
 import socket
 from pathlib import Path
-from typing import Callable, Iterable, NamedTuple
+from typing import Callable, Iterable, Mapping, NamedTuple
 
 from mlody.core.workspace import Workspace, WorkspaceStateKind
 from mlody.db.evaluations import open_db, write_evaluation
@@ -794,6 +794,81 @@ def _workspace_injections(
     return extra_roots, lazy_roots
 
 
+def _registered_users(workspace: Workspace) -> list[tuple[str, str]]:
+    by_name = workspace.evaluator.registry.users.by_name
+    if not isinstance(by_name, Mapping):
+        return []
+
+    users: list[tuple[str, str]] = []
+    for raw_user in by_name.values():
+        name = getattr(raw_user, "name", None)
+        description = getattr(raw_user, "description", "")
+        if not isinstance(name, str):
+            continue
+        users.append((name, description if isinstance(description, str) else ""))
+    return sorted(users, key=lambda item: item[0])
+
+
+def _format_valid_users(users: list[tuple[str, str]]) -> str:
+    formatted: list[str] = []
+    for name, description in users:
+        if description and description != name:
+            formatted.append(f"{name} ({description})")
+        else:
+            formatted.append(name)
+    return ", ".join(formatted)
+
+
+def _validate_workspace_user(workspace: Workspace, requested_user: str) -> str:
+    users = _registered_users(workspace)
+    if not users:
+        msg = (
+            f"User {requested_user!r} is invalid because this workspace has no "
+            "registered users."
+        )
+        raise WorkspaceResolutionError(msg)
+
+    matches = {
+        name
+        for name, description in users
+        if requested_user == name or requested_user == description
+    }
+    if len(matches) == 1:
+        return next(iter(matches))
+    if len(matches) > 1:
+        msg = (
+            f"User {requested_user!r} is ambiguous; it matches multiple registered "
+            f"users. Valid users: {_format_valid_users(users)}"
+        )
+        raise WorkspaceResolutionError(msg)
+
+    msg = (
+        f"User {requested_user!r} is not one of the valid registered users. "
+        f"Valid users: {_format_valid_users(users)}"
+    )
+    raise WorkspaceResolutionError(msg)
+
+
+def apply_workspace_user(
+    workspace: Workspace,
+    requested_user: str,
+    *,
+    resolved_sha: str | None,
+) -> tuple[Workspace, str]:
+    """Validate and apply a workspace user to request-local runtime context."""
+    selected_user = _validate_workspace_user(workspace, requested_user)
+    request_workspace = (
+        workspace.fork_request() if isinstance(workspace, _WORKSPACE_TYPE) else workspace
+    )
+    update_global_context = getattr(request_workspace, "update_global_context", None)
+    if callable(update_global_context):
+        update_global_context(
+            user=selected_user,
+            resolved_sha=resolved_sha,
+        )
+    return (request_workspace, selected_user)
+
+
 def resolve_workspace_baseline(
     label: str,
     monorepo_root: Path,
@@ -861,6 +936,7 @@ def resolve_workspace(
     monorepo_root: Path,
     workspace_root: Path | None = None,
     config: list[str] = [],
+    user: str | None = None,
     roots_file: Path | None = None,
     full_workspace: bool = False,
     print_fn: Callable[..., None] = print,
@@ -879,6 +955,10 @@ def resolve_workspace(
     and returns a Workspace rooted there along with the full 40-char SHA.
     workspace_root has no effect on committoid-qualified labels.
 
+    When user is provided, it is validated against registered users after the
+    baseline workspace loads and before any configuration is applied. The
+    validated canonical short name is stored in the global runtime context.
+
     When value_description is provided (non-None, non-empty), a row is written
     to the local SQLite evaluations DB after successful materialisation. The
     write is best-effort and never raises (NFR-AVAIL-001).
@@ -887,20 +967,6 @@ def resolve_workspace(
     are responsible for catching and formatting them.
     """
     committoid, _inner_label = parse_label(label)
-
-    if value_description and committoid is not None:
-        from datetime import datetime, timezone
-
-        client = git_client or GitClient(monorepo_root)
-        resolved = resolve_sha(committoid, client)
-        _record_evaluation_best_effort(
-            resolved_sha=resolved.sha,
-            committoid=committoid,
-            repo_url=client.remote_url() or "",
-            local_only=resolved.local_only,
-            resolved_at=datetime.now(timezone.utc).isoformat(),
-            value_description=value_description,
-        )
 
     baseline, resolved_sha = resolve_workspace_baseline(
         label,
@@ -913,4 +979,27 @@ def resolve_workspace(
         cache_root=cache_root,
         verbose=verbose,
     )
-    return (configure_workspace(baseline, config), resolved_sha)
+
+    workspace = baseline
+    if user is not None:
+        workspace, _selected_user = apply_workspace_user(
+            baseline,
+            user,
+            resolved_sha=resolved_sha,
+        )
+
+    if value_description and committoid is not None and resolved_sha is not None:
+        from datetime import datetime, timezone
+
+        client = git_client or GitClient(monorepo_root)
+        resolved = resolve_sha(committoid, client)
+        _record_evaluation_best_effort(
+            resolved_sha=resolved_sha,
+            committoid=committoid,
+            repo_url=client.remote_url() or "",
+            local_only=resolved.local_only,
+            resolved_at=datetime.now(timezone.utc).isoformat(),
+            value_description=value_description,
+        )
+
+    return (configure_workspace(workspace, config), resolved_sha)

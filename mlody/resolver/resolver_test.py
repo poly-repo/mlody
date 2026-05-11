@@ -1046,6 +1046,82 @@ class TestResolveWorkspaceCwdPath:
             ["@lexica//models:bert.config.token=second"],
         )
 
+    def test_user_description_is_canonicalized_before_configuration(
+        self, tmp_path: Path
+    ) -> None:
+        baseline = object.__new__(Workspace)
+        baseline._evaluator = MagicMock()
+        baseline._state_kind = WorkspaceStateKind.BASELINE
+        baseline.evaluator.registry.users.by_name = {
+            "mav": Struct(
+                kind="user",
+                name="mav",
+                description="Maurizio Vitale",
+                groups=["admin"],
+            )
+        }
+        request_workspace = MagicMock()
+        baseline.fork_request = MagicMock(return_value=request_workspace)
+
+        with (
+            patch(
+                "mlody.resolver.resolver.resolve_workspace_baseline",
+                return_value=(baseline, None),
+            ) as mock_baseline,
+            patch("mlody.resolver.resolver.configure_workspace") as mock_configure,
+        ):
+            mock_configure.return_value = request_workspace
+            workspace, sha = resolve_workspace(
+                "@lexica//models:bert",
+                monorepo_root=tmp_path,
+                user="Maurizio Vitale",
+                config=["@lexica//models:bert.config.token=abc123"],
+            )
+
+        assert sha is None
+        assert workspace is request_workspace
+        mock_baseline.assert_called_once()
+        baseline.fork_request.assert_called_once_with()
+        request_workspace.update_global_context.assert_called_once_with(
+            user="mav",
+            resolved_sha=None,
+        )
+        mock_configure.assert_called_once_with(
+            request_workspace,
+            ["@lexica//models:bert.config.token=abc123"],
+        )
+
+    def test_invalid_user_raises_before_configuration(self, tmp_path: Path) -> None:
+        baseline = MagicMock()
+        baseline.evaluator.registry.users.by_name = {
+            "mav": Struct(
+                kind="user",
+                name="mav",
+                description="Maurizio Vitale",
+                groups=["admin"],
+            )
+        }
+
+        with (
+            patch(
+                "mlody.resolver.resolver.resolve_workspace_baseline",
+                return_value=(baseline, None),
+            ),
+            patch("mlody.resolver.resolver.configure_workspace") as mock_configure,
+        ):
+            with pytest.raises(
+                WorkspaceResolutionError,
+                match="Valid users: mav \\(Maurizio Vitale\\)",
+            ):
+                resolve_workspace(
+                    "@lexica//models:bert",
+                    monorepo_root=tmp_path,
+                    user="nobody",
+                )
+
+        baseline.fork_request.assert_not_called()
+        mock_configure.assert_not_called()
+
 
 class TestResolveWorkspaceCommittoidPath:
     """Requirement: resolve_workspace committoid path — branch cache miss."""
