@@ -283,6 +283,31 @@ class MlodyActionValue(MlodyValue):
 
 
 @dataclass(frozen=True)
+class MlodyUserValue(MlodyValue):
+    """Opaque wrapper around a user registry Struct."""
+
+    struct: object
+
+    def to_console_representation(self) -> RichDomNode:
+        s = self.struct
+        name = getattr(s, "name", "?")
+        description = getattr(s, "description", "")
+        groups = getattr(s, "groups", []) or []
+        group_text = ", ".join(str(group) for group in groups) if groups else "(none)"
+
+        return panel(
+            table(
+                ["field", "value"],
+                [
+                    ["description", str(description)],
+                    ["groups", group_text],
+                ],
+            ),
+            title=f"user: {name}",
+        )
+
+
+@dataclass(frozen=True)
 class MlodyValueValue(MlodyValue):
     """Opaque wrapper around a value registry Struct."""
 
@@ -452,6 +477,8 @@ def _wrap_struct(kind: str, struct: object) -> MlodyValue:
         return MlodyTaskValue(struct=struct)
     if kind == "action":
         return MlodyActionValue(struct=struct)
+    if kind == "user":
+        return MlodyUserValue(struct=struct)
     if kind == "value":
         return MlodyValueValue(struct=struct)
     # Future kinds added to the dispatch table will provide their own wrapper;
@@ -1531,7 +1558,7 @@ def _engine_wildcard_step(
     # Case 3: record-typed Struct
     from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
 
-    if isinstance(current, (MlodyValueValue, MlodyTaskValue, MlodyActionValue)):
+    if isinstance(current, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue)):
         struct_obj = current.struct  # type: ignore[union-attr]
         if isinstance(struct_obj, _Struct) and _is_record_struct(struct_obj):
             field_values = _collect_record_fields(struct_obj, label)
@@ -1596,7 +1623,7 @@ def _engine_recursive_descent_step(
         if isinstance(node, _RawAttrValue) and isinstance(node.value, dict):
             return [_wrap_raw(v, label) for v in node.value.values()]
 
-        if isinstance(node, (MlodyValueValue, MlodyTaskValue, MlodyActionValue)):
+        if isinstance(node, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue)):
             struct_obj = node.struct  # type: ignore[union-attr]
             if isinstance(struct_obj, _Struct) and _is_record_struct(struct_obj):
                 return _collect_record_fields(struct_obj, label)
@@ -1625,7 +1652,7 @@ def _engine_recursive_descent_step(
         isinstance(current, MlodyVectorValue)
         or (isinstance(current, _RawAttrValue) and isinstance(current.value, dict))
         or (
-            isinstance(current, (MlodyValueValue, MlodyTaskValue, MlodyActionValue))
+            isinstance(current, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue))
             and isinstance(getattr(current, "struct", None), _Struct)
             and _is_record_struct(getattr(current, "struct", None))
         )
@@ -1773,7 +1800,7 @@ def _traverse_one_step(
         from mlody.core.traversal_parser import evaluate_mlody_segment  # noqa: PLC0415
 
         entity = current_struct
-        if isinstance(current_struct, (MlodyValueValue, MlodyTaskValue, MlodyActionValue)):
+        if isinstance(current_struct, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue)):
             entity = current_struct.struct  # type: ignore[union-attr]
         elif isinstance(current_struct, _RawAttrValue):
             entity = current_struct.value
@@ -1808,11 +1835,11 @@ def _traverse_one_step(
 
     # FieldSegment / str path: record-aware field lookup.
     # If current_struct is a typed MlodyValue wrapper (MlodyValueValue, MlodyTaskValue,
-    # or MlodyActionValue), unwrap to the inner Struct so that field lookup finds the
+    # MlodyActionValue, or MlodyUserValue), unwrap to the inner Struct so that field lookup finds the
     # record type.  This is required for mapped traversal (task 4.3): after a wildcard
     # expands elements into MlodyValueValue instances, subsequent FieldSegment steps
     # must operate on the underlying Starlark Struct, not the Python wrapper.
-    if isinstance(current_struct, (MlodyValueValue, MlodyTaskValue, MlodyActionValue)):
+    if isinstance(current_struct, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue)):
         current_struct = current_struct.struct  # type: ignore[union-attr]
     value_type = getattr(current_struct, "type", None)
     _SENTINEL = object()
@@ -2641,6 +2668,7 @@ class ParquetTraversalStrategy:
 TRAVERSAL_STRATEGIES: dict[str, TraversalStrategy] = {
     "task": StructTraversalStrategy("task"),
     "action": StructTraversalStrategy("action"),
+    "user": StructTraversalStrategy("user"),
     "value": ValueTraversalStrategy(),
 }
 

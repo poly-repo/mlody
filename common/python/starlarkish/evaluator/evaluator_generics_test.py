@@ -283,3 +283,40 @@ def test_config_registration_roundtrip_via_builtins() -> None:
     assert "team" in ev.registry.configs.by_name
     cfg = ev.registry.configs.by_name["team"]
     assert getattr(cfg, "name") == "team"
+
+
+# ---------------------------------------------------------------------------
+# 6. User kind registration
+# ---------------------------------------------------------------------------
+
+
+def test_user_kind_in_supported_registration_kinds() -> None:
+    """'user' is present in SUPPORTED_REGISTRATION_KINDS."""
+    assert "user" in SUPPORTED_REGISTRATION_KINDS
+
+
+def test_registry_state_for_kind_user_returns_users_bucket() -> None:
+    """RegistryState.for_kind('user') returns the users NamedRegistry."""
+    files = {"test.mlody": ""}
+    with InMemoryFS(files, root="/project") as root:
+        ev = Evaluator(root)
+        ev.eval_file(root / "test.mlody")
+
+    bucket = ev.registry.for_kind("user", operation="lookup")
+    assert bucket is ev.registry.users
+
+
+def test_user_registration_roundtrip_via_builtins() -> None:
+    """builtins.register('user', struct(...)) stores in registry.users.by_name."""
+    ev = _minimal_eval("""\
+        builtins.register("user", struct(
+            kind="user",
+            name="agarcia",
+            description="Ava Garcia",
+            groups=["framera", "framera-admin"],
+        ))
+    """)
+    assert "agarcia" in ev.registry.users.by_name
+    user = ev.registry.users.by_name["agarcia"]
+    assert getattr(user, "name") == "agarcia"
+    assert getattr(user, "description") == "Ava Garcia"

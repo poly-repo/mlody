@@ -15,6 +15,7 @@ SUPPORTED_REGISTRATION_KINDS = (
     "value",
     "action",
     "task",
+    "user",
     "implementation",
     "build_ref",
     "executor",
@@ -66,6 +67,7 @@ class RegistryState:
     values: NamedRegistry = field(init=False)
     actions: NamedRegistry = field(init=False)
     tasks: NamedRegistry = field(init=False)
+    users: NamedRegistry = field(init=False)
     implementations: NamedRegistry = field(init=False)
     build_refs: NamedRegistry = field(init=False)
     executors: NamedRegistry = field(init=False)
@@ -81,6 +83,7 @@ class RegistryState:
         self.values = self._make_registry("value")
         self.actions = self._make_registry("action")
         self.tasks = self._make_registry("task")
+        self.users = self._make_registry("user")
         self.implementations = self._make_registry("implementation")
         self.build_refs = self._make_registry("build_ref")
         self.executors = self._make_registry("executor")
@@ -114,6 +117,8 @@ class RegistryState:
                 return self.actions
             case "task":
                 return self.tasks
+            case "user":
+                return self.users
             case "implementation":
                 return self.implementations
             case "build_ref":

@@ -1,0 +1,19 @@
+load("//mlody/common/user.mlody")
+
+user(
+    name = "jramirez",
+    description = "Julia Ramirez",
+    groups = ["sonora", "sonora-admin"],
+)
+
+user(
+    name = "mclark",
+    description = "Marcus Clark",
+    groups = ["sonora"],
+)
+
+user(
+    name = "snguyen",
+    description = "Sofia Nguyen",
+    groups = ["sonora"],
+)

@@ -50,6 +50,7 @@ _HELPER_KINDS: dict[str, str] = {
     "root": "root",
     "task": "task",
     "action": "action",
+    "user": "user",
     "value": "value",
     "location": "location",
     "type": "type",

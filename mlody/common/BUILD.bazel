@@ -15,6 +15,7 @@ exports_files([
     "representation.mlody",
     "task.mlody",
     "types.mlody",
+    "user.mlody",
     "values.mlody",
 ])
 
@@ -110,6 +111,7 @@ o_py_library(
         "struct.py",
         "task.py",
         "type.py",
+        "user.py",
         "value.py",
     ],
     data = [
@@ -238,6 +240,23 @@ o_py_test(
 )
 
 o_py_test(
+    name = "user_test",
+    srcs = ["user_test.py"],
+    data = [
+        "attrs.mlody",
+        "types.mlody",
+        "user.mlody",
+        "//mlody/core:rule.mlody",
+    ],
+    deps = [
+        ":common_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody:mlody_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
     name = "mm_test",
     srcs = ["mm_test.py"],
     data = [
@@ -268,6 +287,7 @@ o_py_test(
         "representation.mlody",
         "task.mlody",
         "types.mlody",
+        "user.mlody",
         "values.mlody",
         "//mlody/core:rule.mlody",
     ],

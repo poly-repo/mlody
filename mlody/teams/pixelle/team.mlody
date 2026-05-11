@@ -1,0 +1,19 @@
+load("//mlody/common/user.mlody")
+
+user(
+    name = "kchen",
+    description = "Kira Chen",
+    groups = ["pixelle", "pixelle-admin"],
+)
+
+user(
+    name = "amonroe",
+    description = "Alex Monroe",
+    groups = ["pixelle"],
+)
+
+user(
+    name = "tbennett",
+    description = "Tessa Bennett",
+    groups = ["pixelle"],
+)

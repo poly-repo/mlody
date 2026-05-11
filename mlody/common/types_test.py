@@ -1913,6 +1913,7 @@ def test_mlody_descriptor_types_are_registered() -> None:
     assert "mlody-value" in ev.registry.types.by_name
     assert "mlody-task" in ev.registry.types.by_name
     assert "mlody-action" in ev.registry.types.by_name
+    assert "mlody-user" in ev.registry.types.by_name
     assert "mlody-root" in ev.registry.types.by_name
 
 
@@ -1927,7 +1928,7 @@ def test_mlody_descriptor_types_declare_source_range_field() -> None:
         "end_line",
     ]
 
-    for type_name in ("mlody-value", "mlody-task", "mlody-action", "mlody-root"):
+    for type_name in ("mlody-value", "mlody-task", "mlody-action", "mlody-user", "mlody-root"):
         descriptor = ev.registry.types.by_name[type_name]
         fields = descriptor.attributes["fields"]  # type: ignore[attr-defined]
         assert fields[0].name == "_source_range"

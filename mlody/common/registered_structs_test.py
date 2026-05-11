@@ -22,6 +22,7 @@ from mlody.common.root import RegisteredRoot
 from mlody.common.struct import Struct
 from mlody.common.task import RegisteredTask
 from mlody.common.type import RegisteredType
+from mlody.common.user import RegisteredUser
 from mlody.common.value import RegisteredValue
 
 assert mlody.__name__ == "mlody"
@@ -39,6 +40,7 @@ _EXECUTOR_MLODY = (_THIS_DIR / "executor.mlody").read_text()
 _VALUES_MLODY = (_THIS_DIR / "values.mlody").read_text()
 _ACTION_MLODY = (_THIS_DIR / "action.mlody").read_text()
 _TASK_MLODY = (_THIS_DIR / "task.mlody").read_text()
+_USER_MLODY = (_THIS_DIR / "user.mlody").read_text()
 _MM_MLODY = (_THIS_DIR / "mm.mlody").read_text()
 
 _BASE_FILES: dict[str, str] = {
@@ -54,6 +56,7 @@ _BASE_FILES: dict[str, str] = {
     "mlody/common/values.mlody": _VALUES_MLODY,
     "mlody/common/action.mlody": _ACTION_MLODY,
     "mlody/common/task.mlody": _TASK_MLODY,
+    "mlody/common/user.mlody": _USER_MLODY,
     "mlody/common/mm.mlody": _MM_MLODY,
 }
 
@@ -69,6 +72,7 @@ _PREAMBLE = dedent(
     load("//mlody/common/values.mlody")
     load("//mlody/common/action.mlody")
     load("//mlody/common/task.mlody")
+    load("//mlody/common/user.mlody")
     load("//mlody/common/mm.mlody", "mm")
 
     builtins.register("root", struct(name="test_root", path="//mlody/common", description="shared"))
@@ -81,6 +85,7 @@ _PREAMBLE = dedent(
         implementation=shell_script(content="echo hello"),
     )
     task(name="tsk", inputs=["inp"], outputs=[], action="act")
+    user(name="agarcia", description="Ava Garcia", groups=["framera", "framera-admin"])
     """
 )
 
@@ -102,6 +107,7 @@ def _sample_registry_structs() -> dict[str, Struct]:
             "value": registry.values.by_name["inp"],
             "action": registry.actions.by_name["act"],
             "task": registry.tasks.by_name["tsk"],
+            "user": registry.users.by_name["agarcia"],
             "implementation": registry.implementations.by_name["shell_script"],
             "build_ref": registry.build_refs.by_name["bazel"],
             "executor": registry.executors.by_name["host"],
@@ -120,6 +126,7 @@ def _sample_registry_structs() -> dict[str, Struct]:
         (RegisteredValue, "value"),
         (RegisteredAction, "action"),
         (RegisteredTask, "task"),
+        (RegisteredUser, "user"),
         (RegisteredImplementation, "implementation"),
         (RegisteredBuildRef, "build_ref"),
         (RegisteredExecutor, "executor"),
@@ -134,6 +141,7 @@ def _sample_registry_structs() -> dict[str, Struct]:
         "value",
         "action",
         "task",
+        "user",
         "implementation",
         "build_ref",
         "executor",

@@ -1,0 +1,19 @@
+load("//mlody/common/user.mlody")
+
+user(
+    name = "mcollins",
+    description = "Maya Collins",
+    groups = ["lexica", "lexica-admin"],
+)
+
+user(
+    name = "dpatel",
+    description = "Daniel Patel",
+    groups = ["lexica"],
+)
+
+user(
+    name = "rsullivan",
+    description = "Riley Sullivan",
+    groups = ["lexica"],
+)

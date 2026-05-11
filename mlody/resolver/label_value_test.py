@@ -31,6 +31,7 @@ from mlody.resolver.label_value import (
     MlodySourceRangeValue,
     MlodyTaskValue,
     MlodyUnresolvedValue,
+    MlodyUserValue,
     MlodyValue,  # noqa: F401 — imported for type annotations in extensibility test
     MlodyValueValue,
     MlodyVectorValue,
@@ -155,6 +156,12 @@ builtins.register("type", struct(
     _root_kind="record",
 ))
 builtins.register("type", struct(
+    kind="type", type="mlody-user", name="mlody-user",
+    fields=_ENTITY_FIELDS,
+    attributes={}, _allowed_attrs={},
+    _root_kind="record",
+))
+builtins.register("type", struct(
     kind="type", type="mlody-root", name="mlody-root",
     fields=_ENTITY_FIELDS,
     attributes={}, _allowed_attrs={},
@@ -251,6 +258,12 @@ builtins.register("action", struct(
     inputs=[],
     outputs=[],
     config=[],
+))
+builtins.register("user", struct(
+    kind="user",
+    name="agarcia",
+    description="Ava Garcia",
+    groups=["myroot", "myroot-admin"],
 ))
 """
 
@@ -454,6 +467,34 @@ class TestActionValue:
         assert isinstance(result, MlodyActionValue)
         assert result.struct is not None
         assert getattr(result.struct, "name", None) == "my_action"
+
+
+USER_MLODY = """\
+builtins.register("user", struct(
+    kind="user",
+    name="agarcia",
+    description="Ava Garcia",
+    groups=["myroot", "myroot-admin"],
+))
+"""
+
+
+class TestUserValue:
+    """Requirement: Entity dispatch — user to MlodyUserValue."""
+
+    def test_label_resolves_to_user_value(self, fs: FakeFilesystem) -> None:
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/users.mlody": USER_MLODY},
+        )
+
+        label = parse_label("@myroot//pkg/users:agarcia")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyUserValue)
+        assert result.struct is not None
+        assert getattr(result.struct, "name", None) == "agarcia"
+        assert getattr(result.struct, "groups", None) == ["myroot", "myroot-admin"]
 
 
 VALUE_MLODY = """\
@@ -2917,6 +2958,18 @@ class TestQueryOnlyEntityLabel:
         assert len(result.elements) == 1
         assert isinstance(result.elements[0], MlodyTaskValue)
         assert getattr(result.elements[0].struct, "name", None) == "train"
+
+    def test_query_returns_matching_users(self, fs: FakeFilesystem) -> None:
+        ws = _make_workspace(
+            fs, extra_files={"teams/myroot/pkg/foo.mlody": MIXED_ENTITIES_MLODY}
+        )
+        label = parse_label('@myroot//pkg/foo:[@mlody _.kind == "user"]')
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyVectorValue)
+        assert len(result.elements) == 1
+        assert isinstance(result.elements[0], MlodyUserValue)
+        assert getattr(result.elements[0].struct, "name", None) == "agarcia"
 
 
 # ---------------------------------------------------------------------------

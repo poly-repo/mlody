@@ -586,6 +586,11 @@ typedef(
 )
 
 typedef(
+    name = "mlody-user",
+    base = builtins.lookup("type", "mlody-entity"),
+)
+
+typedef(
     name = "mlody-root",
     base = builtins.lookup("type", "mlody-entity"),
 )

@@ -1,0 +1,19 @@
+load("//mlody/common/user.mlody")
+
+user(
+    name = "agarcia",
+    description = "Ava Garcia",
+    groups = ["framera", "framera-admin"],
+)
+
+user(
+    name = "jlee",
+    description = "Jordan Lee",
+    groups = ["framera"],
+)
+
+user(
+    name = "pwalker",
+    description = "Priya Walker",
+    groups = ["framera"],
+)

@@ -47,6 +47,12 @@ def test_helper_call_action() -> None:
     assert result == {("action", "run-eval"): (1, 1)}
 
 
+def test_helper_call_user() -> None:
+    source = 'user("agarcia", description="Ava Garcia", groups=["framera"])\n'
+    result = extract_entity_ranges(_fake_path(), source)
+    assert result == {("user", "agarcia"): (1, 1)}
+
+
 def test_cached_value_contributes_local_and_remote_value_ranges() -> None:
     source = """\
 cached_value(

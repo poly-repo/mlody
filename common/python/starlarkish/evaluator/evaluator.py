@@ -79,6 +79,7 @@ _ENTITY_DESCRIPTOR_TYPE_NAMES = {
     "value": "mlody-value",
     "task": "mlody-task",
     "action": "mlody-action",
+    "user": "mlody-user",
 }
 _MISSING = object()
 _LEGACY_REGISTRY_ATTRS = {
@@ -98,6 +99,8 @@ _LEGACY_REGISTRY_ATTRS = {
     "_actions_by_name": ("actions", "by_name"),
     "tasks": ("tasks", "by_key"),
     "_tasks_by_name": ("tasks", "by_name"),
+    "users": ("users", "by_key"),
+    "_users_by_name": ("users", "by_name"),
     "implementations": ("implementations", "by_key"),
     "_implementations_by_name": ("implementations", "by_name"),
     "build_refs": ("build_refs", "by_key"),
@@ -800,6 +803,7 @@ class Evaluator:
             (self.registry.values, "value"),
             (self.registry.tasks, "task"),
             (self.registry.actions, "action"),
+            (self.registry.users, "user"),
         )
         for bucket, kind in registry_buckets:
             for mapping in (bucket.by_key, bucket.by_name):

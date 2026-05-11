@@ -215,6 +215,7 @@ def _wrapper_for_kind(kind: str) -> type[object] | None:
     from mlody.common.config import RegisteredConfig
     from mlody.common.root import RegisteredRoot
     from mlody.common.task import RegisteredTask
+    from mlody.common.user import RegisteredUser
     from mlody.common.value import RegisteredValue
 
     return {
@@ -222,5 +223,6 @@ def _wrapper_for_kind(kind: str) -> type[object] | None:
         "value": RegisteredValue,
         "action": RegisteredAction,
         "task": RegisteredTask,
+        "user": RegisteredUser,
         "config": RegisteredConfig,
     }.get(kind)

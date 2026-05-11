@@ -1,0 +1,34 @@
+load("//mlody/core/rule.mlody", "rule")
+load("//mlody/common/attrs.mlody", "attr", "validate_attr_value")
+
+
+def _user_impl(ctx):
+    validate_attr_value("groups", ctx.attr.groups, "string_list")
+
+    entity_type = None
+    try:
+        entity_type = builtins.lookup("type", "mlody-user")
+    except:
+        entity_type = None
+
+    user_fields = {
+        "kind": "user",
+        "name": ctx.attr.name,
+        "description": ctx.attr.description,
+        "groups": list(ctx.attr.groups),
+    }
+    if entity_type != None:
+        user_fields["_entity_type"] = entity_type
+
+    user_struct = Struct(**user_fields)
+    builtins.register(ctx.kind, user_struct)
+    return builtins.lookup("user", ctx.attr.name)
+
+
+user = rule(
+    implementation = _user_impl,
+    kind           = "user",
+    attrs          = {
+        "groups": attr(type="string_list"),
+    },
+)
