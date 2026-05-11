@@ -1102,6 +1102,13 @@ def _print_mlody_value(
             return
 
         display_payload = _display_payload(value)
+        render_dispatch_value = value.struct
+        if display_payload is not value.struct:
+            if hasattr(display_payload, "as_mapping") and getattr(display_payload, "kind", None) == "value":
+                render_dispatch_value = display_payload
+            else:
+                render_dispatch_value = None
+
         try:
             tabular_source = (
                 source_from_value(display_payload)
@@ -1154,24 +1161,24 @@ def _print_mlody_value(
 
             entry = workspace.evaluator._method_registry.get("render_value", {})
             methods = list(entry.get("methods", []))
-            if methods:
+            if methods and render_dispatch_value is not None:
                 dispatch_struct = (
-                    Struct(**{**value.struct.as_mapping(), **extra_fields})
+                    Struct(**{**render_dispatch_value.as_mapping(), **extra_fields})
                     if extra_fields
-                    else value.struct
+                    else render_dispatch_value
                 )
                 try:
                     spec = dispatch("render_value", (dispatch_struct,), methods)
                     _logger.debug(
                         "render_value: multimethod dispatch succeeded for %r",
-                        value.struct,
+                        dispatch_struct,
                     )
                     dom_executor.render(_render_spec_to_dom(spec))
                     return
                 except DispatchError:
                     _logger.debug(
                         "render_value: no matching method for %r, falling back",
-                        value.struct,
+                        dispatch_struct,
                     )
 
         if tabular_source is not None and _print_tabular_source(

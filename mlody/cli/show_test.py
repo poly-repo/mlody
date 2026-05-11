@@ -436,6 +436,41 @@ class TestShowCommandOutput:
         assert "abc123" in result.output
         assert "materializer" not in result.output
 
+    def test_virtual_scalar_value_skips_render_dispatch_and_shows_materialized_payload(
+        self, tmp_path: Path
+    ) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@bert//models:trainer._hash"]
+        mock_ws.evaluator = MagicMock()
+        mock_ws.evaluator._method_registry = {"render_value": {"methods": [object()]}}
+        hash_type = _make_type_struct("string", root_kind="string")
+        resolved_value = MlodyValueValue(
+            struct=make_virtual_value(
+                value_type=hash_type,
+                label="@bert//models:trainer._hash",
+                materializer=lambda _value: "abc123",
+                name="_hash",
+            )
+        )
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv, \
+             patch("mlody.core.multimethod.dispatch") as mock_dispatch:
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "@bert//models:trainer._hash"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "abc123" in result.output
+        assert "virtual" not in result.output
+        mock_dispatch.assert_not_called()
+
     def test_raw_value_is_rendered_as_json_blob(self, tmp_path: Path) -> None:
         mock_ws = MagicMock()
         mock_ws.root_infos = {}
@@ -995,6 +1030,38 @@ class TestShowMlodyValueRendering:
 
         assert result.exit_code == 0  # type: ignore[union-attr]
         assert "task" in result.output  # type: ignore[union-attr]
+
+    def test_show_renders_materialized_virtual_hash_value(self, tmp_path: Path) -> None:
+        """Regression: virtual scalar leaves like task._hash render their materialized payload."""
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = ["@common//huggingface/downloader:downloader._hash"]
+        mock_ws.evaluator = MagicMock()
+        mock_ws.evaluator._method_registry = {"render_value": {"methods": [object()]}}
+        value = MlodyValueValue(
+            struct=make_virtual_value(
+                value_type=_make_type_struct("string", root_kind="string"),
+                label="@common//huggingface/downloader:downloader._hash",
+                materializer=lambda _value: "abc123",
+                name="_hash",
+            )
+        )
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = value
+            result = runner.invoke(
+                cli,
+                ["show", "@common//huggingface/downloader:downloader._hash"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert "abc123" in result.output
+        assert "virtual" not in result.output
+        assert "Location" not in result.output
 
     def test_show_renders_aggregate_output_types_for_downloader(self, tmp_path: Path) -> None:
         """Aggregate outputs include element-type detail in the rendered task table."""
