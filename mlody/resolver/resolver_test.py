@@ -19,9 +19,15 @@ from mlody.resolver.errors import (
     WorkspaceResolutionError,
 )
 from mlody.resolver.resolver import (
+    BaselineWorkspaceCacheKey,
+    evict_baseline_workspace,
+    evict_cwd_baseline_workspaces,
     ResolvedRef,
     configure_workspace,
+    get_or_build_baseline_workspace,
+    make_baseline_workspace_cache_key,
     parse_label,
+    reload_baseline_workspace,
     resolve_sha,
     resolve_workspace,
 )
@@ -770,6 +776,165 @@ class TestConfigureWorkspace:
             configure_workspace(workspace, ["//simple:d=3kg"])
 
 
+class TestBaselineWorkspaceCache:
+    def test_make_cache_key_distinguishes_workspace_identity_inputs(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workspace_root = tmp_path / "sandbox"
+        cwd_key = make_baseline_workspace_cache_key(
+            mode="cwd",
+            monorepo_root=tmp_path,
+        )
+        workspace_key = make_baseline_workspace_cache_key(
+            mode="cwd",
+            monorepo_root=tmp_path,
+            workspace_root=workspace_root,
+            extra_roots={"workspace": "sandbox"},
+            lazy_roots={"mlody": "mlody"},
+        )
+        commit_key = make_baseline_workspace_cache_key(
+            mode="commit",
+            monorepo_root=tmp_path / "cache" / SHA_MAIN,
+            resolved_sha=SHA_MAIN,
+        )
+
+        assert isinstance(cwd_key, BaselineWorkspaceCacheKey)
+        assert len({cwd_key, workspace_key, commit_key}) == 3
+
+    def test_get_or_build_returns_cached_baseline_on_repeat(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        raw_workspace = MagicMock()
+        baseline_workspace = MagicMock(spec=Workspace)
+        key = make_baseline_workspace_cache_key(mode="cwd", monorepo_root=tmp_path)
+        evict_baseline_workspace(key)
+
+        with (
+            patch("mlody.resolver.resolver.Workspace", return_value=raw_workspace) as mock_ws_cls,
+            patch(
+                "mlody.resolver.resolver.build_baseline_workspace",
+                return_value=baseline_workspace,
+            ) as mock_build,
+        ):
+            first = get_or_build_baseline_workspace(
+                mode="cwd",
+                monorepo_root=tmp_path,
+            )
+            second = get_or_build_baseline_workspace(
+                mode="cwd",
+                monorepo_root=tmp_path,
+            )
+
+        assert first is baseline_workspace
+        assert second is baseline_workspace
+        mock_ws_cls.assert_called_once_with(
+            monorepo_root=tmp_path,
+            roots_file=None,
+            full_workspace=False,
+            print_fn=print,
+            console=None,
+            extra_roots=None,
+            lazy_roots=None,
+            workspace_root=None,
+        )
+        raw_workspace.load.assert_called_once_with(verbose=False)
+        mock_build.assert_called_once_with(raw_workspace)
+        evict_baseline_workspace(key)
+
+    def test_reload_baseline_workspace_rebuilds_cached_entry(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        raw_workspace_a = MagicMock()
+        raw_workspace_b = MagicMock()
+        baseline_a = MagicMock(spec=Workspace)
+        baseline_b = MagicMock(spec=Workspace)
+        key = make_baseline_workspace_cache_key(mode="cwd", monorepo_root=tmp_path)
+        evict_baseline_workspace(key)
+
+        with (
+            patch(
+                "mlody.resolver.resolver.Workspace",
+                side_effect=[raw_workspace_a, raw_workspace_b],
+            ) as mock_ws_cls,
+            patch(
+                "mlody.resolver.resolver.build_baseline_workspace",
+                side_effect=[baseline_a, baseline_b],
+            ) as mock_build,
+        ):
+            first = get_or_build_baseline_workspace(
+                mode="cwd",
+                monorepo_root=tmp_path,
+            )
+            second = reload_baseline_workspace(
+                mode="cwd",
+                monorepo_root=tmp_path,
+            )
+
+        assert first is baseline_a
+        assert second is baseline_b
+        assert mock_ws_cls.call_count == 2
+        raw_workspace_a.load.assert_called_once_with(verbose=False)
+        raw_workspace_b.load.assert_called_once_with(verbose=False)
+        assert mock_build.call_count == 2
+        evict_baseline_workspace(key)
+
+    def test_evict_cwd_baselines_keeps_commit_entries(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        commit_root = tmp_path / "cache" / SHA_MAIN
+        raw_cwd_a = MagicMock()
+        raw_commit = MagicMock()
+        raw_cwd_b = MagicMock()
+        baseline_cwd_a = MagicMock(spec=Workspace)
+        baseline_commit = MagicMock(spec=Workspace)
+        baseline_cwd_b = MagicMock(spec=Workspace)
+        cwd_key = make_baseline_workspace_cache_key(mode="cwd", monorepo_root=tmp_path)
+        commit_key = make_baseline_workspace_cache_key(
+            mode="commit",
+            monorepo_root=commit_root,
+            resolved_sha=SHA_MAIN,
+        )
+        evict_baseline_workspace(cwd_key)
+        evict_baseline_workspace(commit_key)
+
+        with (
+            patch(
+                "mlody.resolver.resolver.Workspace",
+                side_effect=[raw_cwd_a, raw_commit, raw_cwd_b],
+            ) as mock_ws_cls,
+            patch(
+                "mlody.resolver.resolver.build_baseline_workspace",
+                side_effect=[baseline_cwd_a, baseline_commit, baseline_cwd_b],
+            ),
+        ):
+            get_or_build_baseline_workspace(mode="cwd", monorepo_root=tmp_path)
+            get_or_build_baseline_workspace(
+                mode="commit",
+                monorepo_root=commit_root,
+                resolved_sha=SHA_MAIN,
+            )
+
+            removed = evict_cwd_baseline_workspaces(monorepo_root=tmp_path)
+
+            cwd_after = get_or_build_baseline_workspace(mode="cwd", monorepo_root=tmp_path)
+            commit_after = get_or_build_baseline_workspace(
+                mode="commit",
+                monorepo_root=commit_root,
+                resolved_sha=SHA_MAIN,
+            )
+
+        assert removed == 1
+        assert cwd_after is baseline_cwd_b
+        assert commit_after is baseline_commit
+        assert mock_ws_cls.call_count == 3
+        evict_baseline_workspace(cwd_key)
+        evict_baseline_workspace(commit_key)
+
+
 class TestResolveWorkspaceCwdPath:
     """Requirement: resolve_workspace cwd passthrough."""
 
@@ -795,6 +960,7 @@ class TestResolveWorkspaceCwdPath:
             roots_file=None,
             full_workspace=False,
             print_fn=print,
+            console=None,
             extra_roots=None,
             lazy_roots=None,
             workspace_root=None,
@@ -839,16 +1005,15 @@ class TestResolveWorkspaceCwdPath:
             ["@lexica//models:bert.config.token=abc123"],
         )
 
-    def test_repeated_cwd_resolves_construct_fresh_workspaces(self, tmp_path: Path) -> None:
-        raw_workspace_a = MagicMock()
-        raw_workspace_b = MagicMock()
+    def test_repeated_cwd_resolves_reuse_cached_baseline(self, tmp_path: Path) -> None:
+        raw_workspace = MagicMock()
         request_workspace_a = MagicMock()
         request_workspace_b = MagicMock()
 
         with (
             patch(
                 "mlody.resolver.resolver.Workspace",
-                side_effect=[raw_workspace_a, raw_workspace_b],
+                return_value=raw_workspace,
             ) as mock_ws_cls,
             patch(
                 "mlody.resolver.resolver.configure_workspace",
@@ -870,15 +1035,14 @@ class TestResolveWorkspaceCwdPath:
         assert second_sha is None
         assert first_workspace is request_workspace_a
         assert second_workspace is request_workspace_b
-        assert mock_ws_cls.call_count == 2
-        raw_workspace_a.load.assert_called_once_with(verbose=False)
-        raw_workspace_b.load.assert_called_once_with(verbose=False)
+        mock_ws_cls.assert_called_once()
+        raw_workspace.load.assert_called_once_with(verbose=False)
         mock_configure.assert_any_call(
-            raw_workspace_a,
+            raw_workspace,
             ["@lexica//models:bert.config.token=first"],
         )
         mock_configure.assert_any_call(
-            raw_workspace_b,
+            raw_workspace,
             ["@lexica//models:bert.config.token=second"],
         )
 
@@ -924,6 +1088,10 @@ class TestResolveWorkspaceCommittoidPath:
             roots_file=None,
             full_workspace=False,
             print_fn=print,
+            console=None,
+            extra_roots=None,
+            lazy_roots=None,
+            workspace_root=None,
         )
         mock_ws.load.assert_called_once()
         mock_configure.assert_called_once_with(mock_ws, [])
@@ -954,6 +1122,55 @@ class TestResolveWorkspaceCommittoidPath:
         # Clone methods must NOT be called on cache hit
         client.clone_local.assert_not_called()
         client.clone_remote.assert_not_called()
+
+    def test_repeated_commit_resolves_reuse_cached_baseline(self, tmp_path: Path) -> None:
+        cache_root = tmp_path / "cache"
+        full_sha = SHA_MAIN
+        client = self._make_fake_client(full_sha)
+        raw_workspace = MagicMock()
+        request_workspace_a = MagicMock()
+        request_workspace_b = MagicMock()
+
+        with (
+            patch("mlody.resolver.resolver.materialise", return_value=cache_root / full_sha),
+            patch(
+                "mlody.resolver.resolver.Workspace",
+                return_value=raw_workspace,
+            ) as mock_ws_cls,
+            patch(
+                "mlody.resolver.resolver.configure_workspace",
+                side_effect=[request_workspace_a, request_workspace_b],
+            ) as mock_configure,
+        ):
+            first_workspace, first_sha = resolve_workspace(
+                "main|@lexica//models:bert",
+                monorepo_root=tmp_path,
+                git_client=client,
+                cache_root=cache_root,
+                config=["@lexica//models:bert.config.token=first"],
+            )
+            second_workspace, second_sha = resolve_workspace(
+                "main|@lexica//models:bert",
+                monorepo_root=tmp_path,
+                git_client=client,
+                cache_root=cache_root,
+                config=["@lexica//models:bert.config.token=second"],
+            )
+
+        assert first_sha == full_sha
+        assert second_sha == full_sha
+        assert first_workspace is request_workspace_a
+        assert second_workspace is request_workspace_b
+        mock_ws_cls.assert_called_once()
+        raw_workspace.load.assert_called_once_with(verbose=False)
+        mock_configure.assert_any_call(
+            raw_workspace,
+            ["@lexica//models:bert.config.token=first"],
+        )
+        mock_configure.assert_any_call(
+            raw_workspace,
+            ["@lexica//models:bert.config.token=second"],
+        )
 
     def test_resolver_exceptions_propagate_unchanged(self, tmp_path: Path) -> None:
         # Scenario: all resolver exceptions propagate to caller
