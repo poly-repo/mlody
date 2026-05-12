@@ -79,6 +79,7 @@ const INITIAL_LOCATION: LocationCrumb[] = [
 
 const DEFAULT_CURRENT_USER = "mav";
 const LOCATION_COMMANDS = new Set(["show"]);
+const INITIAL_TOPDIR = "projects";
 
 const FALLBACK_USER: UserSummary = {
   name: DEFAULT_CURRENT_USER,
@@ -162,6 +163,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
   const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
   const [currentCommand, setCurrentCommand] = useState("show");
   const [location] = useState<LocationCrumb[]>(INITIAL_LOCATION);
+  const [topdir] = useState(INITIAL_TOPDIR);
   const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(null);
   const [availableUsers, setAvailableUsers] = useState<WorkspaceUser[]>([]);
   const [currentUserName] = useState(DEFAULT_CURRENT_USER);
@@ -282,6 +284,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
         commandOptions={COMMAND_OPTIONS}
         currentCommand={currentCommand}
         location={location}
+        topdir={topdir}
         workspace={workspace}
         showLocation={showLocation}
         currentUser={currentUser}

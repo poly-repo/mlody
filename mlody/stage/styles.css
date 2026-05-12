@@ -125,7 +125,7 @@ textarea {
   flex-direction: column;
   gap: 18px;
   overflow: hidden;
-  padding: 16px 18px 18px;
+  padding: 16px 18px 76px;
 }
 
 .Layout::before {
@@ -717,8 +717,10 @@ textarea {
 }
 
 .CommandShell {
+  position: relative;
+  z-index: 10;
   flex-shrink: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--stage-card-border);
   border-radius: 22px;
   background: var(--stage-card);
@@ -769,7 +771,7 @@ textarea {
 .CommandToolbar-commandTooltip {
   position: absolute;
   left: 0;
-  top: calc(100% + 8px);
+  bottom: calc(100% + 8px);
   z-index: 20;
   display: flex;
   min-width: 220px;
@@ -786,7 +788,7 @@ textarea {
   line-height: 1.4;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-2px);
+  transform: translateY(4px);
   transition:
     opacity 120ms ease,
     transform 120ms ease;
@@ -828,23 +830,32 @@ textarea {
 
 .LocationControl-shell {
   display: inline-flex;
+  flex-direction: column;
   min-width: 0;
   max-width: 100%;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
   border: 1px solid rgba(120, 138, 174, 0.24);
-  border-radius: 999px;
+  border-radius: 20px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.86)),
     radial-gradient(circle at top left, rgba(77, 103, 217, 0.12), transparent 46%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.84),
     0 6px 16px rgba(66, 78, 109, 0.08);
-  padding: 6px 10px 6px 8px;
+  padding: 8px 12px 8px 10px;
   transition:
     transform 120ms ease,
     box-shadow 120ms ease,
     border-color 120ms ease;
+}
+
+.LocationControl-primaryRow {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
 }
 
 .LocationControl:hover .LocationControl-shell,
@@ -862,6 +873,21 @@ textarea {
   flex: 1;
   min-width: 0;
   row-gap: 4px;
+}
+
+.LocationControl-topdir {
+  min-width: 0;
+  padding-left: 4px;
+  color: rgba(102, 116, 146, 0.96);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .LocationControl-segment {
@@ -957,7 +983,7 @@ textarea {
 .LocationControl-popup {
   position: absolute;
   left: 50%;
-  top: calc(100% + 10px);
+  bottom: calc(100% + 10px);
   z-index: 20;
   display: flex;
   width: min(30rem, calc(100vw - 3rem));
@@ -1102,7 +1128,7 @@ textarea {
 .CommandToolbar-userPopup {
   position: absolute;
   right: 0;
-  top: calc(100% + 8px);
+  bottom: calc(100% + 8px);
   display: flex;
   min-width: 172px;
   flex-direction: column;
@@ -1603,7 +1629,7 @@ textarea {
 
 @media (max-width: 640px) {
   .Layout {
-    padding: 12px;
+    padding: 12px 12px 48px;
   }
 
   .OutputPane-header {

@@ -24,6 +24,7 @@ interface InputToolbarProps {
   commandOptions: CommandOption[];
   currentCommand: string;
   location: LocationCrumb[];
+  topdir: string;
   workspace: WorkspaceSummary | null;
   showLocation: boolean;
   currentUser: UserSummary;
@@ -34,6 +35,7 @@ export function InputToolbar({
   commandOptions,
   currentCommand,
   location,
+  topdir,
   workspace,
   showLocation,
   currentUser,
@@ -80,7 +82,11 @@ export function InputToolbar({
 
       <div className="CommandToolbar-path">
         {showLocation ? (
-          <LocationControl location={location} workspace={workspace} />
+          <LocationControl
+            location={location}
+            topdir={topdir}
+            workspace={workspace}
+          />
         ) : null}
       </div>
 

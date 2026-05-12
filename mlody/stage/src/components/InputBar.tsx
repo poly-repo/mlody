@@ -12,6 +12,7 @@ interface InputBarProps {
   commandOptions: CommandOption[];
   currentCommand: string;
   location: LocationCrumb[];
+  topdir: string;
   workspace: WorkspaceSummary | null;
   showLocation: boolean;
   currentUser: UserSummary;
@@ -24,6 +25,7 @@ export function InputBar({
   commandOptions,
   currentCommand,
   location,
+  topdir,
   workspace,
   showLocation,
   currentUser,
@@ -60,6 +62,7 @@ export function InputBar({
         commandOptions={commandOptions}
         currentCommand={currentCommand}
         location={location}
+        topdir={topdir}
         workspace={workspace}
         showLocation={showLocation}
         currentUser={currentUser}

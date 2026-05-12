@@ -15,6 +15,7 @@ import {
 
 interface LocationControlProps {
   location: LocationCrumb[];
+  topdir: string;
   workspace: WorkspaceSummary | null;
 }
 
@@ -66,6 +67,7 @@ function renderLocationPiece(piece: LocationPiece, crumbId: string) {
 
 export function LocationControl({
   location,
+  topdir,
   workspace,
 }: LocationControlProps) {
   const branch = getRecordValue(workspace?.info ?? null, "branch");
@@ -80,31 +82,36 @@ export function LocationControl({
   return (
     <div className="LocationControl" tabIndex={0}>
       <div className="LocationControl-shell">
-        <span className="LocationControl-stateBadge">
-          <Anchor className="LocationControl-stateIcon" />
-          <span>{stateLabel}</span>
-        </span>
-        <Breadcrumb>
-          <BreadcrumbList className="LocationControl-breadcrumbs">
-            {location.map((crumb, index) => (
-              <BreadcrumbItem key={crumb.id}>
-                {index === location.length - 1 ? (
-                  <BreadcrumbPage className="LocationControl-segment LocationControl-segment--current">
-                    {crumb.pieces.map((piece) => renderLocationPiece(piece, crumb.id))}
-                  </BreadcrumbPage>
-                ) : (
-                  <BreadcrumbLink
-                    href={crumb.href ?? "#"}
-                    className="LocationControl-segment LocationControl-segment--link"
-                  >
-                    {crumb.pieces.map((piece) => renderLocationPiece(piece, crumb.id))}
-                  </BreadcrumbLink>
-                )}
-                {index < location.length - 1 && <BreadcrumbSeparator />}
-              </BreadcrumbItem>
-            ))}
-          </BreadcrumbList>
-        </Breadcrumb>
+        <div className="LocationControl-primaryRow">
+          <span className="LocationControl-stateBadge">
+            <Anchor className="LocationControl-stateIcon" />
+            <span>{stateLabel}</span>
+          </span>
+          <Breadcrumb>
+            <BreadcrumbList className="LocationControl-breadcrumbs">
+              {location.map((crumb, index) => (
+                <BreadcrumbItem key={crumb.id}>
+                  {index === location.length - 1 ? (
+                    <BreadcrumbPage className="LocationControl-segment LocationControl-segment--current">
+                      {crumb.pieces.map((piece) => renderLocationPiece(piece, crumb.id))}
+                    </BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink
+                      href={crumb.href ?? "#"}
+                      className="LocationControl-segment LocationControl-segment--link"
+                    >
+                      {crumb.pieces.map((piece) => renderLocationPiece(piece, crumb.id))}
+                    </BreadcrumbLink>
+                  )}
+                  {index < location.length - 1 && <BreadcrumbSeparator />}
+                </BreadcrumbItem>
+              ))}
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+        <div className="LocationControl-topdir" title={topdir}>
+          {topdir}
+        </div>
       </div>
 
       <div className="LocationControl-popup" role="tooltip">
