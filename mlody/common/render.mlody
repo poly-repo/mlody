@@ -210,6 +210,11 @@ def _value_title(value):
     return "value: " + (name if name != None else "?")
 
 
+def _stage_title(value):
+    name = python.getattr(value, "name", None)
+    return name if name != None else _value_title(value)
+
+
 def _type_rows_with_unit(value):
     """Type rows including the unit if present."""
     rows = _type_rows(python.getattr(value, "type", None))
@@ -515,6 +520,138 @@ defmethod(
 
 
 # ---------------------------------------------------------------------------
+# stage_value generic — GUI-facing structured JSON output.
+# ---------------------------------------------------------------------------
+
+stage_value = mm.generic(
+    "stage_value",
+    description="Render a value into structured GUI JSON for stage.",
+)
+
+
+def _stage_table_result_struct(title, columns, data_rows, total_rows):
+    return struct(
+        kind="result",
+        view=struct(
+            type="table",
+            title=title,
+            columns=columns,
+            rowCount=total_rows,
+            truncated=total_rows > len(data_rows),
+        ),
+        data=data_rows,
+    )
+
+
+def _stage_rows_from_preview(col_names, data_rows):
+    rows = []
+    for row in data_rows:
+        item = {}
+        for idx, col_name in enumerate(col_names):
+            item[col_name] = row[idx]
+        rows.append(item)
+    return rows
+
+
+def _stage_default_columns(col_names):
+    columns = []
+    for col_name in col_names:
+        columns.append(
+            struct(
+                key=col_name,
+                label=col_name,
+            )
+        )
+    return columns
+
+
+def _stage_generic_value(ctx, value):
+    preview = python.getattr(value, "_stage_preview", None)
+    if preview == None:
+        return None
+    col_names = preview[0]
+    data_rows = preview[1]
+    total_rows = preview[2]
+    return _stage_table_result_struct(
+        _stage_title(value),
+        _stage_default_columns(col_names),
+        _stage_rows_from_preview(col_names, data_rows),
+        total_rows,
+    )
+
+
+def _stage_bool_cell(cell):
+    return cell == True or cell == False or cell == "True" or cell == "False"
+
+
+def _stage_true_cell(cell):
+    return cell == True or cell == "True"
+
+
+def _is_stage_bool_column(col_idx, data_rows):
+    has_bool = False
+    for row in data_rows:
+        cell = row[col_idx]
+        if _stage_bool_cell(cell):
+            has_bool = True
+        elif not _empty_cell(cell):
+            return False
+    return has_bool
+
+
+def _stage_celebA_value(ctx, value):
+    preview = python.getattr(value, "_stage_preview", None)
+    if preview == None:
+        return None
+
+    col_names = preview[0]
+    data_rows = preview[1]
+    total_rows = preview[2]
+
+    bool_col_indices = []
+    image_col_idx = None
+    for i, _col in enumerate(col_names):
+        if _is_stage_bool_column(i, data_rows):
+            bool_col_indices.append(i)
+        elif image_col_idx == None:
+            image_col_idx = i
+
+    if image_col_idx == None:
+        return _stage_generic_value(ctx, value)
+
+    rows = []
+    for row in data_rows:
+        attrs = []
+        for i in bool_col_indices:
+            if _stage_true_cell(row[i]):
+                attrs.append(col_names[i])
+        rows.append(
+            {
+                "image": row[image_col_idx],
+                "attributes": attrs,
+            }
+        )
+
+    return _stage_table_result_struct(
+        _stage_title(value),
+        [
+            struct(key="image", label="Image", display="image"),
+            struct(key="attributes", label="Attributes", display="badge-list"),
+        ],
+        rows,
+        total_rows,
+    )
+
+
+defmethod(
+    stage_value,
+    [mm.value(type=mm.vector(element_type=mm.T("celebA-row")))],
+    _stage_celebA_value,
+)
+defmethod(stage_value, [mm.value()], _stage_generic_value)
+
+
+# ---------------------------------------------------------------------------
 # Simple inline scalars and tuples — render payload only.
 # ---------------------------------------------------------------------------
 
@@ -660,5 +797,6 @@ render_element = mm.generic(
 # ---------------------------------------------------------------------------
 
 builtins.inject("render_value", render_value)
+builtins.inject("stage_value", stage_value)
 builtins.inject("render_element_preview", render_element_preview)
 builtins.inject("render_element", render_element)

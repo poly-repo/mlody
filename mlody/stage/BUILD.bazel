@@ -17,6 +17,7 @@ ts_project(
     transpiler = "tsc",
     tsconfig = ":tsconfig.json",
     deps = [
+        "//:node_modules/@tanstack/react-table",
         "//:node_modules/@types/react",
         "//:node_modules/@types/react-dom",
         "//:node_modules/clsx",
@@ -39,6 +40,7 @@ esbuild_bundle(
     format = "esm",
     platform = "browser",
     deps = [
+        "//:node_modules/@tanstack/react-table",
         "//:node_modules/clsx",
         "//:node_modules/lucide-react",
         "//:node_modules/radix-ui",

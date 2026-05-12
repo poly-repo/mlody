@@ -1,5 +1,5 @@
 import type { ExecutionRecord } from "../types.js";
-import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
+import { StageResultBlock } from "./StageResultBlock.js";
 
 interface ExecutionBlockProps {
   record: ExecutionRecord;
@@ -85,7 +85,7 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
               key={idx}
               className="ExecutionBlock-line ExecutionBlock-line--stageJson"
             >
-              <JsonSyntaxBlock value={chunk.value} />
+              <StageResultBlock payload={chunk.value} />
             </div>
           ) : (
             <span

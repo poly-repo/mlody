@@ -14,6 +14,7 @@ import pytest
 from mlody.cli.server import (
     MlodyApiRequestHandler,
     ServerConfig,
+    _stage_json_data,
     collect_command_response,
     create_http_server,
     execute_stage_command_response,
@@ -201,6 +202,8 @@ class TestExecuteStageCommandResponse:
         captured: dict[str, object] = {}
 
         class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
             @staticmethod
             def expand_wildcard_label(label: str) -> list[str]:
                 return [label]
@@ -245,6 +248,8 @@ class TestExecuteStageCommandResponse:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
             @staticmethod
             def expand_wildcard_label(label: str) -> list[str]:
                 return [label]
@@ -282,6 +287,21 @@ class TestExecuteStageCommandResponse:
             {"name": "Ada", "salary": 120000},
             {"name": "Grace", "salary": 135000},
         ]
+
+
+class TestStageJsonData:
+    def test_encodes_image_payloads_for_stage(self) -> None:
+        payload = _stage_json_data(
+            {
+                "path": "027827.png",
+                "bytes": b"\x89PNG\r\n\x1a\nfake",
+            }
+        )
+
+        assert payload["kind"] == "encoded-image"
+        assert payload["mimeType"] == "image/png"
+        assert payload["path"] == "027827.png"
+        assert payload["base64"] == "iVBORw0KGgpmYWtl"
 
 
 class TestHttpApi:

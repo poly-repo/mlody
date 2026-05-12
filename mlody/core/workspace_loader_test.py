@@ -23,6 +23,7 @@ class _FakeRegistry:
     registry_items: tuple[tuple[tuple[object, object, object], object], ...] = ()
     loaded_files: set[Path] = field(default_factory=set)
     eval_calls: list[Path] = field(default_factory=list)
+    propagated_injections: list[tuple[Path, list[str]]] = field(default_factory=list)
     placeholders: list[tuple[str, str, str]] = field(default_factory=list)
     resolved: bool = False
     configs_to_return: list[tuple[str, object]] = field(default_factory=list)
@@ -57,9 +58,7 @@ class _FakeRegistry:
     def propagate_globals_as_persistent_injections(
         self, file_path: Path, names: list[str]
     ) -> None:
-        # No-op in the fake: persistent injection is an evaluator concern, not
-        # exercised by the loader-unit tests that use _FakeRegistry.
-        pass
+        self.propagated_injections.append((file_path, list(names)))
 
     def iter_registry_items(
         self,
@@ -183,6 +182,47 @@ def test_workspace_loader_injects_extra_and_lazy_roots(
     assert registry.resolved is True
 
 
+def test_workspace_loader_propagates_stage_value_injection(
+    fs: FakeFilesystem,
+) -> None:
+    project = Path("/workspace")
+    fs.create_dir(str(project / "mlody" / "teams" / "lexica"))
+    fs.create_file(str(project / "mlody" / "common" / "types.mlody"), contents="")
+    fs.create_file(str(project / "mlody" / "common" / "mm.mlody"), contents="")
+    fs.create_file(str(project / "mlody" / "common" / "render.mlody"), contents="")
+    fs.create_file(str(project / "mlody" / "common" / "config.mlody"), contents="")
+    fs.create_file(str(project / "mlody" / "roots.mlody"), contents="")
+
+    registry = _FakeRegistry(
+        root_infos_to_return={
+            "lexica": RootInfo(
+                name="lexica",
+                path="//mlody/teams/lexica",
+                description="team root",
+            )
+        }
+    )
+    loader = WorkspaceLoader(
+        monorepo_root=project,
+        roots_file=project / "mlody" / "roots.mlody",
+        root_infos={},
+        registry=registry,  # type: ignore[arg-type]
+        extra_roots={},
+        lazy_roots={},
+        should_skip_mlody_file=lambda _path: True,
+        convert_ports_to_structs=lambda: None,
+        resolve_value_sources=lambda: None,
+    )
+
+    loader.load()
+
+    render_path = project / "mlody" / "common" / "render.mlody"
+    propagated = {
+        path: names for path, names in registry.propagated_injections
+    }
+    assert "stage_value" in propagated[render_path]
+
+
 def test_workspace_loader_validates_contextual_values_after_port_conversion(
     fs: FakeFilesystem,
 ) -> None:
@@ -274,5 +314,4 @@ def test_workspace_loader_config_application_noop_when_no_configs(
 
     loader.load()
     assert converted == ["converted"]
-
 

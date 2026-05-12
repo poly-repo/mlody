@@ -86,7 +86,8 @@ class WorkspaceLoader:
             if not self._registry.is_loaded(render_path):
                 self._registry.eval_file(render_path)
             self._registry.propagate_globals_as_persistent_injections(
-                render_path, ["render_value", "render_element_preview", "render_element"]
+                render_path,
+                ["render_value", "stage_value", "render_element_preview", "render_element"],
             )
 
         config_path = self._monorepo_root / "mlody" / "common" / "config.mlody"

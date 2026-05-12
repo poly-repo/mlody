@@ -284,6 +284,200 @@ textarea {
     radial-gradient(circle at top right, rgba(113, 139, 227, 0.1), transparent 42%);
 }
 
+.StageTableBlock {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.StageTableBlock-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(125, 144, 189, 0.24);
+}
+
+.StageTableBlock-headingGroup {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.StageTableBlock-label {
+  color: rgba(98, 116, 160, 0.96);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.StageTableBlock-title {
+  color: rgba(35, 48, 80, 0.98);
+  font-size: 0.96rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.StageTableBlock-count {
+  flex-shrink: 0;
+  color: rgba(103, 118, 153, 0.94);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.StageTableBlock-scroll {
+  overflow-x: auto;
+}
+
+.StageTableBlock-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.StageTableBlock-th,
+.StageTableBlock-td {
+  padding: 12px 16px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.StageTableBlock-th {
+  color: rgba(90, 106, 143, 0.96);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.StageTableBlock-td {
+  border-top: 1px solid rgba(125, 144, 189, 0.18);
+  white-space: nowrap;
+}
+
+.StageTableBlock-tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.StageTableBlock-tr:hover {
+  background: rgba(105, 129, 201, 0.08);
+}
+
+.StageTableBlock-value,
+.StageTableBlock-media,
+.StageTableBlock-code {
+  color: rgba(34, 48, 79, 0.98);
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.StageTableBlock-value {
+  white-space: nowrap;
+}
+
+.StageTableBlock-value--numeric {
+  color: #1f4fd1;
+  font-variant-numeric: tabular-nums;
+}
+
+.StageTableBlock-value--muted {
+  color: rgba(122, 133, 161, 0.92);
+}
+
+.StageTableBlock-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(115, 132, 173, 0.26);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.StageTableBlock-badge--true {
+  border-color: rgba(55, 138, 99, 0.26);
+  background: rgba(58, 154, 109, 0.12);
+  color: #136f63;
+}
+
+.StageTableBlock-badge--false {
+  border-color: rgba(170, 113, 45, 0.26);
+  background: rgba(210, 145, 62, 0.12);
+  color: #8e4a0f;
+}
+
+.StageTableBlock-code {
+  white-space: nowrap;
+}
+
+.StageTableBlock-imageCell {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.StageTableBlock-image {
+  display: block;
+  max-width: 118px;
+  max-height: 118px;
+  border: 1px solid rgba(125, 144, 189, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow:
+    0 10px 18px rgba(77, 97, 152, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  object-fit: cover;
+}
+
+.StageTableBlock-imageMeta {
+  color: rgba(103, 118, 153, 0.94);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.StageTableBlock-badgeList {
+  display: flex;
+  max-width: 420px;
+  flex-wrap: wrap;
+  gap: 8px;
+  white-space: normal;
+}
+
+.StageTableBlock-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(88, 112, 183, 0.2);
+  border-radius: 999px;
+  background: rgba(98, 124, 203, 0.12);
+  color: rgba(40, 56, 97, 0.98);
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+}
+
+.StageTableBlock-media {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+.StageTableBlock-mediaMeta {
+  color: rgba(103, 118, 153, 0.94);
+}
+
 .JsonSyntaxBlock {
   margin: 0;
   padding: 14px 16px;

@@ -11,6 +11,7 @@ frontend can consume incremental state updates for long-running commands.
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 import json
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import click
+import pyarrow as pa
 
 from common.python.starlarkish.evaluator.evaluator import _runtime_json_data
 from mlody.cli.show import (
@@ -442,7 +444,7 @@ def _stage_json_result(
             "type": "json",
             "title": title,
         },
-        "data": _runtime_json_data(data),
+        "data": _stage_json_data(data),
     }
 
 
@@ -468,8 +470,269 @@ def _stage_table_result(
             "rowCount": total_rows,
             "truncated": total_rows > len(rows),
         },
-        "data": _runtime_json_data(list(rows)),
+        "data": _stage_json_data(list(rows)),
     }
+
+
+def _image_mime_type(raw: bytes) -> str | None:
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if raw.startswith(b"GIF87a") or raw.startswith(b"GIF89a"):
+        return "image/gif"
+    if len(raw) >= 12 and raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
+        return "image/webp"
+    if raw.startswith(b"BM"):
+        return "image/bmp"
+    return None
+
+
+def _encoded_stage_image(value: object) -> dict[str, object] | None:
+    raw: bytes | None = None
+    path: str | None = None
+
+    if isinstance(value, Mapping):
+        raw_candidate = value.get("bytes")
+        if isinstance(raw_candidate, bytes):
+            raw = raw_candidate
+        path_candidate = value.get("path")
+        if isinstance(path_candidate, str) and path_candidate.strip():
+            path = path_candidate
+    elif isinstance(value, bytes):
+        raw = value
+
+    if not raw:
+        return None
+
+    mime_type = _image_mime_type(raw)
+    if mime_type is None:
+        return None
+
+    payload: dict[str, object] = {
+        "kind": "encoded-image",
+        "mimeType": mime_type,
+        "base64": base64.b64encode(raw).decode("ascii"),
+        "byteLength": len(raw),
+    }
+    if path is not None:
+        payload["path"] = path
+    return payload
+
+
+def _stage_json_data(obj: object, *, _seen: set[int] | None = None) -> object:
+    image_payload = _encoded_stage_image(obj)
+    if image_payload is not None:
+        return image_payload
+
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, bytes):
+        return f"<bytes {len(obj)}>"
+    if callable(obj) and not isinstance(obj, type):
+        return "<callable>"
+    if hasattr(obj, "as_mapping"):
+        forced_obj = force(obj)  # type: ignore[arg-type]
+        if hasattr(forced_obj, "as_mapping"):
+            obj = forced_obj
+
+    if _seen is None:
+        _seen = set()
+
+    is_container_like = hasattr(obj, "as_mapping") or isinstance(
+        obj, (Mapping, list, tuple, set)
+    )
+    obj_id = id(obj)
+    if is_container_like:
+        if obj_id in _seen:
+            return "<cycle>"
+        _seen.add(obj_id)
+
+    try:
+        if hasattr(obj, "as_mapping"):
+            return {
+                str(key): _stage_json_data(value, _seen=_seen)
+                for key, value in obj.as_mapping().items()
+                if key not in {"raw", "_entity_type"}
+            }
+        if isinstance(obj, Mapping):
+            return {
+                str(key): _stage_json_data(value, _seen=_seen)
+                for key, value in obj.items()
+            }
+        if isinstance(obj, (list, tuple, set)):
+            return [_stage_json_data(value, _seen=_seen) for value in obj]
+        return repr(obj)
+    finally:
+        if is_container_like:
+            _seen.remove(obj_id)
+
+
+def _stage_preview_from_rows(
+    column_names: Sequence[str],
+    rows: Sequence[Mapping[str, object]],
+    *,
+    total_rows: int,
+) -> tuple[list[str], list[list[object]], int]:
+    normalized_columns = [str(column_name) for column_name in column_names]
+    normalized_rows: list[list[object]] = []
+    for row in rows:
+        normalized_rows.append(
+            [_stage_json_data(row.get(column_name)) for column_name in normalized_columns]
+        )
+    return normalized_columns, normalized_rows, total_rows
+
+
+def _stage_preview_from_pyarrow_table(
+    table: pa.Table,
+    *,
+    total_rows: int,
+) -> tuple[list[str], list[list[object]], int]:
+    return _stage_preview_from_rows(
+        table.column_names,
+        cast(list[Mapping[str, object]], table.to_pylist()),
+        total_rows=total_rows,
+    )
+
+
+def _dispatch_stage_value(
+    workspace: object,
+    dispatch_struct: object,
+) -> dict[str, object] | None:
+    from mlody.core.multimethod import DispatchError, dispatch  # noqa: PLC0415
+
+    methods = list(
+        workspace.evaluator._method_registry.get("stage_value", {}).get("methods", [])
+    )
+    if not methods:
+        return None
+
+    try:
+        result = dispatch("stage_value", (dispatch_struct,), methods)
+    except DispatchError:
+        return None
+
+    if result is None:
+        return None
+    return cast(dict[str, object], _stage_json_data(result))
+
+
+def _raw_value_type_struct(workspace: object, value: _RawAttrValue) -> object | None:
+    entity_query = getattr(value.label, "entity_query", None)
+    entity = getattr(value.label, "entity", None)
+    if entity_query is None or entity is None:
+        return None
+
+    from mlody.core.label.label import Label as _Label  # noqa: PLC0415
+
+    base_label = _Label(
+        workspace=value.label.workspace,
+        workspace_query=value.label.workspace_query,
+        entity=entity,
+        entity_query=None,
+        attribute_path=value.label.attribute_path,
+        attribute_query=value.label.attribute_query,
+    )
+    try:
+        base_value = workspace.resolve(base_label.format_inner())
+    except Exception:
+        return None
+    return getattr(base_value, "type", None)
+
+
+def _stage_dispatched_result(
+    workspace: object,
+    value: MlodyValue,
+    *,
+    title: str,
+) -> dict[str, object] | None:
+    from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
+
+    if isinstance(value, MlodyValueValue):
+        display_payload = _display_payload(value)
+        render_dispatch_value = value.struct
+        if display_payload is not value.struct:
+            if hasattr(display_payload, "as_mapping") and getattr(
+                display_payload, "kind", None
+            ) == "value":
+                render_dispatch_value = display_payload
+            else:
+                render_dispatch_value = None
+
+        if render_dispatch_value is None or not hasattr(display_payload, "as_mapping"):
+            return None
+
+        try:
+            tabular_source = source_from_value(display_payload)
+        except ValueError:
+            return None
+
+        try:
+            preview = tabular_source.preview(50)
+        except (
+            DerivedValueShapeError,
+            MlodyQueryError,
+            TypeError,
+            ValueError,
+        ):
+            return None
+        dispatch_struct = Struct(
+            **{
+                **render_dispatch_value.as_mapping(),
+                "_stage_preview": _stage_preview_from_pyarrow_table(
+                    preview.table,
+                    total_rows=preview.total_rows,
+                ),
+            }
+        )
+        return _dispatch_stage_value(workspace, dispatch_struct)
+
+    if isinstance(value, _RawAttrValue):
+        raw_value = value.value
+        raw_preview: tuple[list[str], list[list[object]], int] | None = None
+
+        if isinstance(raw_value, pa.Table):
+            raw_preview = _stage_preview_from_pyarrow_table(
+                raw_value,
+                total_rows=raw_value.num_rows,
+            )
+        elif isinstance(raw_value, list) and raw_value and all(
+            isinstance(row, Mapping) for row in raw_value
+        ):
+            column_names: list[str] = []
+            for row in raw_value:
+                for key in row:
+                    key_text = str(key)
+                    if key_text not in column_names:
+                        column_names.append(key_text)
+            raw_preview = _stage_preview_from_rows(
+                column_names,
+                cast(list[Mapping[str, object]], raw_value),
+                total_rows=len(raw_value),
+            )
+        elif isinstance(raw_value, Mapping):
+            column_names = [str(key) for key in raw_value.keys()]
+            raw_preview = _stage_preview_from_rows(
+                column_names,
+                [cast(Mapping[str, object], raw_value)],
+                total_rows=1,
+            )
+
+        if raw_preview is None:
+            return None
+
+        dispatch_kwargs: dict[str, object] = {
+            "kind": "value",
+            "name": title,
+            "_stage_preview": raw_preview,
+        }
+        type_struct = _raw_value_type_struct(workspace, value)
+        if type_struct is not None:
+            dispatch_kwargs["type"] = type_struct
+        dispatch_struct = Struct(**dispatch_kwargs)
+        return _dispatch_stage_value(workspace, dispatch_struct)
+
+    return None
 
 
 def _stage_result_for_mlody_value(
@@ -765,7 +1028,14 @@ def execute_stage_command_response(
         mlody_value = resolve_label_to_value(concrete_label, workspace)
         if isinstance(mlody_value, MlodyUnresolvedValue):
             raise ServerRequestError(mlody_value.reason)
-        stage_results.append(_stage_result_for_mlody_value(mlody_value, title=full_label))
+        stage_results.append(
+            _stage_dispatched_result(
+                workspace,
+                mlody_value,
+                title=full_label,
+            )
+            or _stage_result_for_mlody_value(mlody_value, title=full_label)
+        )
 
     if len(stage_results) == 1:
         return stage_results[0]

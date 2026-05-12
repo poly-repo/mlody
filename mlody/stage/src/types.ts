@@ -2,6 +2,15 @@ export interface StageViewColumn {
   key: string;
   label: string;
   format?: string;
+  display?: "image" | "badge-list";
+}
+
+export interface StageEncodedImageCell {
+  kind: "encoded-image";
+  mimeType: string;
+  base64: string;
+  byteLength?: number;
+  path?: string;
 }
 
 export interface StageResultPayload {

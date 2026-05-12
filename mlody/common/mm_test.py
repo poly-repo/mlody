@@ -468,6 +468,15 @@ def _dispatch_render_value(value_struct: object) -> object:
     return dispatch("render_value", (value_struct,), methods)
 
 
+def _dispatch_stage_value(value_struct: object) -> object:
+    """Dispatch the built-in stage_value generic for a single value struct."""
+    from mlody.core.multimethod import dispatch
+
+    ev = _run_with_render("pass")
+    methods = list(ev._method_registry.get("stage_value", {}).get("methods", []))
+    return dispatch("stage_value", (value_struct,), methods)
+
+
 def test_celebA_vector_renderer_two_column_preview() -> None:
     """render_value on a vector-of-celebA-row produces image + attributes columns."""
     from common.python.starlarkish.core.struct import Struct
@@ -497,6 +506,62 @@ def test_celebA_vector_renderer_two_column_preview() -> None:
     assert data_rows[0] == ["<img1>", "Young"]
     assert data_rows[1] == ["<img2>", "Bald"]
     assert total_rows == 2
+
+
+def test_celebA_vector_stage_renderer_emits_image_and_badges() -> None:
+    """stage_value on a vector-of-celebA-row emits image cells plus true attributes."""
+    from common.python.starlarkish.core.struct import Struct
+
+    element_type = Struct(kind="type", name="celebA-row", type_name="celebA-row")
+    type_struct = Struct(kind="type", name="vector", type_name="vector", element_type=element_type)
+    value_struct = Struct(
+        kind="value",
+        name="test-dataset",
+        type=type_struct,
+        _stage_preview=(
+            ["image", "Bald", "Young"],
+            [
+                [{"kind": "encoded-image", "mimeType": "image/png", "base64": "abc"}, False, True],
+                [{"kind": "encoded-image", "mimeType": "image/png", "base64": "def"}, True, False],
+            ],
+            2,
+        ),
+    )
+
+    result = _dispatch_stage_value(value_struct)
+
+    assert result.kind == "result"
+    assert result.view.type == "table"
+    assert result.view.columns[0].key == "image"
+    assert result.view.columns[0].display == "image"
+    assert result.view.columns[1].key == "attributes"
+    assert result.view.columns[1].display == "badge-list"
+    assert result.data[0]["image"]["kind"] == "encoded-image"
+    assert result.data[0]["attributes"] == ["Young"]
+    assert result.data[1]["attributes"] == ["Bald"]
+
+
+def test_stage_value_default_emits_generic_table_rows() -> None:
+    """stage_value falls back to a generic table result for arbitrary previews."""
+    from common.python.starlarkish.core.struct import Struct
+
+    value_struct = Struct(
+        kind="value",
+        name="employees",
+        _stage_preview=(
+            ["name", "salary"],
+            [["Ada", 120000], ["Grace", 135000]],
+            2,
+        ),
+    )
+
+    result = _dispatch_stage_value(value_struct)
+
+    assert result.kind == "result"
+    assert result.view.type == "table"
+    assert result.view.columns[0].key == "name"
+    assert result.data[0]["name"] == "Ada"
+    assert result.data[1]["salary"] == 135000
 
 
 def test_celebA_vector_renderer_no_preview_when_absent() -> None:
