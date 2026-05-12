@@ -37,30 +37,116 @@ interface CommandInputEditorProps {
 }
 
 function canPromoteLocationSegment(value: string): boolean {
-  return /^@?[A-Za-z0-9._-]+$/.test(value);
+  return value === "..." || /^@?[A-Za-z0-9_-]+$/.test(value);
 }
 
-function splitAtFirstPromotableSlash(
+function extractNextPromotableSegment(
   value: string,
 ): { promotedSegments: string[]; remainder: string } | null {
-  const slashIndex = value.indexOf("/");
-  if (slashIndex <= 0) {
+  if (value === "...") {
+    return {
+      promotedSegments: ["..."],
+      remainder: "",
+    };
+  }
+
+  if (value.startsWith("...//")) {
+    return {
+      promotedSegments: ["..."],
+      remainder: value.slice(5),
+    };
+  }
+
+  if (value.startsWith(".../")) {
+    return {
+      promotedSegments: ["..."],
+      remainder: value.slice(4),
+    };
+  }
+
+  if (value.startsWith("...:")) {
+    return {
+      promotedSegments: ["...:"],
+      remainder: value.slice(4),
+    };
+  }
+
+  const match = value.match(/^(@?[A-Za-z0-9_-]+)(.*)$/);
+  if (!match) {
     return null;
   }
 
-  const promotedSegment = value.slice(0, slashIndex);
-  if (!canPromoteLocationSegment(promotedSegment)) {
-    return null;
+  const promotedSegment = match[1];
+  const rest = match[2] ?? "";
+
+  if (rest.startsWith("//")) {
+    return {
+      promotedSegments: [promotedSegment],
+      remainder: rest.slice(2),
+    };
   }
 
-  return {
-    promotedSegments: [promotedSegment],
-    remainder: value.slice(slashIndex + 1),
-  };
+  if (rest.startsWith("/")) {
+    return {
+      promotedSegments: [promotedSegment],
+      remainder: rest.slice(1),
+    };
+  }
+
+  if (rest.startsWith(":")) {
+    return {
+      promotedSegments: [`${promotedSegment}:`],
+      remainder: rest.slice(1),
+    };
+  }
+
+  if (rest.startsWith(".")) {
+    return {
+      promotedSegments: [promotedSegment],
+      remainder: rest,
+    };
+  }
+
+  return null;
+}
+
+function extractPromotableSegments(value: string): {
+  promotedSegments: string[];
+  remainder: string;
+} {
+  const promotedSegments: string[] = [];
+  let remainder = value;
+
+  while (true) {
+    const splitResult = extractNextPromotableSegment(remainder);
+    if (!splitResult) {
+      break;
+    }
+
+    promotedSegments.push(...splitResult.promotedSegments);
+    remainder = splitResult.remainder;
+  }
+
+  return { promotedSegments, remainder };
 }
 
 function insertText(view: EditorView, text: string): void {
   view.dispatch(view.state.replaceSelection(text));
+}
+
+function replaceText(view: EditorView, text: string): void {
+  view.dispatch({
+    changes: {
+      from: 0,
+      to: view.state.doc.length,
+      insert: text,
+    },
+  });
+}
+
+function isCursorAtEnd(view: EditorView): boolean {
+  const selection = view.state.selection.main;
+  return selection.empty && selection.head === view.state.doc.length;
 }
 
 function deletePreviousWordInView(view: EditorView): boolean {
@@ -98,6 +184,13 @@ function runAndReport(
   command: ((view: EditorView) => boolean) | undefined,
 ): boolean {
   return command?.(view) ?? false;
+}
+
+function shouldAttemptBulkPromotion(
+  previousValue: string,
+  nextValue: string,
+): boolean {
+  return Math.abs(nextValue.length - previousValue.length) > 1;
 }
 
 function popLocationSegment(
@@ -138,10 +231,15 @@ function CodeMirrorCommandInput({
   onPopLocationSegment,
 }: CommandInputEditorProps) {
   function handleChange(nextValue: string) {
-    const promotablePath = splitAtFirstPromotableSlash(nextValue);
-    if (promotablePath) {
-      onPromoteSegments(promotablePath.promotedSegments);
-      onChange(promotablePath.remainder);
+    if (!shouldAttemptBulkPromotion(value, nextValue)) {
+      onChange(nextValue);
+      return;
+    }
+
+    const { promotedSegments, remainder } = extractPromotableSegments(nextValue);
+    if (promotedSegments.length > 0) {
+      onPromoteSegments(promotedSegments);
+      onChange(remainder);
       return;
     }
 
@@ -260,13 +358,15 @@ function CodeMirrorCommandInput({
             {
               key: "/",
               run(view) {
-                const selection = view.state.selection.main;
-                if (!selection.empty || selection.head !== view.state.doc.length) {
+                if (!isCursorAtEnd(view)) {
                   insertText(view, "/");
                   return true;
                 }
 
                 const segment = view.state.doc.toString();
+                if (segment === "") {
+                  return true;
+                }
                 if (!canPromoteLocationSegment(segment)) {
                   insertText(view, "/");
                   return true;
@@ -280,6 +380,50 @@ function CodeMirrorCommandInput({
                     insert: "",
                   },
                 });
+                return true;
+              },
+            },
+            {
+              key: ":",
+              run(view) {
+                if (!isCursorAtEnd(view)) {
+                  insertText(view, ":");
+                  return true;
+                }
+
+                const segment = view.state.doc.toString();
+                if (!segment || !canPromoteLocationSegment(segment)) {
+                  insertText(view, ":");
+                  return true;
+                }
+
+                onPromoteSegments([`${segment}:`]);
+                replaceText(view, "");
+                return true;
+              },
+            },
+            {
+              key: ".",
+              run(view) {
+                if (!isCursorAtEnd(view)) {
+                  insertText(view, ".");
+                  return true;
+                }
+
+                const segment = view.state.doc.toString();
+                if (segment === "..") {
+                  onPromoteSegments(["..."]);
+                  replaceText(view, "");
+                  return true;
+                }
+
+                if (!segment || !canPromoteLocationSegment(segment) || segment === "...") {
+                  insertText(view, ".");
+                  return true;
+                }
+
+                onPromoteSegments([segment]);
+                replaceText(view, ".");
                 return true;
               },
             },
@@ -312,10 +456,15 @@ function TextareaCommandInput({
   }, [value]);
 
   function handleChange(nextValue: string) {
-    const promotablePath = splitAtFirstPromotableSlash(nextValue);
-    if (promotablePath) {
-      onPromoteSegments(promotablePath.promotedSegments);
-      onChange(promotablePath.remainder);
+    if (!shouldAttemptBulkPromotion(value, nextValue)) {
+      onChange(nextValue);
+      return;
+    }
+
+    const { promotedSegments, remainder } = extractPromotableSegments(nextValue);
+    if (promotedSegments.length > 0) {
+      onPromoteSegments(promotedSegments);
+      onChange(remainder);
       return;
     }
 
@@ -346,12 +495,55 @@ function TextareaCommandInput({
           event.key === "/" &&
           event.currentTarget.selectionStart === value.length &&
           event.currentTarget.selectionEnd === value.length &&
+          value === ""
+        ) {
+          event.preventDefault();
+          return;
+        }
+
+        if (
+          event.key === "/" &&
+          event.currentTarget.selectionStart === value.length &&
+          event.currentTarget.selectionEnd === value.length &&
           canPromoteLocationSegment(value)
         ) {
           event.preventDefault();
           onPromoteSegments([value]);
           onChange("");
           return;
+        }
+
+        if (
+          event.key === ":" &&
+          event.currentTarget.selectionStart === value.length &&
+          event.currentTarget.selectionEnd === value.length &&
+          value !== "" &&
+          canPromoteLocationSegment(value)
+        ) {
+          event.preventDefault();
+          onPromoteSegments([`${value}:`]);
+          onChange("");
+          return;
+        }
+
+        if (
+          event.key === "." &&
+          event.currentTarget.selectionStart === value.length &&
+          event.currentTarget.selectionEnd === value.length
+        ) {
+          if (value === "..") {
+            event.preventDefault();
+            onPromoteSegments(["..."]);
+            onChange("");
+            return;
+          }
+
+          if (value !== "" && canPromoteLocationSegment(value) && value !== "...") {
+            event.preventDefault();
+            onPromoteSegments([value]);
+            onChange(".");
+            return;
+          }
         }
 
         if (

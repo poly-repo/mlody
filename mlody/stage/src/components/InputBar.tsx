@@ -46,7 +46,9 @@ export function InputBar({
             id: `draft-segment-${index}-${segment}`,
             pieces: [
               {
-                kind: segment.startsWith("@")
+                kind: segment === "..." || segment === "...:"
+                  ? ("wildcard" as const)
+                  : segment.startsWith("@")
                   ? ("entity" as const)
                   : ("mlody-folder" as const),
                 text: segment,
@@ -56,33 +58,54 @@ export function InputBar({
         ];
 
   function buildExecutableInput(segments: string[], remainder: string): string {
-    const combinedInput = [...segments, remainder]
-      .filter((segment) => segment.trim() !== "")
-      .join("/")
-      .trim();
+    const filteredSegments = segments.filter((segment) => segment.trim() !== "");
+    const trimmedRemainder = remainder.trim();
+
+    let combinedInput = "";
+    filteredSegments.forEach((segment, index) => {
+      if (index === 0) {
+        combinedInput = segment;
+        return;
+      }
+
+      const previousSegment = filteredSegments[index - 1] ?? "";
+      if (previousSegment.endsWith(":")) {
+        combinedInput += segment;
+        return;
+      }
+
+      if (index === 1 && filteredSegments[0]?.startsWith("@")) {
+        combinedInput += `//${segment}`;
+        return;
+      }
+
+      combinedInput += `/${segment}`;
+    });
+
+    if (trimmedRemainder !== "") {
+      if (combinedInput === "") {
+        combinedInput = trimmedRemainder;
+      } else if (
+        combinedInput.endsWith(":") ||
+        trimmedRemainder.startsWith(".")
+      ) {
+        combinedInput += trimmedRemainder;
+      } else {
+        combinedInput += `/${trimmedRemainder}`;
+      }
+    }
 
     if (combinedInput === "" || currentCommand !== "show") {
       return combinedInput;
     }
 
-    if (combinedInput.includes("//")) {
+    if (combinedInput.startsWith("//") || combinedInput.includes("//")) {
       return combinedInput;
     }
-
-    const [firstSegment, ...restSegments] = combinedInput.split("/");
-    if (!firstSegment) {
+    if (combinedInput.startsWith("@")) {
       return combinedInput;
     }
-
-    if (!firstSegment.startsWith("@")) {
-      return `//${combinedInput}`;
-    }
-
-    if (restSegments.length === 0) {
-      return firstSegment;
-    }
-
-    return `${firstSegment}//${restSegments.join("/")}`;
+    return `//${combinedInput}`;
   }
 
   function popPromotedSegment(): boolean {
