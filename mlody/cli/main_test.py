@@ -203,6 +203,19 @@ class TestHelp:
         assert result.exit_code == 0
         assert "mlody" in result.output
 
+    def test_no_subcommand_prints_help(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "MODULE.bazel").touch()
+        monkeypatch.chdir(tmp_path)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [])
+
+        assert result.exit_code == 0
+        assert "Usage:" in result.output
+        assert "Commands:" in result.output
+
 
 # ---------------------------------------------------------------------------
 # CLI group — error handling
@@ -222,6 +235,63 @@ class TestErrorHandling:
         result = runner.invoke(cli, ["_test_probe"])
 
         assert result.exit_code == 1
+
+    def test_server_flag_rejects_subcommands(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "MODULE.bazel").touch()
+        monkeypatch.chdir(tmp_path)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--server", "_test_probe"])
+
+        assert result.exit_code == 2
+        assert "--server cannot be combined with a subcommand" in result.output
+
+
+class TestServerFlag:
+    """Requirement: Persistent server mode inherits CLI context correctly."""
+
+    def test_server_flag_launches_server_with_cli_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "MODULE.bazel").touch()
+        (tmp_path / "mlody").mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        with patch("mlody.cli.server.run_server") as run_server:
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "--server",
+                    "--verbose",
+                    "--full-workspace",
+                    "--workspace",
+                    "mlody",
+                    "--roots",
+                    "mlody/custom-roots.mlody",
+                    "--server-host",
+                    "0.0.0.0",
+                    "--server-port",
+                    "9900",
+                    "--lsp-port",
+                    "9901",
+                ],
+            )
+
+        assert result.exit_code == 0
+        run_server.assert_called_once()
+        config = run_server.call_args.args[0]
+        assert config.monorepo_root == tmp_path
+        assert config.workspace_root == tmp_path / "mlody"
+        assert config.roots == Path("mlody/custom-roots.mlody")
+        assert config.verbose is True
+        assert config.full_workspace is True
+        assert config.http_host == "0.0.0.0"
+        assert config.http_port == 9900
+        assert config.lsp_host == "0.0.0.0"
+        assert config.lsp_port == 9901
 
 
 # ---------------------------------------------------------------------------

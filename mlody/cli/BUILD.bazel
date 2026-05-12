@@ -7,18 +7,21 @@ o_py_library(
         "dag_gui.py",
         "dag_render.py",
         "main.py",
+        "server.py",
         "shell.py",
         "show.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [
         "//common/python/console:console_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody/common:context_lib",  # keep
         "//mlody/core:core_lib",
         "//mlody/core/label:label_lib",
         "//mlody/core/sql:sql_query_lib",
         "//mlody/core/tabular",
         "//mlody/db:db_lib",
+        "//mlody/lsp:lsp_lib",
         "//mlody/resolver:resolver_lib",
         "@pip//click",
         "@pip//matplotlib",  # keep — lazy import in dag_gui.show_dag_gui
@@ -118,6 +121,17 @@ o_py_test(
     deps = [
         ":cli_lib",
         "@pip//click",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "server_test",
+    srcs = ["server_test.py"],
+    deps = [
+        ":cli_lib",
+        "//mlody/core:core_lib",
+        "//mlody/resolver:resolver_lib",
         "@pip//pytest",
     ],
 )

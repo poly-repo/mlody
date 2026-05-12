@@ -52,7 +52,7 @@ def verify_monorepo_root() -> Path:
     return cwd
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.option(
     "--roots",
     type=click.Path(path_type=Path),
@@ -76,6 +76,33 @@ def verify_monorepo_root() -> Path:
         "(e.g. mlody/sandboxes/exp1). Sets // for CWD-relative labels."
     ),
 )
+@click.option(
+    "--server",
+    "server_mode",
+    is_flag=True,
+    default=False,
+    help="Run persistent server mode with HTTP JSON and TCP LSP endpoints.",
+)
+@click.option(
+    "--server-host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Bind host for both the HTTP API and TCP LSP server.",
+)
+@click.option(
+    "--server-port",
+    type=click.IntRange(1, 65535),
+    default=8765,
+    show_default=True,
+    help="Bind port for the HTTP JSON API.",
+)
+@click.option(
+    "--lsp-port",
+    type=click.IntRange(1, 65535),
+    default=8766,
+    show_default=True,
+    help="Bind port for the TCP LSP server.",
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -83,6 +110,10 @@ def cli(
     verbose: bool,
     full_workspace: bool,
     workspace_dir: Path | None,
+    server_mode: bool,
+    server_host: str,
+    server_port: int,
+    lsp_port: int,
 ) -> None:
     """mlody — ML pipeline framework CLI."""
     ctx.ensure_object(dict)
@@ -110,6 +141,31 @@ def cli(
         ctx.obj["workspace_root"] = workspace_root
     else:
         ctx.obj["workspace_root"] = monorepo_root
+
+    if server_mode and ctx.invoked_subcommand is not None:
+        raise click.UsageError("--server cannot be combined with a subcommand.")
+
+    if server_mode:
+        from mlody.cli.server import ServerConfig, run_server
+
+        run_server(
+            ServerConfig(
+                monorepo_root=monorepo_root,
+                workspace_root=ctx.obj["workspace_root"],
+                roots=roots,
+                verbose=verbose,
+                full_workspace=full_workspace,
+                http_host=server_host,
+                http_port=server_port,
+                lsp_host=server_host,
+                lsp_port=lsp_port,
+            )
+        )
+        ctx.exit(0)
+
+    if ctx.invoked_subcommand is None and not ctx.resilient_parsing:
+        click.echo(ctx.get_help())
+        ctx.exit(0)
 
 
 def main() -> None:
