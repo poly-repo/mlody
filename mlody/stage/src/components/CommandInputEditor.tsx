@@ -13,9 +13,11 @@ import {
   deleteGroupForward,
   deleteToLineEnd,
   history,
+  invertedEffects,
   historyKeymap,
+  isolateHistory,
 } from "@codemirror/commands";
-import { Prec } from "@codemirror/state";
+import { Prec, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 
@@ -27,14 +29,48 @@ const COMMAND_INPUT_IMPLEMENTATION: CommandInputImplementation = "codemirror";
 
 interface CommandInputEditorProps {
   value: string;
+  promotedSegments: string[];
   disabled?: boolean;
   placeholder: string;
   onChange: (value: string) => void;
-  onSubmit: () => void;
+  onPromotedSegmentsChange: (segments: string[]) => void;
+  onSubmit: (snapshot: CommandInputSnapshot) => void;
   onAutocompleteRequest: () => void;
-  onPromoteSegments: (segments: string[]) => void;
-  onPopLocationSegment: () => boolean;
 }
+
+interface CommandInputSnapshot {
+  value: string;
+  promotedSegments: string[];
+}
+
+const setPromotedSegmentsEffect = StateEffect.define<readonly string[]>();
+
+const promotedSegmentsField = StateField.define<readonly string[]>({
+  create: () => [],
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setPromotedSegmentsEffect)) {
+        return [...effect.value];
+      }
+    }
+
+    return value;
+  },
+});
+
+const promotedSegmentsHistory = invertedEffects.of((transaction) => {
+  for (const effect of transaction.effects) {
+    if (effect.is(setPromotedSegmentsEffect)) {
+      return [
+        setPromotedSegmentsEffect.of(
+          transaction.startState.field(promotedSegmentsField),
+        ),
+      ];
+    }
+  }
+
+  return [];
+});
 
 function canPromoteLocationSegment(value: string): boolean {
   return value === "..." || /^@?[A-Za-z0-9_-]+$/.test(value);
@@ -134,16 +170,6 @@ function insertText(view: EditorView, text: string): void {
   view.dispatch(view.state.replaceSelection(text));
 }
 
-function replaceText(view: EditorView, text: string): void {
-  view.dispatch({
-    changes: {
-      from: 0,
-      to: view.state.doc.length,
-      insert: text,
-    },
-  });
-}
-
 function isCursorAtEnd(view: EditorView): boolean {
   const selection = view.state.selection.main;
   return selection.empty && selection.head === view.state.doc.length;
@@ -193,15 +219,59 @@ function shouldAttemptBulkPromotion(
   return Math.abs(nextValue.length - previousValue.length) > 1;
 }
 
-function popLocationSegment(
-  view: EditorView,
-  onPopLocationSegment: () => boolean,
+function areSegmentsEqual(
+  left: readonly string[],
+  right: readonly string[],
 ): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((segment, index) => segment === right[index]);
+}
+
+function getPromotedSegments(view: EditorView): readonly string[] {
+  return view.state.field(promotedSegmentsField);
+}
+
+function dispatchPromotedSegmentsUpdate(
+  view: EditorView,
+  nextSegments: readonly string[],
+  options: {
+    insert?: string;
+    addToHistory?: boolean;
+  } = {},
+): void {
+  const addToHistory = options.addToHistory ?? true;
+  view.dispatch({
+    ...(options.insert !== undefined
+      ? {
+          changes: {
+            from: 0,
+            to: view.state.doc.length,
+            insert: options.insert,
+          },
+        }
+      : {}),
+    effects: setPromotedSegmentsEffect.of(nextSegments),
+    annotations: addToHistory
+      ? [Transaction.addToHistory.of(true), isolateHistory.of("full")]
+      : [Transaction.addToHistory.of(false)],
+  });
+}
+
+function popLocationSegment(view: EditorView): boolean {
   if (view.state.doc.length > 0) {
     return false;
   }
 
-  return onPopLocationSegment();
+  const segments = getPromotedSegments(view);
+  if (segments.length === 0) {
+    return false;
+  }
+
+  dispatchPromotedSegmentsUpdate(view, segments.slice(0, -1));
+  return true;
 }
 
 function deletePreviousWordFromText(value: string, cursor: number): string {
@@ -222,13 +292,13 @@ function deletePreviousWordFromText(value: string, cursor: number): string {
 
 function CodeMirrorCommandInput({
   value,
+  promotedSegments,
   disabled = false,
   placeholder,
   onChange,
+  onPromotedSegmentsChange,
   onSubmit,
   onAutocompleteRequest,
-  onPromoteSegments,
-  onPopLocationSegment,
 }: CommandInputEditorProps) {
   const editorRef = useRef<ReactCodeMirrorRef>(null);
 
@@ -238,21 +308,31 @@ function CodeMirrorCommandInput({
     }
   }, [disabled]);
 
-  function handleChange(nextValue: string) {
-    if (!shouldAttemptBulkPromotion(value, nextValue)) {
-      onChange(nextValue);
+  useEffect(() => {
+    const view = editorRef.current?.view;
+    if (!view) {
       return;
     }
 
-    const { promotedSegments, remainder } = extractPromotableSegments(nextValue);
-    if (promotedSegments.length > 0) {
-      onPromoteSegments(promotedSegments);
-      onChange(remainder);
-      return;
+    const currentValue = view.state.doc.toString();
+    if (currentValue !== value) {
+      view.dispatch({
+        changes: {
+          from: 0,
+          to: view.state.doc.length,
+          insert: value,
+        },
+        annotations: [Transaction.addToHistory.of(false)],
+      });
     }
 
-    onChange(nextValue);
-  }
+    const currentSegments = getPromotedSegments(view);
+    if (!areSegmentsEqual(currentSegments, promotedSegments)) {
+      dispatchPromotedSegmentsUpdate(view, promotedSegments, {
+        addToHistory: false,
+      });
+    }
+  }, [promotedSegments, value]);
 
   return (
     <CodeMirror
@@ -269,19 +349,52 @@ function CodeMirrorCommandInput({
           view.focus();
         }
       }}
-      onChange={handleChange}
       extensions={[
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({
           "aria-label": "Command input",
           spellcheck: "false",
         }),
+        promotedSegmentsField,
+        promotedSegmentsHistory,
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            const previousValue = update.startState.doc.toString();
+            const nextValue = update.state.doc.toString();
+
+            if (shouldAttemptBulkPromotion(previousValue, nextValue)) {
+              const splitResult = extractPromotableSegments(nextValue);
+              if (splitResult.promotedSegments.length > 0) {
+                dispatchPromotedSegmentsUpdate(
+                  update.view,
+                  [
+                    ...getPromotedSegments(update.view),
+                    ...splitResult.promotedSegments,
+                  ],
+                  { insert: splitResult.remainder },
+                );
+                return;
+              }
+            }
+
+            onChange(nextValue);
+          }
+
+          const previousSegments = update.startState.field(promotedSegmentsField);
+          const nextSegments = update.state.field(promotedSegmentsField);
+          if (!areSegmentsEqual(previousSegments, nextSegments)) {
+            onPromotedSegmentsChange([...nextSegments]);
+          }
+        }),
         Prec.high(
           keymap.of([
             {
               key: "Enter",
-              run() {
-                onSubmit();
+              run(view) {
+                onSubmit({
+                  value: view.state.doc.toString(),
+                  promotedSegments: [...getPromotedSegments(view)],
+                });
                 return true;
               },
             },
@@ -337,19 +450,13 @@ function CodeMirrorCommandInput({
             {
               key: "Backspace",
               run(view) {
-                return (
-                  popLocationSegment(view, onPopLocationSegment) ||
-                  deletePreviousWordInView(view)
-                );
+                return popLocationSegment(view) || deletePreviousWordInView(view);
               },
             },
             {
               key: "Ctrl-h",
               run(view) {
-                return (
-                  popLocationSegment(view, onPopLocationSegment) ||
-                  runAndReport(view, deleteCharBackward)
-                );
+                return popLocationSegment(view) || runAndReport(view, deleteCharBackward);
               },
             },
             {
@@ -387,14 +494,11 @@ function CodeMirrorCommandInput({
                   return true;
                 }
 
-                onPromoteSegments([segment]);
-                view.dispatch({
-                  changes: {
-                    from: 0,
-                    to: view.state.doc.length,
-                    insert: "",
-                  },
-                });
+                dispatchPromotedSegmentsUpdate(
+                  view,
+                  [...getPromotedSegments(view), segment],
+                  { insert: "" },
+                );
                 return true;
               },
             },
@@ -412,8 +516,11 @@ function CodeMirrorCommandInput({
                   return true;
                 }
 
-                onPromoteSegments([`${segment}:`]);
-                replaceText(view, "");
+                dispatchPromotedSegmentsUpdate(
+                  view,
+                  [...getPromotedSegments(view), `${segment}:`],
+                  { insert: "" },
+                );
                 return true;
               },
             },
@@ -427,8 +534,11 @@ function CodeMirrorCommandInput({
 
                 const segment = view.state.doc.toString();
                 if (segment === "..") {
-                  onPromoteSegments(["..."]);
-                  replaceText(view, "");
+                  dispatchPromotedSegmentsUpdate(
+                    view,
+                    [...getPromotedSegments(view), "..."],
+                    { insert: "" },
+                  );
                   return true;
                 }
 
@@ -437,8 +547,11 @@ function CodeMirrorCommandInput({
                   return true;
                 }
 
-                onPromoteSegments([segment]);
-                replaceText(view, ".");
+                dispatchPromotedSegmentsUpdate(
+                  view,
+                  [...getPromotedSegments(view), segment],
+                  { insert: "." },
+                );
                 return true;
               },
             },
@@ -453,13 +566,13 @@ function CodeMirrorCommandInput({
 
 function TextareaCommandInput({
   value,
+  promotedSegments,
   disabled = false,
   placeholder,
   onChange,
+  onPromotedSegmentsChange,
   onSubmit,
   onAutocompleteRequest,
-  onPromoteSegments,
-  onPopLocationSegment,
 }: CommandInputEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -482,14 +595,26 @@ function TextareaCommandInput({
       return;
     }
 
-    const { promotedSegments, remainder } = extractPromotableSegments(nextValue);
-    if (promotedSegments.length > 0) {
-      onPromoteSegments(promotedSegments);
-      onChange(remainder);
+    const splitResult = extractPromotableSegments(nextValue);
+    if (splitResult.promotedSegments.length > 0) {
+      onPromotedSegmentsChange([
+        ...promotedSegments,
+        ...splitResult.promotedSegments,
+      ]);
+      onChange(splitResult.remainder);
       return;
     }
 
     onChange(nextValue);
+  }
+
+  function popTextareaLocationSegment(): boolean {
+    if (promotedSegments.length === 0) {
+      return false;
+    }
+
+    onPromotedSegmentsChange(promotedSegments.slice(0, -1));
+    return true;
   }
 
   return (
@@ -502,7 +627,10 @@ function TextareaCommandInput({
       onKeyDown={(event) => {
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
-          onSubmit();
+          onSubmit({
+            value,
+            promotedSegments,
+          });
           return;
         }
 
@@ -529,7 +657,7 @@ function TextareaCommandInput({
           canPromoteLocationSegment(value)
         ) {
           event.preventDefault();
-          onPromoteSegments([value]);
+          onPromotedSegmentsChange([...promotedSegments, value]);
           onChange("");
           return;
         }
@@ -542,7 +670,7 @@ function TextareaCommandInput({
           canPromoteLocationSegment(value)
         ) {
           event.preventDefault();
-          onPromoteSegments([`${value}:`]);
+          onPromotedSegmentsChange([...promotedSegments, `${value}:`]);
           onChange("");
           return;
         }
@@ -554,14 +682,14 @@ function TextareaCommandInput({
         ) {
           if (value === "..") {
             event.preventDefault();
-            onPromoteSegments(["..."]);
+            onPromotedSegmentsChange([...promotedSegments, "..."]);
             onChange("");
             return;
           }
 
           if (value !== "" && canPromoteLocationSegment(value) && value !== "...") {
             event.preventDefault();
-            onPromoteSegments([value]);
+            onPromotedSegmentsChange([...promotedSegments, value]);
             onChange(".");
             return;
           }
@@ -571,7 +699,7 @@ function TextareaCommandInput({
           event.key === "Backspace" &&
           value === ""
         ) {
-          if (onPopLocationSegment()) {
+          if (popTextareaLocationSegment()) {
             event.preventDefault();
           }
           return;
@@ -590,7 +718,7 @@ function TextareaCommandInput({
         }
 
         if (event.ctrlKey && event.key === "h" && value === "") {
-          if (onPopLocationSegment()) {
+          if (popTextareaLocationSegment()) {
             event.preventDefault();
           }
         }

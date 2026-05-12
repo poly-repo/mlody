@@ -108,21 +108,14 @@ export function InputBar({
     return `//${combinedInput}`;
   }
 
-  function popPromotedSegment(): boolean {
-    let removed = false;
-    setPromotedSegments((prev) => {
-      if (prev.length === 0) {
-        return prev;
-      }
-
-      removed = true;
-      return prev.slice(0, -1);
-    });
-    return removed;
-  }
-
-  function handleSubmitRequest() {
-    const combinedInput = buildExecutableInput(promotedSegments, value);
+  function handleSubmit(snapshot: {
+    value: string;
+    promotedSegments: string[];
+  }) {
+    const combinedInput = buildExecutableInput(
+      snapshot.promotedSegments,
+      snapshot.value,
+    );
 
     if (currentCommand) {
       setValue("");
@@ -149,18 +142,13 @@ export function InputBar({
         </div>
         <CommandInputEditor
           value={value}
+          promotedSegments={promotedSegments}
           onChange={setValue}
           disabled={disabled}
           placeholder={`Type what to ${currentCommand} and press Enter...`}
-          onSubmit={handleSubmitRequest}
+          onPromotedSegmentsChange={setPromotedSegments}
+          onSubmit={handleSubmit}
           onAutocompleteRequest={() => {}}
-          onPromoteSegments={(segments) => {
-            if (segments.length === 0) {
-              return;
-            }
-            setPromotedSegments((prev) => [...prev, ...segments]);
-          }}
-          onPopLocationSegment={popPromotedSegment}
         />
         <div className="CommandShell-shortcuts" aria-hidden="true">
           <span className="CommandShell-shortcut">
