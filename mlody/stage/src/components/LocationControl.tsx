@@ -109,9 +109,11 @@ export function LocationControl({
             </BreadcrumbList>
           </Breadcrumb>
         </div>
-        <div className="LocationControl-topdir" title={topdir}>
-          {topdir}
-        </div>
+        {topdir ? (
+          <div className="LocationControl-topdir" title={topdir}>
+            {topdir}
+          </div>
+        ) : null}
       </div>
 
       <div className="LocationControl-popup" role="tooltip">

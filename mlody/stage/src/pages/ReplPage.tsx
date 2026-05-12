@@ -47,39 +47,11 @@ const COMMAND_OPTIONS: CommandOption[] = [
   },
 ];
 
-const INITIAL_LOCATION: LocationCrumb[] = [
-  {
-    id: "entity-omega",
-    href: "#omega",
-    pieces: [{ kind: "entity", text: "@omega" }],
-  },
-  {
-    id: "folder-projects",
-    href: "#projects",
-    pieces: [{ kind: "mlody-folder", text: "projects" }],
-  },
-  {
-    id: "folder-runs",
-    href: "#runs",
-    pieces: [{ kind: "mlody-folder", text: "runs" }],
-  },
-  {
-    id: "wildcard-descendants",
-    href: "#descendants",
-    pieces: [{ kind: "wildcard", text: "..." }],
-  },
-  {
-    id: "source-summary",
-    pieces: [
-      { kind: "mlody-source", text: "summary.md" },
-      { kind: "query", text: "[step=validate]" },
-    ],
-  },
-];
+const INITIAL_LOCATION: LocationCrumb[] = [];
 
 const DEFAULT_CURRENT_USER = "mav";
 const LOCATION_COMMANDS = new Set(["show"]);
-const INITIAL_TOPDIR = "projects";
+const INITIAL_TOPDIR = "";
 
 const FALLBACK_USER: UserSummary = {
   name: DEFAULT_CURRENT_USER,

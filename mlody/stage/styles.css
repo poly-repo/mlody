@@ -1221,6 +1221,54 @@ textarea {
   opacity: 0.45;
 }
 
+.CommandInputEditor {
+  width: 100%;
+}
+
+.CommandInputEditor .cm-editor {
+  border: none;
+  background: transparent;
+  color: var(--stage-ink);
+  font-family: var(--font-mono);
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+.CommandInputEditor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.CommandInputEditor .cm-scroller {
+  max-height: 144px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+}
+
+.CommandInputEditor .cm-content {
+  min-height: 30px;
+  padding: 0;
+  caret-color: var(--stage-primary);
+}
+
+.CommandInputEditor .cm-line {
+  padding: 0;
+}
+
+.CommandInputEditor .cm-placeholder {
+  color: rgba(109, 118, 138, 0.78);
+}
+
+.CommandInputEditor .cm-cursor,
+.CommandInputEditor .cm-dropCursor {
+  border-left-color: var(--stage-primary);
+}
+
+.CommandInputEditor .cm-selectionBackground,
+.CommandInputEditor.cm-focused .cm-selectionBackground,
+.CommandInputEditor .cm-content ::selection {
+  background: rgba(77, 103, 217, 0.18);
+}
+
 .CommandShell-shortcuts {
   display: flex;
   flex-direction: column;
