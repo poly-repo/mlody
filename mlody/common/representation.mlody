@@ -272,3 +272,17 @@ def console(
 ):
     kwargs = {}
     return _console_factory(**kwargs)
+
+
+_stage_struct = representation(
+    name="stage",
+    attrs={
+    },
+)
+_stage_factory = _make_representation_factory(_stage_struct)
+
+
+def stage(
+):
+    kwargs = {}
+    return _stage_factory(**kwargs)

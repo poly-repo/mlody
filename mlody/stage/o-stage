@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
+
+DEV_HOST="${O_STAGE_DEV_HOST:-127.0.0.1}"
+DEV_PORT="${O_STAGE_DEV_PORT:-8000}"
+API_HOST="${O_STAGE_API_HOST:-127.0.0.1}"
+API_PORT="${O_STAGE_API_PORT:-8765}"
+LSP_PORT="${O_STAGE_LSP_PORT:-8766}"
+LOG_ROOT="${O_STAGE_LOG_ROOT:-/tmp/o-stage-${USER}}"
+
+DEVSERVER_LOG="$LOG_ROOT/devserver.log"
+BACKEND_LOG="$LOG_ROOT/backend.log"
+STAGE_URL="http://${DEV_HOST}:${DEV_PORT}/"
+HEALTH_URL="http://${API_HOST}:${API_PORT}/healthz"
+
+require_command() {
+  local name="$1"
+  if ! command -v "$name" >/dev/null 2>&1; then
+    echo "Missing required command: $name" >&2
+    exit 1
+  fi
+}
+
+find_chrome_bin() {
+  command -v google-chrome ||
+    command -v google-chrome-stable ||
+    command -v chromium ||
+    command -v chromium-browser
+}
+
+kill_listener_on_port() {
+  local port="$1"
+  local label="$2"
+  local pids
+
+  pids="$(lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' || true)"
+  if [[ -z "${pids// }" ]]; then
+    return 0
+  fi
+
+  echo "Stopping ${label} on port ${port}: ${pids}"
+  kill ${pids} 2>/dev/null || true
+
+  for _ in $(seq 1 20); do
+    if ! lsof -tiTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  echo "Force stopping ${label} on port ${port}: ${pids}"
+  kill -9 ${pids} 2>/dev/null || true
+}
+
+wait_for_http() {
+  local url="$1"
+  local label="$2"
+  local log_path="$3"
+
+  for _ in $(seq 1 120); do
+    if curl --silent --fail "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  echo "${label} did not become ready. Last log lines:" >&2
+  tail -n 40 "$log_path" >&2 || true
+  exit 1
+}
+
+focus_chrome() {
+  if ! command -v wmctrl >/dev/null 2>&1; then
+    return 0
+  fi
+
+  for target in \
+    "google-chrome.Google-chrome" \
+    "google-chrome.Google-chrome-stable" \
+    "chromium.Chromium" \
+    "Google Chrome"; do
+    if wmctrl -xa "$target" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+
+  return 0
+}
+
+list_chrome_window_ids() {
+  if ! command -v wmctrl >/dev/null 2>&1; then
+    return 0
+  fi
+
+  wmctrl -lx | awk '
+    $3 ~ /(^google-chrome\.|^chromium\.)/ {
+      print $1
+    }
+  '
+}
+
+find_new_chrome_window_id() {
+  local before_ids="$1"
+  local after_id
+
+  for _ in $(seq 1 40); do
+    while IFS= read -r after_id; do
+      [[ -z "$after_id" ]] && continue
+      if ! grep -Fxq "$after_id" <<<"$before_ids"; then
+        printf '%s\n' "$after_id"
+        return 0
+      fi
+    done < <(list_chrome_window_ids)
+    sleep 0.25
+  done
+
+  return 1
+}
+
+focus_window_id() {
+  local window_id="$1"
+
+  if [[ -z "$window_id" ]] || ! command -v wmctrl >/dev/null 2>&1; then
+    return 0
+  fi
+
+  (
+    wmctrl -ir "$window_id" -b add,above >/dev/null 2>&1 || true
+    for _ in $(seq 1 8); do
+      wmctrl -ia "$window_id" >/dev/null 2>&1 || true
+      sleep 0.4
+    done
+    wmctrl -ir "$window_id" -b remove,above >/dev/null 2>&1 || true
+  ) >/dev/null 2>&1 &
+}
+
+open_stage_in_chrome() {
+  local chrome_bin
+  local before_ids
+  local new_window_id=""
+
+  chrome_bin="$(find_chrome_bin)"
+
+  if [[ -z "$chrome_bin" ]]; then
+    echo "Could not find a Chrome-compatible browser to open ${STAGE_URL}" >&2
+    return 0
+  fi
+
+  before_ids="$(list_chrome_window_ids || true)"
+  "$chrome_bin" --new-window "$STAGE_URL" >/dev/null 2>&1 &
+
+  if new_window_id="$(find_new_chrome_window_id "$before_ids")"; then
+    focus_window_id "$new_window_id"
+    return 0
+  fi
+
+  sleep 1
+  focus_chrome
+}
+
+mkdir -p "$LOG_ROOT"
+
+require_command bazel
+require_command curl
+require_command lsof
+
+kill_listener_on_port "$DEV_PORT" "stage devserver"
+kill_listener_on_port "$API_PORT" "mlody backend"
+kill_listener_on_port "$LSP_PORT" "mlody LSP"
+
+echo "Starting mlody backend server..."
+(
+  cd "$REPO_ROOT"
+  nohup bazel run --config=silent //mlody/cli:mlody -- \
+    --server \
+    --server-host "$API_HOST" \
+    --server-port "$API_PORT" \
+    --lsp-port "$LSP_PORT" \
+    >"$BACKEND_LOG" 2>&1 &
+)
+
+wait_for_http "$HEALTH_URL" "mlody backend server" "$BACKEND_LOG"
+
+echo "Starting mlody stage devserver..."
+(
+  cd "$REPO_ROOT"
+  nohup env PORT="$DEV_PORT" bazel run //mlody/stage:devserver \
+    >"$DEVSERVER_LOG" 2>&1 &
+)
+
+wait_for_http "$STAGE_URL" "mlody stage devserver" "$DEVSERVER_LOG"
+
+echo "Opening ${STAGE_URL} in Chrome..."
+open_stage_in_chrome
+
+echo
+echo "Stage is ready:"
+echo "  stage:   ${STAGE_URL}"
+echo "  backend: ${HEALTH_URL}"
+echo "  lsp:     tcp://${API_HOST}:${LSP_PORT}"
+echo "  logs:    ${LOG_ROOT}"

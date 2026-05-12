@@ -1,4 +1,5 @@
 import type { ExecutionRecord } from "../types.js";
+import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
 
 interface ExecutionBlockProps {
   record: ExecutionRecord;
@@ -79,12 +80,21 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
       </div>
       <div className="ExecutionBlock-body">
         {record.output.map((chunk, idx) => (
-          <span
-            key={idx}
-            className={`ExecutionBlock-line ExecutionBlock-line--${chunk.kind}`}
-          >
-            {chunk.text}
-          </span>
+          chunk.kind === "stage-json" ? (
+            <div
+              key={idx}
+              className="ExecutionBlock-line ExecutionBlock-line--stageJson"
+            >
+              <JsonSyntaxBlock value={chunk.value} />
+            </div>
+          ) : (
+            <span
+              key={idx}
+              className={`ExecutionBlock-line ExecutionBlock-line--${chunk.kind}`}
+            >
+              {chunk.text}
+            </span>
+          )
         ))}
       </div>
     </div>

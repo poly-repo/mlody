@@ -382,6 +382,24 @@ defmethod(render_value, [mm.value(representation=mm.console)], _render_console_v
 
 
 # ---------------------------------------------------------------------------
+# Stage representation.
+# ---------------------------------------------------------------------------
+
+def _render_stage_value(ctx, value):
+    return struct(
+        kind     = "render_value_spec",
+        title    = _value_title(value),
+        sections = [
+            struct(name="Type",     rows=_type_rows_with_unit(value)),
+            struct(name="Format",   rows=[["representation", "stage"]]),
+            struct(name="Location", rows=_location_detail_rows(value.location)),
+        ] + _source_section(value),
+    )
+
+defmethod(render_value, [mm.value(representation=mm.stage)], _render_stage_value)
+
+
+# ---------------------------------------------------------------------------
 # JSON representation — highlight that content is stored as JSON.
 # ---------------------------------------------------------------------------
 

@@ -1,5 +1,5 @@
 import type { ExecutionResultStatus, Executor, OutputCallback } from "./types.js";
-import { executeVerbatimCommand } from "./serverApi.js";
+import { executeStageCommand } from "./serverApi.js";
 
 function splitCommandInput(commandLine: string): {
   command: string;
@@ -24,19 +24,28 @@ export const serverExecutor: Executor = {
     onChunk: OutputCallback,
   ): Promise<ExecutionResultStatus> {
     const { command, input } = splitCommandInput(commandLine);
-    const response = await executeVerbatimCommand(command, input);
+    const response = await executeStageCommand(command, input);
+    onChunk({ kind: "stage-json", value: response });
 
-    if (response.output !== "") {
-      onChunk({ text: response.output, kind: "stdout" });
-    }
-
-    return response.status;
+    return "done";
   },
 };
 
 export const stubExecutor: Executor = {
   async run(command: string, onChunk: OutputCallback): Promise<ExecutionResultStatus> {
-    onChunk({ text: command, kind: "stdout" });
+    onChunk({
+      kind: "stage-json",
+      value: {
+        kind: "result",
+        view: {
+          type: "json",
+          title: "Stub result",
+        },
+        data: {
+          command,
+        },
+      },
+    });
     return "done";
   },
 };

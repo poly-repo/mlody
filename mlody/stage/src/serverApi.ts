@@ -1,4 +1,9 @@
-import type { ServerHealthStatus, WorkspaceSummary, WorkspaceUser } from "./types.js";
+import type {
+  ServerHealthStatus,
+  StageResultPayload,
+  WorkspaceSummary,
+  WorkspaceUser,
+} from "./types.js";
 
 const DEFAULT_SERVER_BASE_URL = "http://127.0.0.1:8765";
 const SERVER_TIMEOUT_MS = 8000;
@@ -7,14 +12,6 @@ export interface StageBootstrapPayload {
   health: ServerHealthStatus;
   users: WorkspaceUser[];
   workspace: WorkspaceSummary;
-}
-
-interface VerbatimExecuteResponse {
-  requestId: string;
-  command: string;
-  status: "done" | "error";
-  exitCode: number;
-  output: string;
 }
 
 export function resolveServerBaseUrl(): string {
@@ -66,7 +63,7 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`${path} failed with status ${response.status}`);
+    throw new Error(await readErrorMessage(response, path));
   }
 
   return (await response.json()) as T;
@@ -83,10 +80,36 @@ async function postJson<T>(path: string, payload: object): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`${path} failed with status ${response.status}`);
+    throw new Error(await readErrorMessage(response, path));
   }
 
   return (await response.json()) as T;
+}
+
+async function readErrorMessage(response: Response, path: string): Promise<string> {
+  const fallbackMessage = `${path} failed with status ${response.status}`;
+
+  let rawBody = "";
+  try {
+    rawBody = await response.text();
+  } catch {
+    return fallbackMessage;
+  }
+
+  if (rawBody.trim() === "") {
+    return fallbackMessage;
+  }
+
+  try {
+    const payload = JSON.parse(rawBody) as Record<string, unknown>;
+    if (typeof payload.error === "string" && payload.error.trim() !== "") {
+      return payload.error;
+    }
+  } catch {
+    return `${fallbackMessage}: ${rawBody}`;
+  }
+
+  return fallbackMessage;
 }
 
 export async function fetchStageBootstrap(
@@ -120,11 +143,11 @@ export function createServerBootstrapController(): {
   return { controller, timeoutId };
 }
 
-export async function executeVerbatimCommand(
+export async function executeStageCommand(
   command: string,
   input: string,
-): Promise<VerbatimExecuteResponse> {
-  return await postJson<VerbatimExecuteResponse>("/api/execute/verbatim", {
+): Promise<StageResultPayload> {
+  return await postJson<StageResultPayload>("/api/execute/stage", {
     command,
     input,
   });

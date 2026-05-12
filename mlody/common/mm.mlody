@@ -134,6 +134,7 @@ parquet = struct(kind="mm_repr_pattern", repr_name="parquet")
 csv     = struct(kind="mm_repr_pattern", repr_name="csv")
 text    = struct(kind="mm_repr_pattern", repr_name="text")
 console = struct(kind="mm_repr_pattern", repr_name="console")
+stage   = struct(kind="mm_repr_pattern", repr_name="stage")
 
 
 def _posix_impl(path_pattern):
@@ -176,6 +177,7 @@ mm = struct(
     csv=csv,
     text=text,
     console=console,
+    stage=stage,
     posix=_posix_impl,
     vector=_vector_impl,
     value=_value_impl,

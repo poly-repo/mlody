@@ -16,11 +16,13 @@ from mlody.cli.server import (
     ServerConfig,
     collect_command_response,
     create_http_server,
+    execute_stage_command_response,
     execute_verbatim_command_response,
     parse_command_request,
     parse_verbatim_command_request,
 )
 from mlody.resolver import MlodyFolderValue
+from mlody.resolver.label_value import _RawAttrValue
 
 
 def _server_config(tmp_path: Path, *, http_port: int = 0) -> ServerConfig:
@@ -190,6 +192,98 @@ class TestExecuteVerbatimCommandResponse:
         assert response["output"] == "Value for user 'mav'\nrow 1\n"
 
 
+class TestExecuteStageCommandResponse:
+    def test_resolves_show_into_stage_json_without_workspace_flag(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        class _FakeWorkspace:
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        def _fake_resolve_workspace(target: str, **kwargs):
+            captured["target"] = target
+            captured["workspace_root"] = kwargs.get("workspace_root")
+            captured["user"] = kwargs.get("user")
+            return _FakeWorkspace(), "sha123"
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            _fake_resolve_workspace,
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyFolderValue(
+                path="artifacts",
+                children=["config", "plots"],
+            ),
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert captured["target"] == "@pixelle//datasets:celebA-dataset.train[@sql limit 2]"
+        assert captured["workspace_root"] == tmp_path
+        assert captured["user"] == "mav"
+        assert response["kind"] == "result"
+        assert response["view"]["type"] == "json"
+        assert response["data"]["kind"] == "folder"
+        assert response["data"]["payload"]["path"] == "artifacts"
+
+    def test_serializes_raw_tabular_results_as_stage_table(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: _RawAttrValue(
+                value=[
+                    {"name": "Ada", "salary": 120000},
+                    {"name": "Grace", "salary": 135000},
+                ],
+                label=_label,
+            ),
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"]["type"] == "table"
+        assert response["view"]["columns"] == [
+            {"key": "name", "label": "name"},
+            {"key": "salary", "label": "salary"},
+        ]
+        assert response["data"] == [
+            {"name": "Ada", "salary": 120000},
+            {"name": "Grace", "salary": 135000},
+        ]
+
+
 class TestHttpApi:
     def test_healthz_reports_http_and_lsp_endpoints(self, tmp_path: Path) -> None:
         http_server = create_http_server(_server_config(tmp_path))
@@ -312,6 +406,57 @@ class TestHttpApi:
 
             assert payload["status"] == "done"
             assert payload["output"] == "Value for user 'mav'\nrow 1\n"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_stage_execute_endpoint_returns_stage_payload(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            "mlody.cli.server.execute_stage_command_response",
+            lambda _config, _request: {
+                "kind": "result",
+                "view": {
+                    "type": "table",
+                    "title": "Employees",
+                    "columns": [
+                        {"key": "name", "label": "Name"},
+                        {"key": "salary", "label": "Salary", "format": "currency"},
+                    ],
+                },
+                "data": [
+                    {"name": "Ada", "salary": 120000},
+                    {"name": "Grace", "salary": 135000},
+                ],
+            },
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{http_server.server_port}/api/execute/stage",
+                data=json.dumps(
+                    {
+                        "command": "show",
+                        "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            assert payload["kind"] == "result"
+            assert payload["view"]["type"] == "table"
+            assert payload["data"][0]["name"] == "Ada"
         finally:
             http_server.shutdown()
             http_server.server_close()

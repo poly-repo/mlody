@@ -276,6 +276,48 @@ textarea {
   color: var(--stage-ink-soft);
 }
 
+.ExecutionBlock-line--stageJson {
+  padding: 0;
+  overflow-x: auto;
+  background:
+    linear-gradient(180deg, rgba(244, 247, 255, 0.94), rgba(236, 241, 251, 0.92)),
+    radial-gradient(circle at top right, rgba(113, 139, 227, 0.1), transparent 42%);
+}
+
+.JsonSyntaxBlock {
+  margin: 0;
+  padding: 14px 16px;
+  color: var(--stage-ink);
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.JsonSyntaxBlock-token--plain {
+  color: rgba(40, 52, 83, 0.92);
+}
+
+.JsonSyntaxBlock-token--key {
+  color: #9454d8;
+}
+
+.JsonSyntaxBlock-token--string {
+  color: #136f63;
+}
+
+.JsonSyntaxBlock-token--number {
+  color: #1f4fd1;
+}
+
+.JsonSyntaxBlock-token--boolean {
+  color: #b54b15;
+}
+
+.JsonSyntaxBlock-token--null {
+  color: #8c6787;
+}
+
 .SystemAdmonition {
   position: relative;
   display: grid;

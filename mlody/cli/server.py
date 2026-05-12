@@ -26,10 +26,18 @@ from typing import Any, cast
 import click
 
 from common.python.starlarkish.evaluator.evaluator import _runtime_json_data
-from mlody.cli.show import _describe_mlody_value, _parse_inner, _selected_show_user
+from mlody.cli.show import (
+    _describe_mlody_value,
+    _display_payload,
+    _parse_inner,
+    _selected_show_user,
+)
+from mlody.core.derived import DerivedValueShapeError
 from mlody.core.workspace_models import RootInfo
 from mlody.core.label import parse_label
 from mlody.core.label.label import Label
+from mlody.core.sql.sql_query import MlodyQueryError
+from mlody.core.tabular import source_from_value
 from mlody.core.workspace import WorkspaceLoadError, force
 from mlody.resolver import (
     MlodyActionValue,
@@ -44,6 +52,7 @@ from mlody.resolver import (
     resolve_label_to_value,
     resolve_workspace,
 )
+from mlody.resolver.label_value import _RawAttrValue
 from mlody.resolver.errors import WorkspaceResolutionError
 from mlody.resolver.resolver import _workspace_injections, get_or_build_baseline_workspace
 
@@ -423,6 +432,119 @@ def _workspace_summary_payload(config: ServerConfig, workspace: object) -> dict[
     }
 
 
+def _stage_json_result(
+    title: str,
+    data: object,
+) -> dict[str, object]:
+    return {
+        "kind": "result",
+        "view": {
+            "type": "json",
+            "title": title,
+        },
+        "data": _runtime_json_data(data),
+    }
+
+
+def _stage_table_result(
+    title: str,
+    *,
+    column_names: Sequence[str],
+    rows: Sequence[object],
+    total_rows: int,
+) -> dict[str, object]:
+    return {
+        "kind": "result",
+        "view": {
+            "type": "table",
+            "title": title,
+            "columns": [
+                {
+                    "key": column_name,
+                    "label": column_name,
+                }
+                for column_name in column_names
+            ],
+            "rowCount": total_rows,
+            "truncated": total_rows > len(rows),
+        },
+        "data": _runtime_json_data(list(rows)),
+    }
+
+
+def _stage_result_for_mlody_value(
+    value: MlodyValue,
+    *,
+    title: str,
+) -> dict[str, object]:
+    if isinstance(value, _RawAttrValue):
+        raw_value = value.value
+        if isinstance(raw_value, list) and raw_value and all(
+            isinstance(row, dict) for row in raw_value
+        ):
+            column_names: list[str] = []
+            for row in raw_value:
+                for key in row:
+                    if key not in column_names:
+                        column_names.append(str(key))
+            return _stage_table_result(
+                title,
+                column_names=column_names,
+                rows=raw_value,
+                total_rows=len(raw_value),
+            )
+        if isinstance(raw_value, dict):
+            return _stage_table_result(
+                title,
+                column_names=[str(key) for key in raw_value.keys()],
+                rows=[raw_value],
+                total_rows=1,
+            )
+        return _stage_json_result(title, raw_value)
+
+    if isinstance(value, MlodyVectorValue):
+        return _stage_json_result(
+            title,
+            [
+                _stage_result_for_mlody_value(element, title=_describe_mlody_value(element))
+                for element in value.elements
+            ],
+        )
+
+    if isinstance(value, MlodyValueValue):
+        display_payload = _display_payload(value)
+        if hasattr(display_payload, "as_mapping"):
+            try:
+                tabular_source = source_from_value(display_payload)
+            except ValueError:
+                tabular_source = None
+            if tabular_source is not None:
+                try:
+                    preview = tabular_source.preview(50)
+                    return _stage_table_result(
+                        title,
+                        column_names=list(preview.table.column_names),
+                        rows=preview.table.to_pylist(),
+                        total_rows=preview.total_rows,
+                    )
+                except (
+                    DerivedValueShapeError,
+                    MlodyQueryError,
+                    TypeError,
+                    ValueError,
+                ) as exc:
+                    return _stage_json_result(
+                        title,
+                        {
+                            "error": str(exc),
+                            "value": _serialize_mlody_value(value),
+                        },
+                    )
+        return _stage_json_result(title, display_payload)
+
+    return _stage_json_result(title, _serialize_mlody_value(value))
+
+
 def _execute_show_command(
     config: ServerConfig,
     request: ServerCommandRequest,
@@ -611,6 +733,46 @@ def execute_verbatim_command_response(
     }
 
 
+def execute_stage_command_response(
+    config: ServerConfig,
+    request: ServerCommandRequest,
+) -> dict[str, object]:
+    """Resolve a raw show request into the stage JSON payload."""
+
+    if request.command != "show":
+        raise ServerRequestError(f"Unsupported command: {request.command}")
+
+    config_overrides = _read_string_list_option(request.options, "config", "with")
+    run_as = _read_string_option(request.options, "runAs", "run_as", default="mav")
+    target = request.arguments[0]
+
+    workspace, _resolved_sha = resolve_workspace(
+        target,
+        monorepo_root=config.monorepo_root,
+        workspace_root=config.workspace_root,
+        config=config_overrides,
+        user=run_as,
+        roots_file=config.roots,
+        full_workspace=config.full_workspace,
+        verbose=config.verbose,
+    )
+    committoid, inner_label = _parse_inner(target)
+
+    stage_results: list[dict[str, object]] = []
+    for expanded_inner in workspace.expand_wildcard_label(inner_label):
+        full_label = f"{committoid}|{expanded_inner}" if committoid else expanded_inner
+        concrete_label = _concrete_show_label(committoid, expanded_inner)
+        mlody_value = resolve_label_to_value(concrete_label, workspace)
+        if isinstance(mlody_value, MlodyUnresolvedValue):
+            raise ServerRequestError(mlody_value.reason)
+        stage_results.append(_stage_result_for_mlody_value(mlody_value, title=full_label))
+
+    if len(stage_results) == 1:
+        return stage_results[0]
+
+    return _stage_json_result(target, stage_results)
+
+
 class MlodyApiServer(ThreadingHTTPServer):
     """Threaded HTTP server carrying mlody server configuration."""
 
@@ -726,6 +888,24 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                 self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001
                 _logger.exception("Failed to execute verbatim command")
+                self._write_json_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": str(exc)},
+                )
+            return
+
+        if path == "/api/execute/stage":
+            try:
+                request = parse_verbatim_command_request(payload)
+                response = execute_stage_command_response(
+                    self.server.server_config,
+                    request,
+                )
+                self._write_json_response(HTTPStatus.OK, response)
+            except ServerRequestError as exc:
+                self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Failed to execute stage command")
                 self._write_json_response(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": str(exc)},

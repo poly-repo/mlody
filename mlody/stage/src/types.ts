@@ -1,9 +1,32 @@
-/** One line / chunk of output from an execution. */
-export interface OutputChunk {
-  text: string;
-  /** "stdout" for normal output, "stderr" for errors, "meta" for UI messages */
-  kind: "stdout" | "stderr" | "meta";
+export interface StageViewColumn {
+  key: string;
+  label: string;
+  format?: string;
 }
+
+export interface StageResultPayload {
+  kind: string;
+  view: {
+    type: string;
+    title?: string;
+    columns?: StageViewColumn[];
+    rowCount?: number;
+    truncated?: boolean;
+  };
+  data: unknown;
+}
+
+/** One line / chunk of output from an execution. */
+export type OutputChunk =
+  | {
+      text: string;
+      /** "stdout" for normal output, "stderr" for errors, "meta" for UI messages */
+      kind: "stdout" | "stderr" | "meta";
+    }
+  | {
+      kind: "stage-json";
+      value: StageResultPayload;
+    };
 
 export type LocationPieceKind =
   | "entity"
