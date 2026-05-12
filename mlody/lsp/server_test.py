@@ -27,6 +27,7 @@ from mlody.lsp.server import (
     TOKEN_MODIFIERS,
     TOKEN_TYPES,
     _noop_print,
+    configure_runtime_roots,
     on_changed_watched_files,
     on_did_change,
     on_did_close,
@@ -80,11 +81,74 @@ class TestOnChangedWatchedFiles:
             mock_get_baseline.assert_called_once_with(
                 mode="cwd",
                 monorepo_root=tmp_path,
+                workspace_root=tmp_path,
+                roots_file=None,
+                full_workspace=False,
                 print_fn=_noop_print,
                 console=server_module._null_console,
+                extra_roots=None,
+                lazy_roots=None,
             )
             assert server_module._evaluator is baseline_workspace.evaluator
             mock_register.assert_awaited_once()
+
+    def test_on_initialized_uses_configured_workspace_root_and_roots_file(
+        self, tmp_path: Path
+    ) -> None:
+        baseline_workspace = MagicMock()
+        baseline_workspace.evaluator = MagicMock()
+        (tmp_path / "mlody").mkdir()
+        workspace_root = tmp_path / "sandboxes" / "exp1"
+        roots_file = tmp_path / "mlody" / "custom-roots.mlody"
+
+        with (
+            patch.object(server_module, "_evaluator", None),
+            patch.object(server_module, "_eval_error", None),
+            patch.object(server_module, "_monorepo_root", None),
+            patch.object(server_module, "_workspace_root", None),
+            patch.object(server_module, "_roots_file", None),
+            patch.object(server_module, "_full_workspace", False),
+            patch.object(server_module, "_configured_monorepo_root", None),
+            patch.object(server_module, "_configured_workspace_root", None),
+            patch.object(server_module, "_configured_roots_file", None),
+            patch.object(server_module, "_configured_full_workspace", False),
+            patch.object(
+                server_module.server.protocol,
+                "_workspace",
+                MagicMock(root_uri=workspace_root.as_uri()),
+            ),
+            patch.object(logging.getLogger(), "addHandler"),
+            patch(
+                "mlody.lsp.server.get_or_build_baseline_workspace",
+                return_value=baseline_workspace,
+            ) as mock_get_baseline,
+            patch.object(
+                server_module.server,
+                "client_register_capability_async",
+                AsyncMock(),
+            ),
+        ):
+            configure_runtime_roots(
+                monorepo_root=tmp_path,
+                workspace_root=workspace_root,
+                roots_file=roots_file,
+                full_workspace=True,
+            )
+            asyncio.run(server_module.on_initialized(types.InitializedParams()))
+            assert server_module._monorepo_root == tmp_path
+            assert server_module._workspace_root == workspace_root
+
+        mock_get_baseline.assert_called_once_with(
+            mode="cwd",
+            monorepo_root=tmp_path,
+            workspace_root=workspace_root,
+            roots_file=roots_file,
+            full_workspace=True,
+            print_fn=_noop_print,
+            console=server_module._null_console,
+            extra_roots={"workspace": "sandboxes/exp1"},
+            lazy_roots={"mlody": "mlody"},
+        )
 
     def test_on_changed_watched_files_reloads_workspace(
         self, tmp_path: Path
@@ -99,6 +163,9 @@ class TestOnChangedWatchedFiles:
 
         with (
             patch.object(server_module, "_monorepo_root", tmp_path),
+            patch.object(server_module, "_workspace_root", None),
+            patch.object(server_module, "_roots_file", None),
+            patch.object(server_module, "_full_workspace", False),
             patch.object(server_module, "_evaluator", None),
             patch(
                 "mlody.lsp.server.reload_baseline_workspace",
@@ -110,10 +177,51 @@ class TestOnChangedWatchedFiles:
             mock_reload.assert_called_once_with(
                 mode="cwd",
                 monorepo_root=tmp_path,
+                workspace_root=tmp_path,
+                roots_file=None,
+                full_workspace=False,
                 print_fn=_noop_print,
                 console=server_module._null_console,
+                extra_roots=None,
+                lazy_roots=None,
             )
             assert server_module._evaluator is mock_evaluator
+
+    def test_on_changed_watched_files_reloads_with_workspace_override(
+        self, tmp_path: Path
+    ) -> None:
+        mock_evaluator = MagicMock()
+        baseline_workspace = MagicMock()
+        baseline_workspace.evaluator = mock_evaluator
+        (tmp_path / "mlody").mkdir()
+        workspace_root = tmp_path / "sandboxes" / "exp1"
+        roots_file = tmp_path / "mlody" / "custom-roots.mlody"
+
+        with (
+            patch.object(server_module, "_monorepo_root", tmp_path),
+            patch.object(server_module, "_workspace_root", workspace_root),
+            patch.object(server_module, "_roots_file", roots_file),
+            patch.object(server_module, "_full_workspace", True),
+            patch.object(server_module, "_evaluator", None),
+            patch(
+                "mlody.lsp.server.reload_baseline_workspace",
+                return_value=baseline_workspace,
+            ) as mock_reload,
+        ):
+            on_changed_watched_files(_make_params("file:///mlody/foo.mlody"))
+            assert server_module._evaluator is mock_evaluator
+
+        mock_reload.assert_called_once_with(
+            mode="cwd",
+            monorepo_root=tmp_path,
+            workspace_root=workspace_root,
+            roots_file=roots_file,
+            full_workspace=True,
+            print_fn=_noop_print,
+            console=server_module._null_console,
+            extra_roots={"workspace": "sandboxes/exp1"},
+            lazy_roots={"mlody": "mlody"},
+        )
 
     def test_on_changed_watched_files_sets_evaluator_none_on_load_failure(
         self, tmp_path: Path
@@ -144,6 +252,9 @@ class TestOnChangedWatchedFiles:
         with (
             caplog.at_level(logging.INFO, logger="mlody.lsp.server"),
             patch.object(server_module, "_monorepo_root", tmp_path),
+            patch.object(server_module, "_workspace_root", None),
+            patch.object(server_module, "_roots_file", None),
+            patch.object(server_module, "_full_workspace", False),
             patch(
                 "mlody.lsp.server.reload_baseline_workspace",
                 return_value=baseline_workspace,
@@ -159,8 +270,13 @@ class TestOnChangedWatchedFiles:
         mock_reload.assert_called_once_with(
             mode="cwd",
             monorepo_root=tmp_path,
+            workspace_root=tmp_path,
+            roots_file=None,
+            full_workspace=False,
             print_fn=_noop_print,
             console=server_module._null_console,
+            extra_roots=None,
+            lazy_roots=None,
         )
         assert "reloaded" in caplog.text
         assert "2" in caplog.text

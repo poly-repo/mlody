@@ -19,7 +19,11 @@ from mlody.lsp.definition import _resolve_load_path, get_definition
 from mlody.lsp.diagnostics import get_eval_diagnostics, get_parse_diagnostics
 from mlody.lsp.log_handler import LSPLogHandler
 from mlody.lsp.parser import CACHE, apply_incremental_changes, find_ancestor, node_at_position
-from mlody.resolver.resolver import get_or_build_baseline_workspace, reload_baseline_workspace
+from mlody.resolver.resolver import (
+    _workspace_injections,
+    get_or_build_baseline_workspace,
+    reload_baseline_workspace,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -191,11 +195,76 @@ _null_console = Console(file=io.StringIO())
 # None indicates that the workspace failed to load; handlers degrade gracefully.
 _evaluator: Evaluator | None = None
 _monorepo_root: Path = Path.cwd()  # overwritten on INITIALIZED
+_workspace_root: Path | None = None
+_roots_file: Path | None = None
+_full_workspace: bool = False
 
 # Last exception raised by Workspace.load(); None after a successful load.
 # Stored here so didOpen/didChange can surface workspace errors per-document
 # without re-running the evaluator on every keystroke (D2 in design.md).
 _eval_error: Exception | None = None
+
+# Optional overrides for the TCP-served LSP mode launched from mlody/cli --server.
+# When unset, the LSP keeps its legacy behavior of deriving roots from the client's
+# initialize.root_uri. When set, the CLI-selected roots win over the client URI.
+_configured_monorepo_root: Path | None = None
+_configured_workspace_root: Path | None = None
+_configured_roots_file: Path | None = None
+_configured_full_workspace: bool = False
+
+
+def configure_runtime_roots(
+    *,
+    monorepo_root: Path,
+    workspace_root: Path | None = None,
+    roots_file: Path | None = None,
+    full_workspace: bool = False,
+) -> None:
+    """Override the workspace roots used by the TCP-served LSP process."""
+    global _configured_monorepo_root, _configured_workspace_root  # noqa: PLW0603
+    global _configured_roots_file, _configured_full_workspace  # noqa: PLW0603
+
+    _configured_monorepo_root = monorepo_root
+    _configured_workspace_root = workspace_root
+    _configured_roots_file = roots_file
+    _configured_full_workspace = full_workspace
+
+
+def _resolved_workspace_roots(
+    initialized_root: Path | None,
+) -> tuple[Path, Path, Path | None, bool]:
+    """Return effective monorepo/workspace roots for LSP workspace loading."""
+    configured_monorepo_root = _configured_monorepo_root
+    if configured_monorepo_root is not None:
+        monorepo_root = configured_monorepo_root
+        workspace_root = _configured_workspace_root or configured_monorepo_root
+        return (
+            monorepo_root,
+            workspace_root,
+            _configured_roots_file,
+            _configured_full_workspace,
+        )
+
+    if initialized_root is None:
+        raise RuntimeError("LSP initialize request did not provide a root URI.")
+
+    return (initialized_root, initialized_root, None, False)
+
+
+def _baseline_workspace_kwargs(monorepo_root: Path, workspace_root: Path) -> dict[str, object]:
+    """Return shared kwargs for baseline workspace load/reload."""
+    extra_roots, lazy_roots = _workspace_injections(monorepo_root, workspace_root)
+    return {
+        "mode": "cwd",
+        "monorepo_root": monorepo_root,
+        "workspace_root": workspace_root,
+        "roots_file": _roots_file,
+        "full_workspace": _full_workspace,
+        "print_fn": _noop_print,
+        "console": _null_console,
+        "extra_roots": extra_roots,
+        "lazy_roots": lazy_roots,
+    }
 
 
 @server.feature(types.INITIALIZED)
@@ -210,18 +279,14 @@ async def on_initialized(params: types.InitializedParams) -> None:
     After a successful load, dynamically registers a workspace/didChangeWatchedFiles
     watcher for **/*.mlody so the client notifies us when files change on disk.
     """
-    global _evaluator, _monorepo_root, _eval_error  # noqa: PLW0603
+    global _evaluator, _monorepo_root, _workspace_root, _roots_file, _full_workspace, _eval_error  # noqa: PLW0603
 
     root_uri = server.workspace.root_uri
-    if root_uri is None:
-        return
-
-    raw = to_fs_path(root_uri)
-    if raw is None:
-        return
-
-    monorepo_root = Path(raw)
-    _monorepo_root = monorepo_root
+    initialized_root: Path | None = None
+    if root_uri is not None:
+        raw = to_fs_path(root_uri)
+        if raw is not None:
+            initialized_root = Path(raw)
 
     # Attach the LSP log handler before loading the workspace so that any
     # log records emitted during load are forwarded to the editor's LSP log.
@@ -230,11 +295,16 @@ async def on_initialized(params: types.InitializedParams) -> None:
     logging.getLogger().addHandler(LSPLogHandler(server))
 
     try:
+        monorepo_root, workspace_root, roots_file, full_workspace = _resolved_workspace_roots(
+            initialized_root
+        )
+        _monorepo_root = monorepo_root
+        _workspace_root = workspace_root
+        _roots_file = roots_file
+        _full_workspace = full_workspace
+
         workspace = get_or_build_baseline_workspace(
-            mode="cwd",
-            monorepo_root=monorepo_root,
-            print_fn=_noop_print,
-            console=_null_console,
+            **_baseline_workspace_kwargs(monorepo_root, workspace_root)
         )
         _evaluator = workspace.evaluator
         _eval_error = None
@@ -281,11 +351,9 @@ def on_changed_watched_files(params: types.DidChangeWatchedFilesParams) -> None:
     global _evaluator, _eval_error  # noqa: PLW0603
 
     try:
+        workspace_root = _workspace_root or _monorepo_root
         workspace = reload_baseline_workspace(
-            mode="cwd",
-            monorepo_root=_monorepo_root,
-            print_fn=_noop_print,
-            console=_null_console,
+            **_baseline_workspace_kwargs(_monorepo_root, workspace_root)
         )
         _evaluator = workspace.evaluator
         _eval_error = None

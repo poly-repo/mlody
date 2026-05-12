@@ -570,16 +570,22 @@ def create_http_server(
     )
 
 
-def _run_lsp_tcp_server(host: str, port: int) -> None:
-    from mlody.lsp.server import server as lsp_server
+def _run_lsp_tcp_server(config: ServerConfig) -> None:
+    from mlody.lsp.server import configure_runtime_roots, server as lsp_server
 
-    lsp_server.start_tcp(host, port)
+    configure_runtime_roots(
+        monorepo_root=config.monorepo_root,
+        workspace_root=config.workspace_root,
+        roots_file=config.roots,
+        full_workspace=config.full_workspace,
+    )
+    lsp_server.start_tcp(config.lsp_host, config.lsp_port)
 
 
 def _start_lsp_thread(
     config: ServerConfig,
     *,
-    lsp_runner: Callable[[str, int], None] = _run_lsp_tcp_server,
+    lsp_runner: Callable[[ServerConfig], None] = _run_lsp_tcp_server,
 ) -> threading.Thread:
     def _target() -> None:
         _logger.info(
@@ -587,7 +593,7 @@ def _start_lsp_thread(
             config.lsp_host,
             config.lsp_port,
         )
-        lsp_runner(config.lsp_host, config.lsp_port)
+        lsp_runner(config)
 
     thread = threading.Thread(target=_target, name="mlody-lsp", daemon=True)
     thread.start()
@@ -598,7 +604,7 @@ def run_server(
     config: ServerConfig,
     *,
     event_source: CommandEventSource = iter_command_events,
-    lsp_runner: Callable[[str, int], None] = _run_lsp_tcp_server,
+    lsp_runner: Callable[[ServerConfig], None] = _run_lsp_tcp_server,
 ) -> None:
     """Run the persistent HTTP+LSP server until interrupted."""
 
