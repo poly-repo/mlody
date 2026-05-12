@@ -1,4 +1,4 @@
-import CodeMirror from "@uiw/react-codemirror";
+import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import {
   cursorCharLeft,
   cursorCharRight,
@@ -230,6 +230,14 @@ function CodeMirrorCommandInput({
   onPromoteSegments,
   onPopLocationSegment,
 }: CommandInputEditorProps) {
+  const editorRef = useRef<ReactCodeMirrorRef>(null);
+
+  useEffect(() => {
+    if (!disabled) {
+      editorRef.current?.view?.focus();
+    }
+  }, [disabled]);
+
   function handleChange(nextValue: string) {
     if (!shouldAttemptBulkPromotion(value, nextValue)) {
       onChange(nextValue);
@@ -248,12 +256,19 @@ function CodeMirrorCommandInput({
 
   return (
     <CodeMirror
+      ref={editorRef}
       className="CommandInputEditor"
       value={value}
+      autoFocus={!disabled}
       basicSetup={false}
       editable={!disabled}
       readOnly={disabled}
       placeholder={placeholder}
+      onCreateEditor={(view) => {
+        if (!disabled) {
+          view.focus();
+        }
+      }}
       onChange={handleChange}
       extensions={[
         EditorView.lineWrapping,
@@ -455,6 +470,12 @@ function TextareaCommandInput({
     }
   }, [value]);
 
+  useEffect(() => {
+    if (!disabled) {
+      textareaRef.current?.focus();
+    }
+  }, [disabled]);
+
   function handleChange(nextValue: string) {
     if (!shouldAttemptBulkPromotion(value, nextValue)) {
       onChange(nextValue);
@@ -575,6 +596,7 @@ function TextareaCommandInput({
         }
       }}
       disabled={disabled}
+      autoFocus={!disabled}
       aria-label="Command input"
       placeholder={placeholder}
       spellCheck={false}

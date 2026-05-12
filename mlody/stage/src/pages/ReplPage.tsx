@@ -131,11 +131,33 @@ function buildServerConnectedAdmonition(
   };
 }
 
+function normalizePath(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function getWorkspaceTopdir(workspace: WorkspaceSummary | null): string {
+  if (!workspace) {
+    return INITIAL_TOPDIR;
+  }
+
+  const monorepoRoot = normalizePath(workspace.monorepoRoot);
+  const workspaceRoot = normalizePath(workspace.workspaceRoot);
+
+  if (workspaceRoot === monorepoRoot) {
+    return "/";
+  }
+
+  if (workspaceRoot.startsWith(`${monorepoRoot}/`)) {
+    return workspaceRoot.slice(monorepoRoot.length + 1);
+  }
+
+  return workspace.workspaceRoot;
+}
+
 export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
   const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
   const [currentCommand, setCurrentCommand] = useState("show");
   const [location] = useState<LocationCrumb[]>(INITIAL_LOCATION);
-  const [topdir] = useState(INITIAL_TOPDIR);
   const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(null);
   const [availableUsers, setAvailableUsers] = useState<WorkspaceUser[]>([]);
   const [currentUserName] = useState(DEFAULT_CURRENT_USER);
@@ -197,6 +219,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     availableUsers.find((user) => user.name === currentUserName) ?? null;
   const currentUser = toUserSummary(currentWorkspaceUser);
   const showLocation = LOCATION_COMMANDS.has(currentCommand);
+  const topdir = getWorkspaceTopdir(workspace);
 
   const handleSubmit = ({ command, input }: CommandSubmission) => {
     const combinedCommand = [command, input].filter(Boolean).join(" ").trim();

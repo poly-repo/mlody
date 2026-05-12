@@ -733,6 +733,7 @@ textarea {
   grid-template-columns: minmax(200px, 250px) minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
+  overflow: visible;
   padding: 10px 14px;
   border-bottom: 1px solid rgba(120, 138, 174, 0.18);
   background:
@@ -1108,21 +1109,36 @@ textarea {
 .CommandToolbar-userCard {
   position: relative;
   display: inline-flex;
+  width: 44px;
+  height: 44px;
   align-items: center;
   justify-content: center;
+  overflow: visible;
   outline: none;
   border-radius: 999px;
   transition: transform 120ms ease;
 }
 
-.CommandToolbar-avatar {
+.CommandToolbar-avatar.UiAvatar--lg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: 54px;
+  height: 54px;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
   border: 2px solid rgba(77, 103, 217, 0.16);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.78);
 }
 
+.CommandToolbar-avatar.UiAvatar--lg .UiAvatarFallback {
+  font-size: 0.96rem;
+}
+
 .CommandToolbar-badgeIcon {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 .CommandToolbar-userPopup {
