@@ -13,6 +13,7 @@ import type {
   CommandSubmission,
   Executor,
   ExecutionRecord,
+  ServerHealthStatus,
   ServerStatus,
   SystemAdmonition,
   UserSummary,
@@ -55,6 +56,7 @@ const BREADCRUMBS: BreadcrumbSegment[] = [
 ];
 
 const DEFAULT_CURRENT_USER = "mav";
+const LOCATION_COMMANDS = new Set(["show"]);
 
 const FALLBACK_USER: UserSummary = {
   name: DEFAULT_CURRENT_USER,
@@ -113,6 +115,27 @@ function toUserSummary(user: WorkspaceUser | null): UserSummary {
   };
 }
 
+function formatServerEndpoint(protocol: string, endpoint: ServerHealthStatus["http"]) {
+  return `${protocol}://${endpoint.host}:${endpoint.port}`;
+}
+
+function buildServerConnectedAdmonition(
+  health: ServerHealthStatus,
+): SystemAdmonition {
+  const restEndpoint = formatServerEndpoint("http", health.http);
+  const lspTransport = health.lsp.transport ?? "tcp";
+  const lspEndpoint = formatServerEndpoint(lspTransport, health.lsp);
+
+  return {
+    id: "server-connected",
+    tone: "gray",
+    title: "mlody server connected",
+    message:
+      `Everything is good. REST ${restEndpoint} · ` +
+      `LSP ${lspEndpoint}.`,
+  };
+}
+
 export function ReplPage({ executor = stubExecutor }: ReplPageProps) {
   const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
   const [currentCommand, setCurrentCommand] = useState("show");
@@ -140,9 +163,7 @@ export function ReplPage({ executor = stubExecutor }: ReplPageProps) {
         setWorkspace(payload.workspace);
         setAvailableUsers(payload.users);
         setServerStatus("connected");
-        setAdmonitions((prev) =>
-          prev.filter((admonition) => admonition.id !== "server-connecting"),
-        );
+        setAdmonitions([buildServerConnectedAdmonition(payload.health)]);
       })
       .catch((error: unknown) => {
         if (!active) return;
@@ -178,6 +199,7 @@ export function ReplPage({ executor = stubExecutor }: ReplPageProps) {
   const currentWorkspaceUser =
     availableUsers.find((user) => user.name === currentUserName) ?? null;
   const currentUser = toUserSummary(currentWorkspaceUser);
+  const showLocation = LOCATION_COMMANDS.has(currentCommand);
 
   const handleSubmit = ({ command, input }: CommandSubmission) => {
     const combinedCommand = [command, input].filter(Boolean).join(" ").trim();
@@ -237,6 +259,8 @@ export function ReplPage({ executor = stubExecutor }: ReplPageProps) {
         commandOptions={COMMAND_OPTIONS}
         currentCommand={currentCommand}
         breadcrumbs={BREADCRUMBS}
+        workspace={workspace}
+        showLocation={showLocation}
         currentUser={currentUser}
         onCommandChange={setCurrentCommand}
         onSubmit={handleSubmit}

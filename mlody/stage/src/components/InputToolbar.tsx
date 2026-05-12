@@ -1,24 +1,17 @@
-import { House, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import type {
   BreadcrumbSegment,
   CommandOption,
   UserSummary,
+  WorkspaceSummary,
 } from "../types.js";
+import { LocationControl } from "./LocationControl.js";
 import {
   Avatar,
   AvatarBadge,
   AvatarFallback,
   AvatarImage,
 } from "./ui/avatar.js";
-import {
-  Breadcrumb,
-  BreadcrumbEllipsis,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "./ui/breadcrumb.js";
 import {
   Select,
   SelectContent,
@@ -31,46 +24,21 @@ interface InputToolbarProps {
   commandOptions: CommandOption[];
   currentCommand: string;
   breadcrumbs: BreadcrumbSegment[];
+  workspace: WorkspaceSummary | null;
+  showLocation: boolean;
   currentUser: UserSummary;
   onCommandChange: (command: string) => void;
-}
-
-function buildCompactBreadcrumbs(segments: BreadcrumbSegment[]) {
-  if (segments.length <= 4) {
-    return segments.map((segment, index) => ({
-      ...segment,
-      key: `${segment.label}-${index}`,
-      kind: "segment" as const,
-    }));
-  }
-
-  const tail = segments.slice(-2);
-  return [
-    {
-      ...segments[0],
-      key: `${segments[0]?.label ?? "root"}-0`,
-      kind: "segment" as const,
-    },
-    {
-      key: "ellipsis",
-      kind: "ellipsis" as const,
-    },
-    ...tail.map((segment, index) => ({
-      ...segment,
-      key: `${segment.label}-${segments.length - tail.length + index}`,
-      kind: "segment" as const,
-    })),
-  ];
 }
 
 export function InputToolbar({
   commandOptions,
   currentCommand,
   breadcrumbs,
+  workspace,
+  showLocation,
   currentUser,
   onCommandChange,
 }: InputToolbarProps) {
-  const compactBreadcrumbs = buildCompactBreadcrumbs(breadcrumbs);
   const currentCommandOption =
     commandOptions.find((option) => option.value === currentCommand) ?? null;
 
@@ -111,46 +79,9 @@ export function InputToolbar({
       </div>
 
       <div className="CommandToolbar-path">
-        <Breadcrumb>
-          <BreadcrumbList className="CommandToolbar-breadcrumbs">
-            <BreadcrumbItem>
-              <BreadcrumbLink
-                href="#workspace-root"
-                className="CommandToolbar-home"
-              >
-                <House className="CommandToolbar-homeIcon" />
-                <span className="sr-only">Workspace root</span>
-              </BreadcrumbLink>
-              {compactBreadcrumbs.length > 0 && <BreadcrumbSeparator />}
-            </BreadcrumbItem>
-            {compactBreadcrumbs.map((segment, index) => (
-              <BreadcrumbItem key={segment.key}>
-                {segment.kind === "ellipsis" ? (
-                  <>
-                    <BreadcrumbEllipsis className="CommandToolbar-ellipsis" />
-                    {index < compactBreadcrumbs.length - 1 && <BreadcrumbSeparator />}
-                  </>
-                ) : (
-                  <>
-                    {index === compactBreadcrumbs.length - 1 ? (
-                      <BreadcrumbPage className="CommandToolbar-current">
-                        {segment.label}
-                      </BreadcrumbPage>
-                    ) : (
-                      <BreadcrumbLink
-                        href={segment.href ?? "#"}
-                        className="CommandToolbar-link"
-                      >
-                        {segment.label}
-                      </BreadcrumbLink>
-                    )}
-                    {index < compactBreadcrumbs.length - 1 && <BreadcrumbSeparator />}
-                  </>
-                )}
-              </BreadcrumbItem>
-            ))}
-          </BreadcrumbList>
-        </Breadcrumb>
+        {showLocation ? (
+          <LocationControl breadcrumbs={breadcrumbs} workspace={workspace} />
+        ) : null}
       </div>
 
       <div className="CommandToolbar-user">

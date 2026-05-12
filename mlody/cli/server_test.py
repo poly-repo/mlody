@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.request import Request, urlopen
@@ -11,6 +12,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from mlody.cli.server import (
+    MlodyApiRequestHandler,
     ServerConfig,
     collect_command_response,
     create_http_server,
@@ -257,6 +259,36 @@ class TestHttpApi:
             http_server.shutdown()
             http_server.server_close()
             server_thread.join(timeout=5)
+
+
+class _BrokenPipeWriter:
+    def write(self, _data: bytes) -> int:
+        raise BrokenPipeError("client disconnected")
+
+    def flush(self) -> None:
+        raise BrokenPipeError("client disconnected")
+
+
+class TestResponseWriters:
+    def test_write_json_response_ignores_client_disconnect(self) -> None:
+        handler = MlodyApiRequestHandler.__new__(MlodyApiRequestHandler)
+        handler.send_response = lambda *args, **kwargs: None
+        handler._send_common_headers = lambda: None
+        handler.send_header = lambda *args, **kwargs: None
+        handler.end_headers = lambda: None
+        handler.wfile = _BrokenPipeWriter()
+
+        handler._write_json_response(HTTPStatus.OK, {"status": "ok"})
+
+    def test_write_ndjson_response_ignores_client_disconnect(self) -> None:
+        handler = MlodyApiRequestHandler.__new__(MlodyApiRequestHandler)
+        handler.send_response = lambda *args, **kwargs: None
+        handler._send_common_headers = lambda: None
+        handler.send_header = lambda *args, **kwargs: None
+        handler.end_headers = lambda: None
+        handler.wfile = _BrokenPipeWriter()
+
+        handler._write_ndjson_response(iter([{"event": "chunk"}]))
 
     def test_workspace_endpoint_returns_loaded_workspace_info(
         self,

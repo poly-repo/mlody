@@ -51,6 +51,11 @@ _logger = logging.getLogger(__name__)
 
 _JSON_MIME = "application/json; charset=utf-8"
 _NDJSON_MIME = "application/x-ndjson; charset=utf-8"
+_CLIENT_DISCONNECT_ERRORS = (
+    BrokenPipeError,
+    ConnectionAbortedError,
+    ConnectionResetError,
+)
 
 
 @dataclass(frozen=True)
@@ -668,23 +673,29 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
         payload: object,
     ) -> None:
         body = _compact_json(payload)
-        self.send_response(status)
-        self._send_common_headers()
-        self.send_header("Content-Type", _JSON_MIME)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-        self.wfile.flush()
+        try:
+            self.send_response(status)
+            self._send_common_headers()
+            self.send_header("Content-Type", _JSON_MIME)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            self.wfile.flush()
+        except _CLIENT_DISCONNECT_ERRORS:
+            _logger.debug("Client disconnected before JSON response completed.")
 
     def _write_ndjson_response(self, events: Iterator[CommandEvent]) -> None:
-        self.send_response(HTTPStatus.OK)
-        self._send_common_headers()
-        self.send_header("Content-Type", _NDJSON_MIME)
-        self.end_headers()
-        for event in events:
-            self.wfile.write(_compact_json(event))
-            self.wfile.write(b"\n")
-            self.wfile.flush()
+        try:
+            self.send_response(HTTPStatus.OK)
+            self._send_common_headers()
+            self.send_header("Content-Type", _NDJSON_MIME)
+            self.end_headers()
+            for event in events:
+                self.wfile.write(_compact_json(event))
+                self.wfile.write(b"\n")
+                self.wfile.flush()
+        except _CLIENT_DISCONNECT_ERRORS:
+            _logger.debug("Client disconnected before NDJSON response completed.")
 
 
 def create_http_server(

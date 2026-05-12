@@ -283,8 +283,8 @@ textarea {
   align-items: flex-start;
   gap: 14px;
   overflow: hidden;
-  border: 1px solid var(--stage-admonition-gray-border);
-  border-radius: 22px;
+  border: 2px solid var(--stage-admonition-gray-border);
+  border-radius: 4px;
   background: var(--stage-admonition-gray-bg);
   box-shadow: var(--stage-card-shadow);
   padding: 16px 18px;
@@ -312,7 +312,7 @@ textarea {
   width: 12px;
   min-height: 100%;
   align-self: stretch;
-  border-radius: 999px;
+  border-radius: 2px;
   background: var(--stage-admonition-gray-accent);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.38),
@@ -510,6 +510,10 @@ textarea {
   align-items: center;
 }
 
+.CommandToolbar-path {
+  justify-content: center;
+}
+
 .CommandToolbar-commandControl {
   position: relative;
 }
@@ -578,49 +582,231 @@ textarea {
   font-weight: 700;
 }
 
-.CommandToolbar-breadcrumbs {
+.LocationControl {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  outline: none;
+}
+
+.LocationControl-shell {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(120, 138, 174, 0.24);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 252, 0.86)),
+    radial-gradient(circle at top left, rgba(77, 103, 217, 0.12), transparent 46%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 6px 16px rgba(66, 78, 109, 0.08);
+  padding: 6px 10px 6px 8px;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease;
+}
+
+.LocationControl:hover .LocationControl-shell,
+.LocationControl:focus-visible .LocationControl-shell,
+.LocationControl:focus-within .LocationControl-shell {
+  transform: translateY(-1px);
+  border-color: rgba(77, 103, 217, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 10px 22px rgba(66, 78, 109, 0.12);
+}
+
+.LocationControl-breadcrumbs {
+  display: flex;
+  flex: 1;
   min-width: 0;
   row-gap: 4px;
 }
 
-.CommandToolbar-home,
-.CommandToolbar-link,
-.CommandToolbar-current {
+.LocationControl-link,
+.LocationControl-current {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
   background: rgba(77, 103, 217, 0.08);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
-.CommandToolbar-home,
-.CommandToolbar-link {
+.LocationControl-link {
   color: rgba(77, 103, 217, 0.92);
 }
 
-.CommandToolbar-home:hover,
-.CommandToolbar-link:hover {
+.LocationControl-link:hover {
   background: rgba(77, 103, 217, 0.14);
 }
 
-.CommandToolbar-current {
+.LocationControl-current {
   color: var(--stage-primary);
   font-family: var(--font-mono);
   font-weight: 700;
 }
 
-.CommandToolbar-homeIcon {
-  width: 14px;
-  height: 14px;
-}
-
-.CommandToolbar-ellipsis {
+.LocationControl-ellipsis {
   width: 24px;
   height: 24px;
   border-radius: 999px;
   background: rgba(77, 103, 217, 0.06);
+}
+
+.LocationControl-stateBadge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(77, 103, 217, 0.16);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(77, 103, 217, 0.14), rgba(77, 103, 217, 0.08)),
+    rgba(40, 50, 73, 0.08);
+  color: var(--stage-ink);
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.LocationControl-stateIcon {
+  width: 13px;
+  height: 13px;
+  color: var(--stage-primary);
+}
+
+.LocationControl-popup {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 10px);
+  z-index: 20;
+  display: flex;
+  width: min(30rem, calc(100vw - 3rem));
+  min-width: 20rem;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid rgba(120, 138, 174, 0.22);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 251, 254, 0.94)),
+    radial-gradient(circle at top right, rgba(77, 103, 217, 0.08), transparent 42%);
+  box-shadow: 0 14px 30px rgba(49, 60, 90, 0.14);
+  padding: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(4px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  backdrop-filter: blur(18px);
+}
+
+.LocationControl:hover .LocationControl-popup,
+.LocationControl:focus-visible .LocationControl-popup,
+.LocationControl:focus-within .LocationControl-popup {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.LocationControl-popupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.LocationControl-popupEyebrow {
+  color: var(--stage-ink-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.LocationControl-popupState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: rgba(77, 103, 217, 0.1);
+  color: var(--stage-primary);
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.LocationControl-meta {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.LocationControl-metaRow {
+  display: grid;
+  grid-template-columns: 6.25rem minmax(0, 1fr);
+  gap: 10px;
+}
+
+.LocationControl-metaRow dt {
+  color: var(--stage-ink-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.LocationControl-metaRow dd {
+  margin: 0;
+  color: var(--stage-ink);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.LocationControl-roots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.LocationControl-rootChip {
+  display: inline-flex;
+  max-width: 100%;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid rgba(120, 138, 174, 0.18);
+  border-radius: 14px;
+  background: rgba(77, 103, 217, 0.05);
+  padding: 8px 10px;
+}
+
+.LocationControl-rootName {
+  color: var(--stage-primary);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.LocationControl-rootDescription {
+  color: var(--stage-ink-soft);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.LocationControl-unavailable {
+  margin: 0;
+  color: var(--stage-ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.6;
 }
 
 .CommandToolbar-userCard {

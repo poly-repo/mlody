@@ -1,16 +1,14 @@
 import type {
+  ServerHealthStatus,
   WorkspaceSummary,
   WorkspaceUser,
 } from "./types.js";
 
 const DEFAULT_SERVER_BASE_URL = "http://127.0.0.1:8765";
-const SERVER_TIMEOUT_MS = 2500;
-
-interface HealthStatus {
-  status: string;
-}
+const SERVER_TIMEOUT_MS = 8000;
 
 export interface StageBootstrapPayload {
+  health: ServerHealthStatus;
   users: WorkspaceUser[];
   workspace: WorkspaceSummary;
 }
@@ -73,7 +71,7 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
 export async function fetchStageBootstrap(
   signal: AbortSignal,
 ): Promise<StageBootstrapPayload> {
-  const health = await fetchJson<HealthStatus>("/healthz", signal);
+  const health = await fetchJson<ServerHealthStatus>("/healthz", signal);
   if (health.status !== "ok") {
     throw new Error("Server health check did not report ok");
   }
@@ -84,6 +82,7 @@ export async function fetchStageBootstrap(
   ]);
 
   return {
+    health,
     users: usersPayload
       .map(normalizeUser)
       .filter((user): user is WorkspaceUser => user !== null),

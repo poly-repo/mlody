@@ -4,6 +4,7 @@ import type {
   CommandOption,
   CommandSubmission,
   UserSummary,
+  WorkspaceSummary,
 } from "../types.js";
 import { InputToolbar } from "./InputToolbar.js";
 
@@ -11,6 +12,8 @@ interface InputBarProps {
   commandOptions: CommandOption[];
   currentCommand: string;
   breadcrumbs: BreadcrumbSegment[];
+  workspace: WorkspaceSummary | null;
+  showLocation: boolean;
   currentUser: UserSummary;
   onCommandChange: (command: string) => void;
   onSubmit: (submission: CommandSubmission) => void;
@@ -21,6 +24,8 @@ export function InputBar({
   commandOptions,
   currentCommand,
   breadcrumbs,
+  workspace,
+  showLocation,
   currentUser,
   onCommandChange,
   onSubmit,
@@ -55,6 +60,8 @@ export function InputBar({
         commandOptions={commandOptions}
         currentCommand={currentCommand}
         breadcrumbs={breadcrumbs}
+        workspace={workspace}
+        showLocation={showLocation}
         currentUser={currentUser}
         onCommandChange={onCommandChange}
       />

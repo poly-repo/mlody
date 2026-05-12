@@ -50,6 +50,18 @@ export interface WorkspaceSummary {
   };
 }
 
+export interface ServerEndpointBinding {
+  host: string;
+  port: number;
+  transport?: string;
+}
+
+export interface ServerHealthStatus {
+  status: string;
+  http: ServerEndpointBinding;
+  lsp: ServerEndpointBinding;
+}
+
 export type ServerStatus = "connecting" | "connected" | "unavailable";
 
 export type SystemAdmonitionTone =
