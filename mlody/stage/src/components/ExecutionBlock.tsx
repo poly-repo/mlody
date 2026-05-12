@@ -63,7 +63,7 @@ function ErrorIcon() {
 
 export function ExecutionBlock({ record }: ExecutionBlockProps) {
   return (
-    <div className="ExecutionBlock">
+    <div className={`ExecutionBlock ExecutionBlock--${record.status}`}>
       <div className="ExecutionBlock-header">
         <span className="ExecutionBlock-timestamp">
           {formatTimestamp(record.submittedAt)}

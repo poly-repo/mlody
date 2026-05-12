@@ -5,6 +5,29 @@ export interface OutputChunk {
   kind: "stdout" | "stderr" | "meta";
 }
 
+export interface BreadcrumbSegment {
+  label: string;
+  href?: string;
+}
+
+export interface CommandOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface UserSummary {
+  name: string;
+  role: string;
+  initials: string;
+  avatarUrl?: string;
+}
+
+export interface CommandSubmission {
+  command: string;
+  input: string;
+}
+
 /** Represents one submitted command and its execution state. */
 export interface ExecutionRecord {
   id: string; // browser-safe unique id

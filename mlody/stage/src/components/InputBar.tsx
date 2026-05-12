@@ -1,11 +1,31 @@
 import { useEffect, useRef, useState } from "react";
+import type {
+  BreadcrumbSegment,
+  CommandOption,
+  CommandSubmission,
+  UserSummary,
+} from "../types.js";
+import { InputToolbar } from "./InputToolbar.js";
 
 interface InputBarProps {
-  onSubmit: (command: string) => void;
+  commandOptions: CommandOption[];
+  currentCommand: string;
+  breadcrumbs: BreadcrumbSegment[];
+  currentUser: UserSummary;
+  onCommandChange: (command: string) => void;
+  onSubmit: (submission: CommandSubmission) => void;
   disabled?: boolean;
 }
 
-export function InputBar({ onSubmit, disabled = false }: InputBarProps) {
+export function InputBar({
+  commandOptions,
+  currentCommand,
+  breadcrumbs,
+  currentUser,
+  onCommandChange,
+  onSubmit,
+  disabled = false,
+}: InputBarProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -20,29 +40,52 @@ export function InputBar({ onSubmit, disabled = false }: InputBarProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      const command = value.trim();
+      const input = value.trim();
 
-      if (command) {
+      if (currentCommand) {
         setValue("");
-        onSubmit(command);
+        onSubmit({ command: currentCommand, input });
       }
     }
   };
 
   return (
-    <div className="InputBar">
-      <textarea
-        ref={textareaRef}
-        className="InputBar-textarea"
-        rows={1}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        disabled={disabled}
-        aria-label="Command input"
-        placeholder="Type a command and press Enter..."
-        spellCheck={false}
+    <div className="CommandShell">
+      <InputToolbar
+        commandOptions={commandOptions}
+        currentCommand={currentCommand}
+        breadcrumbs={breadcrumbs}
+        currentUser={currentUser}
+        onCommandChange={onCommandChange}
       />
+      <div className="CommandShell-entry">
+        <div className="CommandShell-gutter" aria-hidden="true">
+          <span className="CommandShell-prompt">&gt;</span>
+        </div>
+        <textarea
+          ref={textareaRef}
+          className="CommandShell-textarea"
+          rows={1}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
+          aria-label="Command input"
+          placeholder={`Type what to ${currentCommand} and press Enter...`}
+          spellCheck={false}
+        />
+        <div className="CommandShell-shortcuts" aria-hidden="true">
+          <span className="CommandShell-shortcut">
+            <kbd>Enter</kbd>
+            run
+          </span>
+          <span className="CommandShell-shortcut">
+            <kbd>Shift</kbd>
+            <kbd>Enter</kbd>
+            newline
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
