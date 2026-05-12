@@ -27,6 +27,7 @@ import click
 
 from common.python.starlarkish.evaluator.evaluator import _runtime_json_data
 from mlody.cli.show import _describe_mlody_value, _parse_inner, _selected_show_user
+from mlody.core.workspace_models import RootInfo
 from mlody.core.label import parse_label
 from mlody.core.label.label import Label
 from mlody.core.workspace import WorkspaceLoadError, force
@@ -44,6 +45,7 @@ from mlody.resolver import (
     resolve_workspace,
 )
 from mlody.resolver.errors import WorkspaceResolutionError
+from mlody.resolver.resolver import _workspace_injections, get_or_build_baseline_workspace
 
 _logger = logging.getLogger(__name__)
 
@@ -87,6 +89,10 @@ CommandEventSource = Callable[[ServerConfig, ServerCommandRequest], Iterator[Com
 
 def _compact_json(value: object) -> bytes:
     return json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def _noop_print(*_args: object, **_kwargs: object) -> None:
+    """Suppress incidental print output while loading workspace metadata."""
 
 
 def _event(
@@ -270,6 +276,101 @@ def _serialize_mlody_value(value: MlodyValue) -> dict[str, object]:
     return {"kind": "unknown", "payload": fallback_payload, "displayText": display_text}
 
 
+def _current_baseline_workspace(config: ServerConfig) -> object:
+    """Return the loaded baseline workspace for the server's current roots."""
+    extra_roots, lazy_roots = _workspace_injections(
+        config.monorepo_root, config.workspace_root
+    )
+    return get_or_build_baseline_workspace(
+        mode="cwd",
+        monorepo_root=config.monorepo_root,
+        workspace_root=config.workspace_root,
+        roots_file=config.roots,
+        full_workspace=config.full_workspace,
+        print_fn=_noop_print,
+        extra_roots=extra_roots,
+        lazy_roots=lazy_roots,
+        verbose=config.verbose,
+    )
+
+
+def _serialize_registered_users(workspace: object) -> list[dict[str, object]]:
+    evaluator = getattr(workspace, "evaluator", None)
+    registry = getattr(evaluator, "registry", None)
+    users = getattr(registry, "users", None)
+    by_name = getattr(users, "by_name", None)
+    if not isinstance(by_name, Mapping):
+        return []
+
+    payloads: list[dict[str, object]] = []
+    for raw_user in by_name.values():
+        name = getattr(raw_user, "name", None)
+        if not isinstance(name, str):
+            continue
+        payload = _runtime_json_data(raw_user)
+        if isinstance(payload, dict):
+            payloads.append(payload)
+        else:
+            payloads.append({"name": name})
+    payloads.sort(key=lambda item: str(item.get("name", "")))
+    return payloads
+
+
+def _serialize_root_infos(workspace: object) -> list[dict[str, object]]:
+    root_infos = getattr(workspace, "root_infos", {})
+    if not isinstance(root_infos, Mapping):
+        return []
+
+    payloads: list[dict[str, object]] = []
+    for root_name, raw_root_info in root_infos.items():
+        if isinstance(raw_root_info, RootInfo):
+            payloads.append(
+                {
+                    "name": raw_root_info.name,
+                    "path": raw_root_info.path,
+                    "description": raw_root_info.description,
+                }
+            )
+            continue
+
+        payload = _runtime_json_data(raw_root_info)
+        if isinstance(payload, dict):
+            if "name" not in payload and isinstance(root_name, str):
+                payload = {**payload, "name": root_name}
+            payloads.append(payload)
+
+    payloads.sort(key=lambda item: str(item.get("name", "")))
+    return payloads
+
+
+def _serialize_workspace_context(workspace: object) -> dict[str, object]:
+    evaluator = getattr(workspace, "evaluator", None)
+    extra_ctx = getattr(evaluator, "_extra_ctx", None)
+    payload: dict[str, object] = {}
+
+    workspace_ctx = getattr(extra_ctx, "workspace", None)
+    if workspace_ctx is not None:
+        payload["workspace"] = _runtime_json_data(workspace_ctx)
+
+    run_ctx = getattr(extra_ctx, "run", None)
+    if run_ctx is not None:
+        payload["run"] = _runtime_json_data(run_ctx)
+
+    return payload
+
+
+def _workspace_summary_payload(config: ServerConfig, workspace: object) -> dict[str, object]:
+    return {
+        "monorepoRoot": str(config.monorepo_root),
+        "workspaceRoot": str(config.workspace_root),
+        "rootsFile": str(config.roots) if config.roots is not None else None,
+        "fullWorkspace": config.full_workspace,
+        "info": _runtime_json_data(getattr(workspace, "info", None)),
+        "rootInfos": _serialize_root_infos(workspace),
+        "context": _serialize_workspace_context(workspace),
+    }
+
+
 def _execute_show_command(
     config: ServerConfig,
     request: ServerCommandRequest,
@@ -444,35 +545,65 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
-        if path != "/healthz":
+        if path == "/healthz":
             self._write_json_response(
-                HTTPStatus.NOT_FOUND,
-                {"error": f"Unknown endpoint: {path}"},
+                HTTPStatus.OK,
+                {
+                    "status": "ok",
+                    "http": {
+                        "host": self.server.server_address[0],
+                        "port": self.server.server_port,
+                    },
+                    "lsp": {
+                        "host": self.server.server_config.lsp_host,
+                        "port": self.server.server_config.lsp_port,
+                        "transport": "tcp",
+                    },
+                    "workspace": {
+                        "monorepoRoot": str(self.server.server_config.monorepo_root),
+                        "workspaceRoot": str(self.server.server_config.workspace_root),
+                        "roots": str(self.server.server_config.roots)
+                        if self.server.server_config.roots is not None
+                        else None,
+                        "fullWorkspace": self.server.server_config.full_workspace,
+                    },
+                },
             )
             return
 
+        if path == "/api/users":
+            try:
+                workspace = _current_baseline_workspace(self.server.server_config)
+                self._write_json_response(
+                    HTTPStatus.OK,
+                    _serialize_registered_users(workspace),
+                )
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Failed to load users API payload")
+                self._write_json_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": str(exc)},
+                )
+            return
+
+        if path == "/api/workspace":
+            try:
+                workspace = _current_baseline_workspace(self.server.server_config)
+                self._write_json_response(
+                    HTTPStatus.OK,
+                    _workspace_summary_payload(self.server.server_config, workspace),
+                )
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Failed to load workspace API payload")
+                self._write_json_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": str(exc)},
+                )
+            return
+
         self._write_json_response(
-            HTTPStatus.OK,
-            {
-                "status": "ok",
-                "http": {
-                    "host": self.server.server_address[0],
-                    "port": self.server.server_port,
-                },
-                "lsp": {
-                    "host": self.server.server_config.lsp_host,
-                    "port": self.server.server_config.lsp_port,
-                    "transport": "tcp",
-                },
-                "workspace": {
-                    "monorepoRoot": str(self.server.server_config.monorepo_root),
-                    "workspaceRoot": str(self.server.server_config.workspace_root),
-                    "roots": str(self.server.server_config.roots)
-                    if self.server.server_config.roots is not None
-                    else None,
-                    "fullWorkspace": self.server.server_config.full_workspace,
-                },
-            },
+            HTTPStatus.NOT_FOUND,
+            {"error": f"Unknown endpoint: {path}"},
         )
 
     def do_POST(self) -> None:

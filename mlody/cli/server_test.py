@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.request import Request, urlopen
 
 import pytest
@@ -205,6 +206,131 @@ class TestHttpApi:
             assert payload_lines[0]["event"] == "started"
             assert payload_lines[-1]["event"] == "completed"
             assert payload_lines[-1]["status"] == "done"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_users_endpoint_returns_registered_users(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake_workspace = SimpleNamespace(
+            evaluator=SimpleNamespace(
+                registry=SimpleNamespace(
+                    users=SimpleNamespace(
+                        by_name={
+                            "maya": SimpleNamespace(
+                                name="maya",
+                                description="Maya Patel",
+                                groups=["operator", "admin"],
+                            ),
+                            "alex": SimpleNamespace(
+                                name="alex",
+                                description="Alex Rivera",
+                                groups=["viewer"],
+                            ),
+                        }
+                    )
+                )
+            )
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._current_baseline_workspace",
+            lambda _config: fake_workspace,
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{http_server.server_port}/api/users",
+                timeout=5,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                cors_origin = response.headers.get("Access-Control-Allow-Origin")
+
+            assert cors_origin == "*"
+            assert [item["name"] for item in payload] == ["alex", "maya"]
+            assert payload[0]["description"] == "Alex Rivera"
+            assert payload[1]["groups"] == ["operator", "admin"]
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_workspace_endpoint_returns_loaded_workspace_info(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        fake_workspace = SimpleNamespace(
+            info=SimpleNamespace(
+                path=str(tmp_path),
+                branch="main",
+                sha="abc123",
+                roots=["lexica", "workspace"],
+            ),
+            root_infos={
+                "workspace": SimpleNamespace(
+                    name="workspace",
+                    path="//sandboxes/exp1",
+                    description="injected",
+                ),
+                "lexica": SimpleNamespace(
+                    name="lexica",
+                    path="//mlody/teams/lexica",
+                    description="text ML team",
+                ),
+            },
+            evaluator=SimpleNamespace(
+                _extra_ctx=SimpleNamespace(
+                    workspace=SimpleNamespace(
+                        directory=str(tmp_path / "sandboxes" / "exp1"),
+                        user="maya",
+                    ),
+                    run=SimpleNamespace(user="mav"),
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._current_baseline_workspace",
+            lambda _config: fake_workspace,
+        )
+
+        config = _server_config(tmp_path)
+        config = ServerConfig(
+            monorepo_root=config.monorepo_root,
+            workspace_root=tmp_path / "sandboxes" / "exp1",
+            roots=tmp_path / "mlody" / "custom-roots.mlody",
+            verbose=config.verbose,
+            full_workspace=True,
+            http_host=config.http_host,
+            http_port=config.http_port,
+            lsp_host=config.lsp_host,
+            lsp_port=config.lsp_port,
+        )
+        http_server = create_http_server(config)
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{http_server.server_port}/api/workspace",
+                timeout=5,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            assert payload["monorepoRoot"] == str(tmp_path)
+            assert payload["workspaceRoot"] == str(tmp_path / "sandboxes" / "exp1")
+            assert payload["rootsFile"] == str(tmp_path / "mlody" / "custom-roots.mlody")
+            assert payload["fullWorkspace"] is True
+            assert payload["info"]["branch"] == "main"
+            assert [item["name"] for item in payload["rootInfos"]] == [
+                "lexica",
+                "workspace",
+            ]
+            assert payload["context"]["workspace"]["user"] == "maya"
+            assert payload["context"]["run"]["user"] == "mav"
         finally:
             http_server.shutdown()
             http_server.server_close()
