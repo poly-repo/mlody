@@ -1,4 +1,3 @@
-import { Fragment } from "react";
 import { House, Sparkles } from "lucide-react";
 import type {
   BreadcrumbSegment,
@@ -122,16 +121,17 @@ export function InputToolbar({
                 <House className="CommandToolbar-homeIcon" />
                 <span className="sr-only">Workspace root</span>
               </BreadcrumbLink>
+              {compactBreadcrumbs.length > 0 && <BreadcrumbSeparator />}
             </BreadcrumbItem>
-            <BreadcrumbSeparator />
             {compactBreadcrumbs.map((segment, index) => (
-              <Fragment key={segment.key}>
+              <BreadcrumbItem key={segment.key}>
                 {segment.kind === "ellipsis" ? (
-                  <BreadcrumbItem>
+                  <>
                     <BreadcrumbEllipsis className="CommandToolbar-ellipsis" />
-                  </BreadcrumbItem>
+                    {index < compactBreadcrumbs.length - 1 && <BreadcrumbSeparator />}
+                  </>
                 ) : (
-                  <BreadcrumbItem>
+                  <>
                     {index === compactBreadcrumbs.length - 1 ? (
                       <BreadcrumbPage className="CommandToolbar-current">
                         {segment.label}
@@ -144,10 +144,10 @@ export function InputToolbar({
                         {segment.label}
                       </BreadcrumbLink>
                     )}
-                  </BreadcrumbItem>
+                    {index < compactBreadcrumbs.length - 1 && <BreadcrumbSeparator />}
+                  </>
                 )}
-                {index < compactBreadcrumbs.length - 1 && <BreadcrumbSeparator />}
-              </Fragment>
+              </BreadcrumbItem>
             ))}
           </BreadcrumbList>
         </Breadcrumb>

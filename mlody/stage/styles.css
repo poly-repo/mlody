@@ -17,6 +17,31 @@
   --stage-success: #23a55a;
   --stage-error: #cf4a4a;
   --stage-output-line: rgba(243, 246, 251, 0.95);
+  --stage-admonition-red-bg: linear-gradient(180deg, rgba(255, 236, 236, 0.96), rgba(255, 247, 247, 0.9));
+  --stage-admonition-red-border: rgba(207, 74, 74, 0.26);
+  --stage-admonition-red-accent: #c84444;
+  --stage-admonition-red-label: #8f2f2f;
+  --stage-admonition-red-ink: #6f2b2b;
+  --stage-admonition-green-bg: linear-gradient(180deg, rgba(233, 249, 239, 0.96), rgba(247, 253, 249, 0.9));
+  --stage-admonition-green-border: rgba(35, 165, 90, 0.24);
+  --stage-admonition-green-accent: #1f8e4d;
+  --stage-admonition-green-label: #206a40;
+  --stage-admonition-green-ink: #25553a;
+  --stage-admonition-yellow-bg: linear-gradient(180deg, rgba(255, 247, 223, 0.96), rgba(255, 251, 238, 0.9));
+  --stage-admonition-yellow-border: rgba(210, 157, 41, 0.24);
+  --stage-admonition-yellow-accent: #d29d29;
+  --stage-admonition-yellow-label: #8f6612;
+  --stage-admonition-yellow-ink: #705319;
+  --stage-admonition-black-bg: linear-gradient(180deg, rgba(53, 58, 74, 0.96), rgba(65, 70, 87, 0.92));
+  --stage-admonition-black-border: rgba(28, 34, 48, 0.42);
+  --stage-admonition-black-accent: #f0f3ff;
+  --stage-admonition-black-label: rgba(240, 243, 255, 0.82);
+  --stage-admonition-black-ink: rgba(255, 255, 255, 0.96);
+  --stage-admonition-gray-bg: linear-gradient(180deg, rgba(241, 244, 249, 0.96), rgba(249, 251, 254, 0.9));
+  --stage-admonition-gray-border: rgba(107, 121, 148, 0.2);
+  --stage-admonition-gray-accent: #677994;
+  --stage-admonition-gray-label: #56667f;
+  --stage-admonition-gray-ink: #39465d;
   --stage-radius: 24px;
 }
 
@@ -249,6 +274,187 @@ textarea {
 
 .ExecutionBlock-line--meta {
   color: var(--stage-ink-soft);
+}
+
+.SystemAdmonition {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 14px;
+  overflow: hidden;
+  border: 1px solid var(--stage-admonition-gray-border);
+  border-radius: 22px;
+  background: var(--stage-admonition-gray-bg);
+  box-shadow: var(--stage-card-shadow);
+  padding: 16px 18px;
+  backdrop-filter: blur(18px);
+}
+
+.SystemAdmonition::after {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18), transparent 36%),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.32), transparent 36%);
+  content: "";
+  pointer-events: none;
+}
+
+.SystemAdmonition-signal,
+.SystemAdmonition-content {
+  position: relative;
+  z-index: 1;
+}
+
+.SystemAdmonition-signal {
+  display: inline-flex;
+  width: 12px;
+  min-height: 100%;
+  align-self: stretch;
+  border-radius: 999px;
+  background: var(--stage-admonition-gray-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    0 0 0 4px rgba(103, 121, 148, 0.08);
+}
+
+.SystemAdmonition-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.SystemAdmonition-label {
+  color: var(--stage-admonition-gray-label);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.SystemAdmonition-title {
+  color: var(--stage-admonition-gray-ink);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.SystemAdmonition-message {
+  margin: 0;
+  color: var(--stage-admonition-gray-ink);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.SystemAdmonition--red {
+  border-color: var(--stage-admonition-red-border);
+  background: var(--stage-admonition-red-bg);
+}
+
+.SystemAdmonition--red .SystemAdmonition-signal {
+  background: var(--stage-admonition-red-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 0 0 4px rgba(200, 68, 68, 0.1);
+}
+
+.SystemAdmonition--red .SystemAdmonition-label {
+  color: var(--stage-admonition-red-label);
+}
+
+.SystemAdmonition--red .SystemAdmonition-title,
+.SystemAdmonition--red .SystemAdmonition-message {
+  color: var(--stage-admonition-red-ink);
+}
+
+.SystemAdmonition--green {
+  border-color: var(--stage-admonition-green-border);
+  background: var(--stage-admonition-green-bg);
+}
+
+.SystemAdmonition--green .SystemAdmonition-signal {
+  background: var(--stage-admonition-green-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 0 0 4px rgba(31, 142, 77, 0.1);
+}
+
+.SystemAdmonition--green .SystemAdmonition-label {
+  color: var(--stage-admonition-green-label);
+}
+
+.SystemAdmonition--green .SystemAdmonition-title,
+.SystemAdmonition--green .SystemAdmonition-message {
+  color: var(--stage-admonition-green-ink);
+}
+
+.SystemAdmonition--yellow {
+  border-color: var(--stage-admonition-yellow-border);
+  background: var(--stage-admonition-yellow-bg);
+}
+
+.SystemAdmonition--yellow .SystemAdmonition-signal {
+  background: var(--stage-admonition-yellow-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 0 0 4px rgba(210, 157, 41, 0.1);
+}
+
+.SystemAdmonition--yellow .SystemAdmonition-label {
+  color: var(--stage-admonition-yellow-label);
+}
+
+.SystemAdmonition--yellow .SystemAdmonition-title,
+.SystemAdmonition--yellow .SystemAdmonition-message {
+  color: var(--stage-admonition-yellow-ink);
+}
+
+.SystemAdmonition--black {
+  border-color: var(--stage-admonition-black-border);
+  background: var(--stage-admonition-black-bg);
+}
+
+.SystemAdmonition--black::after {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 32%),
+    radial-gradient(circle at top right, rgba(112, 126, 157, 0.2), transparent 40%);
+}
+
+.SystemAdmonition--black .SystemAdmonition-signal {
+  background: var(--stage-admonition-black-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    0 0 0 4px rgba(240, 243, 255, 0.08);
+}
+
+.SystemAdmonition--black .SystemAdmonition-label {
+  color: var(--stage-admonition-black-label);
+}
+
+.SystemAdmonition--black .SystemAdmonition-title,
+.SystemAdmonition--black .SystemAdmonition-message {
+  color: var(--stage-admonition-black-ink);
+}
+
+.SystemAdmonition--gray {
+  border-color: var(--stage-admonition-gray-border);
+  background: var(--stage-admonition-gray-bg);
+}
+
+.SystemAdmonition--gray .SystemAdmonition-signal {
+  background: var(--stage-admonition-gray-accent);
+}
+
+.SystemAdmonition--gray .SystemAdmonition-label {
+  color: var(--stage-admonition-gray-label);
+}
+
+.SystemAdmonition--gray .SystemAdmonition-title,
+.SystemAdmonition--gray .SystemAdmonition-message {
+  color: var(--stage-admonition-gray-ink);
 }
 
 @keyframes spin {

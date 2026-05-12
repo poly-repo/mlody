@@ -23,6 +23,49 @@ export interface UserSummary {
   avatarUrl?: string;
 }
 
+export interface WorkspaceUser {
+  name: string;
+  description?: string;
+  groups?: string[];
+  avatar?: string;
+  avatarUrl?: string;
+}
+
+export interface WorkspaceRootInfo {
+  name: string;
+  path: string;
+  description: string;
+}
+
+export interface WorkspaceSummary {
+  monorepoRoot: string;
+  workspaceRoot: string;
+  rootsFile: string | null;
+  fullWorkspace: boolean;
+  info?: Record<string, unknown> | null;
+  rootInfos: WorkspaceRootInfo[];
+  context?: {
+    workspace?: Record<string, unknown>;
+    run?: Record<string, unknown>;
+  };
+}
+
+export type ServerStatus = "connecting" | "connected" | "unavailable";
+
+export type SystemAdmonitionTone =
+  | "red"
+  | "green"
+  | "yellow"
+  | "black"
+  | "gray";
+
+export interface SystemAdmonition {
+  id: string;
+  tone: SystemAdmonitionTone;
+  title: string;
+  message: string;
+}
+
 export interface CommandSubmission {
   command: string;
   input: string;

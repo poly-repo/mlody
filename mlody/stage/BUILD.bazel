@@ -59,5 +59,6 @@ filegroup(
         "index.html",
         "styles.css",
         ":bundle",
+        "//mlody/assets/images/avatars:avatars",
     ],
 )
