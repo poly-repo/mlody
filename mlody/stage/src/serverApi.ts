@@ -1,8 +1,4 @@
-import type {
-  ServerHealthStatus,
-  WorkspaceSummary,
-  WorkspaceUser,
-} from "./types.js";
+import type { ServerHealthStatus, WorkspaceSummary, WorkspaceUser } from "./types.js";
 
 const DEFAULT_SERVER_BASE_URL = "http://127.0.0.1:8765";
 const SERVER_TIMEOUT_MS = 8000;
@@ -13,7 +9,15 @@ export interface StageBootstrapPayload {
   workspace: WorkspaceSummary;
 }
 
-function resolveServerBaseUrl(): string {
+interface VerbatimExecuteResponse {
+  requestId: string;
+  command: string;
+  status: "done" | "error";
+  exitCode: number;
+  output: string;
+}
+
+export function resolveServerBaseUrl(): string {
   return DEFAULT_SERVER_BASE_URL;
 }
 
@@ -68,6 +72,23 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function postJson<T>(path: string, payload: object): Promise<T> {
+  const response = await fetch(`${resolveServerBaseUrl()}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`${path} failed with status ${response.status}`);
+  }
+
+  return (await response.json()) as T;
+}
+
 export async function fetchStageBootstrap(
   signal: AbortSignal,
 ): Promise<StageBootstrapPayload> {
@@ -97,4 +118,14 @@ export function createServerBootstrapController(): {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), SERVER_TIMEOUT_MS);
   return { controller, timeoutId };
+}
+
+export async function executeVerbatimCommand(
+  command: string,
+  input: string,
+): Promise<VerbatimExecuteResponse> {
+  return await postJson<VerbatimExecuteResponse>("/api/execute/verbatim", {
+    command,
+    input,
+  });
 }

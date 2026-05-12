@@ -628,36 +628,70 @@ textarea {
   row-gap: 4px;
 }
 
-.LocationControl-link,
-.LocationControl-current {
+.LocationControl-segment {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   padding: 4px 10px;
   border-radius: 999px;
   background: rgba(77, 103, 217, 0.08);
   font-size: 0.88rem;
 }
 
-.LocationControl-link {
+.LocationControl-segment--link {
   color: rgba(77, 103, 217, 0.92);
 }
 
-.LocationControl-link:hover {
+.LocationControl-segment--link:hover {
   background: rgba(77, 103, 217, 0.14);
 }
 
-.LocationControl-current {
+.LocationControl-segment--current {
+  background:
+    linear-gradient(180deg, rgba(77, 103, 217, 0.12), rgba(77, 103, 217, 0.06)),
+    rgba(77, 103, 217, 0.08);
   color: var(--stage-primary);
-  font-family: var(--font-mono);
-  font-weight: 700;
 }
 
-.LocationControl-ellipsis {
-  width: 24px;
-  height: 24px;
+.LocationControl-piece {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
-  background: rgba(77, 103, 217, 0.06);
+  padding: 2px 7px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.LocationControl-piece--entity {
+  background: rgba(40, 50, 73, 0.12);
+  color: #2f3f60;
+}
+
+.LocationControl-piece--mlody-folder {
+  background: rgba(77, 103, 217, 0.14);
+  color: #3651c8;
+}
+
+.LocationControl-piece--mlody-source {
+  background: rgba(35, 165, 90, 0.12);
+  color: #1f8b4c;
+}
+
+.LocationControl-piece--wildcard {
+  border: 1px dashed rgba(210, 157, 41, 0.36);
+  background: rgba(255, 247, 223, 0.76);
+  color: #8f6612;
+}
+
+.LocationControl-piece--query {
+  background: rgba(40, 50, 73, 0.08);
+  color: var(--stage-ink-soft);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .LocationControl-stateBadge {

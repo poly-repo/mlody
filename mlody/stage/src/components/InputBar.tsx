@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type {
-  BreadcrumbSegment,
   CommandOption,
   CommandSubmission,
+  LocationCrumb,
   UserSummary,
   WorkspaceSummary,
 } from "../types.js";
@@ -11,7 +11,7 @@ import { InputToolbar } from "./InputToolbar.js";
 interface InputBarProps {
   commandOptions: CommandOption[];
   currentCommand: string;
-  breadcrumbs: BreadcrumbSegment[];
+  location: LocationCrumb[];
   workspace: WorkspaceSummary | null;
   showLocation: boolean;
   currentUser: UserSummary;
@@ -23,7 +23,7 @@ interface InputBarProps {
 export function InputBar({
   commandOptions,
   currentCommand,
-  breadcrumbs,
+  location,
   workspace,
   showLocation,
   currentUser,
@@ -59,7 +59,7 @@ export function InputBar({
       <InputToolbar
         commandOptions={commandOptions}
         currentCommand={currentCommand}
-        breadcrumbs={breadcrumbs}
+        location={location}
         workspace={workspace}
         showLocation={showLocation}
         currentUser={currentUser}

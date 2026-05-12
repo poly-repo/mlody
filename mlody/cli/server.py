@@ -216,6 +216,53 @@ def parse_command_request(payload: object) -> ServerCommandRequest:
     )
 
 
+def parse_verbatim_command_request(payload: object) -> ServerCommandRequest:
+    """Validate a raw command payload without shell-style splitting."""
+
+    if not isinstance(payload, Mapping):
+        raise ServerRequestError("Request body must be a JSON object.")
+
+    command = payload.get("command")
+    if not isinstance(command, str) or not command.strip():
+        raise ServerRequestError("Field 'command' must be a non-empty string.")
+    normalized_command = command.strip()
+    if normalized_command != "show":
+        raise ServerRequestError(f"Unsupported command: {normalized_command}")
+
+    request_id = payload.get("requestId")
+    if request_id is None:
+        normalized_request_id = uuid.uuid4().hex
+    elif isinstance(request_id, str) and request_id.strip():
+        normalized_request_id = request_id.strip()
+    else:
+        raise ServerRequestError("Field 'requestId' must be a non-empty string.")
+
+    input_text = payload.get("input", "")
+    if not isinstance(input_text, str):
+        raise ServerRequestError("Field 'input' must be a string when provided.")
+
+    raw_options = payload.get("options", {})
+    if not isinstance(raw_options, Mapping):
+        raise ServerRequestError("Field 'options' must be a JSON object when provided.")
+
+    options = dict(raw_options)
+    for alias in ("runAs", "run_as", "config", "with"):
+        if alias in payload and alias not in options:
+            options[alias] = payload[alias]
+
+    target_text = input_text.strip()
+    if target_text == "":
+        raise ServerRequestError("Show requests require a target.")
+
+    return ServerCommandRequest(
+        request_id=normalized_request_id,
+        command=normalized_command,
+        arguments=(target_text,),
+        options=options,
+        input_text=input_text,
+    )
+
+
 def _concrete_show_label(committoid: str | None, label_text: str) -> Label:
     if label_text == "":
         return Label(
@@ -517,6 +564,53 @@ def collect_command_response(
     }
 
 
+def execute_verbatim_command_response(
+    config: ServerConfig,
+    request: ServerCommandRequest,
+) -> dict[str, object]:
+    """Run the real Click show command and capture its textual output."""
+
+    if request.command != "show":
+        raise ServerRequestError(f"Unsupported command: {request.command}")
+
+    from click.testing import CliRunner
+    from mlody.cli.main import cli as root_cli
+
+    config_overrides = _read_string_list_option(request.options, "config", "with")
+    run_as = _read_string_option(request.options, "runAs", "run_as", default="mav")
+
+    cli_args: list[str] = []
+    if config.verbose:
+        cli_args.append("--verbose")
+    if config.full_workspace:
+        cli_args.append("--full-workspace")
+    cli_args.extend(["show"])
+    for override in config_overrides:
+        cli_args.extend(["--with", override])
+    cli_args.extend(["--as", run_as])
+    cli_args.extend(list(request.arguments))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        root_cli,
+        cli_args,
+        obj={
+            "monorepo_root": config.monorepo_root,
+            "roots": config.roots,
+        },
+        color=False,
+        catch_exceptions=False,
+    )
+
+    return {
+        "requestId": request.request_id,
+        "command": request.command,
+        "status": "done" if result.exit_code == 0 else "error",
+        "exitCode": result.exit_code,
+        "output": result.output,
+    }
+
+
 class MlodyApiServer(ThreadingHTTPServer):
     """Threaded HTTP server carrying mlody server configuration."""
 
@@ -616,6 +710,29 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
 
         try:
             payload = self._read_json_payload()
+        except ServerRequestError as exc:
+            self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
+
+        if path == "/api/execute/verbatim":
+            try:
+                request = parse_verbatim_command_request(payload)
+                response = execute_verbatim_command_response(
+                    self.server.server_config,
+                    request,
+                )
+                self._write_json_response(HTTPStatus.OK, response)
+            except ServerRequestError as exc:
+                self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Failed to execute verbatim command")
+                self._write_json_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": str(exc)},
+                )
+            return
+
+        try:
             request = parse_command_request(payload)
         except ServerRequestError as exc:
             self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})

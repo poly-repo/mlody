@@ -2,17 +2,17 @@ import { useEffect, useState } from "react";
 import { InputBar } from "../components/InputBar.js";
 import { Layout } from "../components/Layout.js";
 import { OutputPane } from "../components/OutputPane.js";
-import { stubExecutor } from "../executor.js";
+import { serverExecutor } from "../executor.js";
 import {
   createServerBootstrapController,
   fetchStageBootstrap,
 } from "../serverApi.js";
 import type {
-  BreadcrumbSegment,
   CommandOption,
   CommandSubmission,
   Executor,
   ExecutionRecord,
+  LocationCrumb,
   ServerHealthStatus,
   ServerStatus,
   SystemAdmonition,
@@ -47,12 +47,34 @@ const COMMAND_OPTIONS: CommandOption[] = [
   },
 ];
 
-const BREADCRUMBS: BreadcrumbSegment[] = [
-  { label: "projects", href: "#projects" },
-  { label: "omega", href: "#omega" },
-  { label: "runs", href: "#runs" },
-  { label: "run_42", href: "#run-42" },
-  { label: "artifacts" },
+const INITIAL_LOCATION: LocationCrumb[] = [
+  {
+    id: "entity-omega",
+    href: "#omega",
+    pieces: [{ kind: "entity", text: "@omega" }],
+  },
+  {
+    id: "folder-projects",
+    href: "#projects",
+    pieces: [{ kind: "mlody-folder", text: "projects" }],
+  },
+  {
+    id: "folder-runs",
+    href: "#runs",
+    pieces: [{ kind: "mlody-folder", text: "runs" }],
+  },
+  {
+    id: "wildcard-descendants",
+    href: "#descendants",
+    pieces: [{ kind: "wildcard", text: "..." }],
+  },
+  {
+    id: "source-summary",
+    pieces: [
+      { kind: "mlody-source", text: "summary.md" },
+      { kind: "query", text: "[step=validate]" },
+    ],
+  },
 ];
 
 const DEFAULT_CURRENT_USER = "mav";
@@ -136,9 +158,10 @@ function buildServerConnectedAdmonition(
   };
 }
 
-export function ReplPage({ executor = stubExecutor }: ReplPageProps) {
+export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
   const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
   const [currentCommand, setCurrentCommand] = useState("show");
+  const [location] = useState<LocationCrumb[]>(INITIAL_LOCATION);
   const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(null);
   const [availableUsers, setAvailableUsers] = useState<WorkspaceUser[]>([]);
   const [currentUserName] = useState(DEFAULT_CURRENT_USER);
@@ -225,10 +248,10 @@ export function ReplPage({ executor = stubExecutor }: ReplPageProps) {
           );
         }),
       )
-      .then(() => {
+      .then((status) => {
         setExecutions((prev) =>
           prev.map((r) =>
-            r.id === record.id ? { ...r, status: "done" } : r,
+            r.id === record.id ? { ...r, status } : r,
           ),
         );
       })
@@ -258,7 +281,7 @@ export function ReplPage({ executor = stubExecutor }: ReplPageProps) {
       <InputBar
         commandOptions={COMMAND_OPTIONS}
         currentCommand={currentCommand}
-        breadcrumbs={BREADCRUMBS}
+        location={location}
         workspace={workspace}
         showLocation={showLocation}
         currentUser={currentUser}

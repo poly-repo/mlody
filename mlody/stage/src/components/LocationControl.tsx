@@ -1,11 +1,11 @@
 import { Anchor } from "lucide-react";
 import type {
-  BreadcrumbSegment,
+  LocationCrumb,
+  LocationPiece,
   WorkspaceSummary,
 } from "../types.js";
 import {
   Breadcrumb,
-  BreadcrumbEllipsis,
   BreadcrumbItem,
   BreadcrumbLink,
   BreadcrumbList,
@@ -14,36 +14,8 @@ import {
 } from "./ui/breadcrumb.js";
 
 interface LocationControlProps {
-  breadcrumbs: BreadcrumbSegment[];
+  location: LocationCrumb[];
   workspace: WorkspaceSummary | null;
-}
-
-function buildCompactBreadcrumbs(segments: BreadcrumbSegment[]) {
-  if (segments.length <= 4) {
-    return segments.map((segment, index) => ({
-      ...segment,
-      key: `${segment.label}-${index}`,
-      kind: "segment" as const,
-    }));
-  }
-
-  const tail = segments.slice(-2);
-  return [
-    {
-      ...segments[0],
-      key: `${segments[0]?.label ?? "root"}-0`,
-      kind: "segment" as const,
-    },
-    {
-      key: "ellipsis",
-      kind: "ellipsis" as const,
-    },
-    ...tail.map((segment, index) => ({
-      ...segment,
-      key: `${segment.label}-${segments.length - tail.length + index}`,
-      kind: "segment" as const,
-    })),
-  ];
 }
 
 function getRecordValue(
@@ -81,11 +53,21 @@ function getRootsFileLabel(workspace: WorkspaceSummary | null): string {
   return workspace.rootsFile;
 }
 
+function renderLocationPiece(piece: LocationPiece, crumbId: string) {
+  return (
+    <span
+      key={`${crumbId}-${piece.kind}-${piece.text}`}
+      className={`LocationControl-piece LocationControl-piece--${piece.kind}`}
+    >
+      {piece.text}
+    </span>
+  );
+}
+
 export function LocationControl({
-  breadcrumbs,
+  location,
   workspace,
 }: LocationControlProps) {
-  const compactBreadcrumbs = buildCompactBreadcrumbs(breadcrumbs);
   const branch = getRecordValue(workspace?.info ?? null, "branch");
   const sha = getRecordValue(workspace?.info ?? null, "sha");
   const workspaceUser = getRecordValue(
@@ -104,34 +86,21 @@ export function LocationControl({
         </span>
         <Breadcrumb>
           <BreadcrumbList className="LocationControl-breadcrumbs">
-            {compactBreadcrumbs.map((segment, index) => (
-              <BreadcrumbItem key={segment.key}>
-                {segment.kind === "ellipsis" ? (
-                  <>
-                    <BreadcrumbEllipsis className="LocationControl-ellipsis" />
-                    {index < compactBreadcrumbs.length - 1 && (
-                      <BreadcrumbSeparator />
-                    )}
-                  </>
+            {location.map((crumb, index) => (
+              <BreadcrumbItem key={crumb.id}>
+                {index === location.length - 1 ? (
+                  <BreadcrumbPage className="LocationControl-segment LocationControl-segment--current">
+                    {crumb.pieces.map((piece) => renderLocationPiece(piece, crumb.id))}
+                  </BreadcrumbPage>
                 ) : (
-                  <>
-                    {index === compactBreadcrumbs.length - 1 ? (
-                      <BreadcrumbPage className="LocationControl-current">
-                        {segment.label}
-                      </BreadcrumbPage>
-                    ) : (
-                      <BreadcrumbLink
-                        href={segment.href ?? "#"}
-                        className="LocationControl-link"
-                      >
-                        {segment.label}
-                      </BreadcrumbLink>
-                    )}
-                    {index < compactBreadcrumbs.length - 1 && (
-                      <BreadcrumbSeparator />
-                    )}
-                  </>
+                  <BreadcrumbLink
+                    href={crumb.href ?? "#"}
+                    className="LocationControl-segment LocationControl-segment--link"
+                  >
+                    {crumb.pieces.map((piece) => renderLocationPiece(piece, crumb.id))}
+                  </BreadcrumbLink>
                 )}
+                {index < location.length - 1 && <BreadcrumbSeparator />}
               </BreadcrumbItem>
             ))}
           </BreadcrumbList>

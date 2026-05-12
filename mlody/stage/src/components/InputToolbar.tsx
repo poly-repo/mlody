@@ -1,7 +1,7 @@
 import { Sparkles } from "lucide-react";
 import type {
-  BreadcrumbSegment,
   CommandOption,
+  LocationCrumb,
   UserSummary,
   WorkspaceSummary,
 } from "../types.js";
@@ -23,7 +23,7 @@ import {
 interface InputToolbarProps {
   commandOptions: CommandOption[];
   currentCommand: string;
-  breadcrumbs: BreadcrumbSegment[];
+  location: LocationCrumb[];
   workspace: WorkspaceSummary | null;
   showLocation: boolean;
   currentUser: UserSummary;
@@ -33,7 +33,7 @@ interface InputToolbarProps {
 export function InputToolbar({
   commandOptions,
   currentCommand,
-  breadcrumbs,
+  location,
   workspace,
   showLocation,
   currentUser,
@@ -80,7 +80,7 @@ export function InputToolbar({
 
       <div className="CommandToolbar-path">
         {showLocation ? (
-          <LocationControl breadcrumbs={breadcrumbs} workspace={workspace} />
+          <LocationControl location={location} workspace={workspace} />
         ) : null}
       </div>
 

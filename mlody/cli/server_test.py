@@ -16,7 +16,9 @@ from mlody.cli.server import (
     ServerConfig,
     collect_command_response,
     create_http_server,
+    execute_verbatim_command_response,
     parse_command_request,
+    parse_verbatim_command_request,
 )
 from mlody.resolver import MlodyFolderValue
 
@@ -69,6 +71,19 @@ class TestParseCommandRequest:
     def test_rejects_show_without_targets(self) -> None:
         with pytest.raises(ValueError, match="Show requests require at least one target"):
             parse_command_request({"command": "show", "input": ""})
+
+    def test_verbatim_request_preserves_raw_show_target(self) -> None:
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+            }
+        )
+
+        assert request.command == "show"
+        assert request.arguments == (
+            "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+        )
 
 
 class TestCollectCommandResponse:
@@ -132,6 +147,47 @@ class TestCollectCommandResponse:
         assert response["results"] == []
         assert len(response["errors"]) == 1
         assert response["errors"][0]["message"] == "Unsupported command: system"
+
+
+class TestExecuteVerbatimCommandResponse:
+    def test_invokes_real_show_command_without_workspace_flag(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def _fake_invoke(self, cli, args, **kwargs):
+            captured["args"] = list(args)
+            captured["obj"] = kwargs.get("obj")
+            captured["color"] = kwargs.get("color")
+            captured["catch_exceptions"] = kwargs.get("catch_exceptions")
+            return SimpleNamespace(exit_code=0, output="Value for user 'mav'\nrow 1\n")
+
+        monkeypatch.setattr("click.testing.CliRunner.invoke", _fake_invoke)
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+            }
+        )
+        response = execute_verbatim_command_response(_server_config(tmp_path), request)
+
+        assert captured["args"] == [
+            "show",
+            "--as",
+            "mav",
+            "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+        ]
+        assert captured["obj"] == {
+            "monorepo_root": tmp_path,
+            "roots": None,
+        }
+        assert captured["color"] is False
+        assert captured["catch_exceptions"] is False
+        assert response["status"] == "done"
+        assert response["output"] == "Value for user 'mav'\nrow 1\n"
 
 
 class TestHttpApi:
@@ -208,6 +264,54 @@ class TestHttpApi:
             assert payload_lines[0]["event"] == "started"
             assert payload_lines[-1]["event"] == "completed"
             assert payload_lines[-1]["status"] == "done"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_verbatim_execute_endpoint_returns_full_output(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        def _fake_execute(config: ServerConfig, request):
+            assert request.arguments == (
+                "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+            )
+            return {
+                "requestId": request.request_id,
+                "command": request.command,
+                "status": "done",
+                "exitCode": 0,
+                "output": "Value for user 'mav'\nrow 1\n",
+            }
+
+        monkeypatch.setattr(
+            "mlody.cli.server.execute_verbatim_command_response",
+            _fake_execute,
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{http_server.server_port}/api/execute/verbatim",
+                data=json.dumps(
+                    {
+                        "command": "show",
+                        "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            assert payload["status"] == "done"
+            assert payload["output"] == "Value for user 'mav'\nrow 1\n"
         finally:
             http_server.shutdown()
             http_server.server_close()

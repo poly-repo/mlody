@@ -5,9 +5,22 @@ export interface OutputChunk {
   kind: "stdout" | "stderr" | "meta";
 }
 
-export interface BreadcrumbSegment {
-  label: string;
+export type LocationPieceKind =
+  | "entity"
+  | "mlody-folder"
+  | "mlody-source"
+  | "wildcard"
+  | "query";
+
+export interface LocationPiece {
+  kind: LocationPieceKind;
+  text: string;
+}
+
+export interface LocationCrumb {
+  id: string;
   href?: string;
+  pieces: LocationPiece[];
 }
 
 export interface CommandOption {
@@ -96,7 +109,9 @@ export interface ExecutionRecord {
 /** Callback type used by the executor to stream output chunks */
 export type OutputCallback = (chunk: OutputChunk) => void;
 
+export type ExecutionResultStatus = "done" | "error";
+
 /** The executor abstraction — swap stub for real backend without touching UI */
 export interface Executor {
-  run(command: string, onChunk: OutputCallback): Promise<void>;
+  run(command: string, onChunk: OutputCallback): Promise<ExecutionResultStatus>;
 }
