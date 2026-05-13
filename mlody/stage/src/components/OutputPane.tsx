@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { ExecutionRecord, SystemAdmonition } from "../types.js";
 import { ExecutionBlock } from "./ExecutionBlock.js";
 import { SystemAdmonitionBlock } from "./SystemAdmonitionBlock.js";
@@ -9,16 +9,25 @@ interface OutputPaneProps {
 }
 
 export function OutputPane({ executions, admonitions }: OutputPaneProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
   const noticeCountLabel =
     admonitions.length === 1
       ? "1 system notice"
       : `${admonitions.length} system notices`;
+  const outputChunkCount = executions.reduce(
+    (count, record) => count + record.output.length,
+    0,
+  );
+  const executionStateKey = executions
+    .map((record) => `${record.id}:${record.status}:${record.output.length}`)
+    .join("|");
 
-  // Scroll to bottom only when a new execution is added (not on every chunk)
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [executions.length, admonitions.length]);
+  useLayoutEffect(() => {
+    const feed = feedRef.current;
+    if (feed === null) return;
+    feed.scrollTop = feed.scrollHeight;
+    window.scrollTo({ top: document.documentElement.scrollHeight });
+  }, [admonitions.length, executions.length, executionStateKey, outputChunkCount]);
 
   return (
     <div className="OutputPane">
@@ -32,7 +41,7 @@ export function OutputPane({ executions, admonitions }: OutputPaneProps) {
             : `${executions.length} execution${executions.length === 1 ? "" : "s"}`}
         </span>
       </div>
-      <div className="OutputPane-feed">
+      <div ref={feedRef} className="OutputPane-feed">
         {admonitions.map((admonition) => (
           <SystemAdmonitionBlock key={admonition.id} admonition={admonition} />
         ))}
@@ -45,7 +54,6 @@ export function OutputPane({ executions, admonitions }: OutputPaneProps) {
         {executions.map((record) => (
           <ExecutionBlock key={record.id} record={record} />
         ))}
-        <div ref={bottomRef} />
       </div>
     </div>
   );
