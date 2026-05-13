@@ -1,0 +1,127 @@
+import %workspace%/tools/preset.bazelrc
+try-import %workspace%/tools/java21.bazelrc
+
+### YOUR PROJECT SPECIFIC OPTIONS GO HERE ###
+
+# Disable skymeld; see https://github.com/bazelbuild/bazel/issues/23743
+# fixes src/main/tools/process-wrapper-legacy.cc:80: "execvp(external/++toolchains+coreutils_linux_amd64/coreutils, ...)": No such file or directory
+common --noexperimental_merged_skyframe_analysis_execution
+
+# also see: https://blog.aspect.build/configuring-bazels-downloader
+common --downloader_config=tools/downloader.cfg
+
+# rules_python is working to enable this default to avoid dependency on a system interpreter
+# See https://github.com/bazel-contrib/rules_python/issues/3187
+# NB: some tools run py_binary targets even if the user didn't select to add Python to their project
+common --@rules_python//python/config_settings:bootstrap_impl=script
+common --workspace_status_command=githooks/check-config.sh
+
+common:lint --aspects=//tools/lint:linters.bzl%ruff
+
+# ---------------------------
+# Disk cache (shared across repos)
+# ---------------------------
+build --disk_cache=~/.cache/bazel-disk-cache
+test  --disk_cache=~/.cache/bazel-disk-cache
+run   --disk_cache=~/.cache/bazel-disk-cache
+
+# ---------------------------
+# Cut the noise
+# ---------------------------
+run:silent \
+  --noshow_progress \
+  --noshow_loading_progress \
+  --ui_event_filters=-info,-stdout,-stderr \
+  --output_filter=^$
+
+build:silent \
+  --noshow_progress \
+  --noshow_loading_progress \
+  --ui_event_filters=-info,-stdout,-stderr \
+  --output_filter=^$
+  
+# ---------------------------
+# Repository cache (for external deps)
+# ---------------------------
+common --repository_cache=~/.cache/bazel-repo-cache
+
+# ---------------------------
+# Performance
+# ---------------------------
+build --jobs=auto
+
+# Ensures cache hits across repos by avoiding env leakage
+build --action_env=PATH
+build --action_env=HOME
+
+# Better parallel downloads / repository fetching
+build --experimental_repository_cache_hardlinks
+
+build --config=c++23
+build --show_result=10
+build --keep_going
+build --color=yes
+build --curses=yes
+build --verbose_failures
+#build --sandbox_debug
+build --copt=-Wall           # Enable all warnings
+build --copt=-Wextra         # Enable extra warnings
+build --copt=-Wno-unused-parameter  # Counteract -Wextra: Go stdlib runtime/cgo uses intentionally-unused params
+#build --copt=-Werror         # Treat warnings as errors
+build:release --stamp --workspace_status_command=tools/workspace_status.sh
+
+build:c++17 --cxxopt=-std=c++17 --host_cxxopt=-std=c++17
+build:c++20 --cxxopt=-std=c++20 --host_cxxopt=-std=c++20
+build:c++23 --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
+build:c++26 --cxxopt=-std=c++2c --host_cxxopt=-std=c++2c
+
+build:clangd --cxxopt=-I./bazel-uno/external/toolchains_llvm++llvm+llvm_toolchain_llvm/include/x86_64-unknown-linux-gnu/c++/v1
+build:clangd --cxxopt=-I./bazel-uno/external/toolchains_llvm++llvm+llvm_toolchain_llvm/include/c++/v1
+
+build:debug --compilation_mode=dbg
+build:debug  --copt=-g              # Generate debug symbols
+build:debug  --copt=-O0             # Disable optimizations for easier debugging
+build:debug  --copt=-fno-omit-frame-pointer  # Keep frame pointers for better stack traces
+build:debug  --linkopt=-g           # Include debug information in linking
+build:debug  --linkopt=-rdynamic    # Retain symbol information for backtraces
+build:debug  --copt=-DDEBUG         # Define DEBUG macro for conditional compilation
+
+build:asan --strip=never
+build:asan --copt -fsanitize=address
+build:asan --copt -DADDRESS_SANITIZER
+build:asan --copt -O1
+build:asan --copt -g
+build:asan --copt -fno-omit-frame-pointer
+build:asan --linkopt -fsanitize=address
+test:asan  --test_env=ASAN_OPTIONS=halt_on_error=1:strict_init_order=1:detect_leaks=1:fast_unwind_on_malloc=0
+test:asan --test_env=ASAN_SYMBOLIZER_PATH=external/toolchains_llvm++llvm+llvm_toolchain_llvm/bin/llvm-symbolizer
+run:asan  --run_under=env ASAN_OPTIONS=halt_on_error=1:detect_leaks=1
+run:asan  --run_under=env ASAN_SYMBOLIZER_PATH=external/toolchains_llvm++llvm+llvm_toolchain_llvm/bin/llvm-symbolizer ASAN_OPTIONS=symbolize=1:fast_unwind_on_malloc=0:halt_on_error=1:detect_leaks=1
+
+# UndefinedBehaviorSanitizer
+build:ubsan --config=clang
+build:ubsan --copt=-fsanitize=undefined --linkopt=-fsanitize=undefined
+
+# ThreadSanitizer
+build:tsan --config=clang
+build:tsan --copt=-fsanitize=thread --linkopt=-fsanitize=thread
+
+test --test_output=errors
+test  --keep_going
+
+# Workaround to avoid
+# WARNING: Couldn't auto load rules or symbols, because no dependency on module/repository 'rules_android' found. This will result in a failure if there's a reference to those rules or symbols.
+common --incompatible_autoload_externally="+@rules_python,+@rules_shell"
+common --disk_cache=~/.cache/bazel/remote
+common --experimental_disk_cache_gc_max_size=50G
+common --experimental_disk_cache_gc_max_age=10d
+build --java_language_version=21
+# Use hermetic JDK for build and host Java
+build --java_runtime_version=remotejdk_21
+build --tool_java_runtime_version=remotejdk_21
+
+# Load any settings & overrides specific to the current user from `.aspect/bazelrc/user.bazelrc`.
+# This file should appear in `.gitignore` so that settings are not shared with team members. This
+# should be last statement in this config so the user configuration is able to overwrite flags from
+# this file. See https://bazel.build/configure/best-practices#bazelrc-file.
+try-import %workspace%/user.bazelrc
