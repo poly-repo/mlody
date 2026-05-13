@@ -13,6 +13,7 @@ export interface StageBootstrapPayload {
   health: ServerHealthStatus;
   users: WorkspaceUser[];
   workspace: WorkspaceSummary;
+  workspaces: WorkspaceSummary[];
   history: CommandHistoryEntry[];
 }
 
@@ -122,15 +123,22 @@ export async function fetchStageBootstrap(
     throw new Error("Server health check did not report ok");
   }
 
-  const [usersPayload, workspace, history] = await Promise.all([
+  const [usersPayload, workspace, workspacesPayload, history] = await Promise.all([
     fetchJson<unknown[]>("/api/users", signal),
     fetchJson<WorkspaceSummary>("/api/workspace", signal),
+    fetchJson<WorkspaceSummary[]>("/api/workspaces", signal).catch(() => null),
     fetchJson<CommandHistoryEntry[]>("/api/history", signal).catch(() => []),
   ]);
+
+  const workspaces =
+    Array.isArray(workspacesPayload) && workspacesPayload.length > 0
+      ? workspacesPayload
+      : [workspace];
 
   return {
     health,
     history,
+    workspaces,
     users: usersPayload
       .map(normalizeUser)
       .filter((user): user is WorkspaceUser => user !== null),
@@ -151,12 +159,14 @@ export async function executeStageCommand(
   command: string,
   input: string,
   currentUserName: string,
+  workspaceRoot: string | null,
 ): Promise<StageResultPayload> {
   return await postJson<StageResultPayload>("/api/execute/stage", {
     command,
     input,
     options: {
       runAs: currentUserName,
+      ...(workspaceRoot ? { workspaceRoot } : {}),
     },
   });
 }

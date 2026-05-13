@@ -27,6 +27,7 @@ interface InputToolbarProps {
   currentCommand: string;
   location: LocationCrumb[];
   topdir: string;
+  availableWorkspaces: WorkspaceSummary[];
   workspace: WorkspaceSummary | null;
   showLocation: boolean;
   availableUsers: WorkspaceUser[];
@@ -34,6 +35,7 @@ interface InputToolbarProps {
   currentUser: UserSummary;
   onCommandChange: (command: string) => void;
   onCurrentUserChange: (name: string) => void;
+  onWorkspaceChange: (workspace: WorkspaceSummary | null) => void;
 }
 
 interface UserTeamMember {
@@ -146,6 +148,7 @@ export function InputToolbar({
   currentCommand,
   location,
   topdir,
+  availableWorkspaces,
   workspace,
   showLocation,
   availableUsers,
@@ -153,6 +156,7 @@ export function InputToolbar({
   currentUser,
   onCommandChange,
   onCurrentUserChange,
+  onWorkspaceChange,
 }: InputToolbarProps) {
   const currentCommandOption =
     commandOptions.find((option) => option.value === currentCommand) ?? null;
@@ -261,7 +265,9 @@ export function InputToolbar({
           <LocationControl
             location={location}
             topdir={topdir}
+            availableWorkspaces={availableWorkspaces}
             workspace={workspace}
+            onWorkspaceChange={onWorkspaceChange}
           />
         ) : null}
       </div>

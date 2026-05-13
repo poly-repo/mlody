@@ -28,6 +28,7 @@ interface InputBarProps {
   location: LocationCrumb[];
   primedHistoryEntries: CommandHistoryEntry[] | null;
   topdir: string;
+  availableWorkspaces: WorkspaceSummary[];
   workspace: WorkspaceSummary | null;
   showLocation: boolean;
   availableUsers: WorkspaceUser[];
@@ -35,6 +36,7 @@ interface InputBarProps {
   currentUser: UserSummary;
   onCommandChange: (command: string) => void;
   onCurrentUserChange: (name: string) => void;
+  onWorkspaceChange: (workspace: WorkspaceSummary | null) => void;
   onSubmit: (submission: CommandSubmission) => void;
   disabled?: boolean;
 }
@@ -51,13 +53,29 @@ function createCommandSnapshot(
   value: string,
   promotedSegments: string[],
   currentUserName: string,
+  workspace: WorkspaceSummary | null,
 ): CommandHistorySnapshot {
   return {
     command,
     value,
     promotedSegments: [...promotedSegments],
     currentUserName,
+    workspace,
   };
+}
+
+function sameWorkspaceRoot(
+  left: WorkspaceSummary | null,
+  right: WorkspaceSummary | null,
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+
+  return (
+    left.workspaceRoot.replace(/\/+$/, "") ===
+    right.workspaceRoot.replace(/\/+$/, "")
+  );
 }
 
 export function InputBar({
@@ -66,6 +84,7 @@ export function InputBar({
   location,
   primedHistoryEntries,
   topdir,
+  availableWorkspaces,
   workspace,
   showLocation,
   availableUsers,
@@ -73,6 +92,7 @@ export function InputBar({
   currentUser,
   onCommandChange,
   onCurrentUserChange,
+  onWorkspaceChange,
   onSubmit,
   disabled = false,
 }: InputBarProps) {
@@ -134,6 +154,7 @@ export function InputBar({
       value,
       promotedSegments,
       currentUserName,
+      workspace,
     );
   }
 
@@ -150,6 +171,10 @@ export function InputBar({
       snapshot.currentUserName !== currentUserName
     ) {
       onCurrentUserChange(snapshot.currentUserName);
+    }
+
+    if (!sameWorkspaceRoot(snapshot.workspace, workspace)) {
+      onWorkspaceChange(snapshot.workspace);
     }
   }
 
@@ -361,6 +386,7 @@ export function InputBar({
       snapshot.value,
       snapshot.promotedSegments,
       currentUserName,
+      workspace,
     );
     const combinedInput = buildCommandInput(
       currentCommand,
@@ -380,6 +406,7 @@ export function InputBar({
         command: currentCommand,
         input: combinedInput,
         currentUserName,
+        workspace,
       });
     }
   }
@@ -391,6 +418,7 @@ export function InputBar({
         currentCommand={currentCommand}
         location={locationWithDraftSegments}
         topdir={topdir}
+        availableWorkspaces={availableWorkspaces}
         workspace={workspace}
         showLocation={showLocation}
         availableUsers={availableUsers}
@@ -398,6 +426,7 @@ export function InputBar({
         currentUser={currentUser}
         onCommandChange={onCommandChange}
         onCurrentUserChange={onCurrentUserChange}
+        onWorkspaceChange={onWorkspaceChange}
       />
       <div className="CommandShell-entry">
         <div className="CommandShell-gutter" aria-hidden="true">

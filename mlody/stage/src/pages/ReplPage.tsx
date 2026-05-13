@@ -138,6 +138,17 @@ function normalizePath(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+function sameWorkspaceRoot(
+  left: WorkspaceSummary | null,
+  right: WorkspaceSummary | null,
+): boolean {
+  if (left === null || right === null) {
+    return left === right;
+  }
+
+  return normalizePath(left.workspaceRoot) === normalizePath(right.workspaceRoot);
+}
+
 function getWorkspaceTopdir(workspace: WorkspaceSummary | null): string {
   if (!workspace) {
     return INITIAL_TOPDIR;
@@ -162,6 +173,9 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
   const [currentCommand, setCurrentCommand] = useState("show");
   const [location] = useState<LocationCrumb[]>(INITIAL_LOCATION);
   const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(null);
+  const [availableWorkspaces, setAvailableWorkspaces] = useState<
+    WorkspaceSummary[]
+  >([]);
   const [availableUsers, setAvailableUsers] = useState<WorkspaceUser[]>([]);
   const [currentUserName, setCurrentUserName] = useState(DEFAULT_CURRENT_USER);
   const [primedHistoryEntries, setPrimedHistoryEntries] = useState<
@@ -185,7 +199,13 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     void fetchStageBootstrap(controller.signal)
       .then((payload) => {
         if (!active) return;
+        const workspaces = payload.workspaces.some((candidate) =>
+          sameWorkspaceRoot(candidate, payload.workspace),
+        )
+          ? payload.workspaces
+          : [payload.workspace, ...payload.workspaces];
         setWorkspace(payload.workspace);
+        setAvailableWorkspaces(workspaces);
         setAvailableUsers(payload.users);
         setPrimedHistoryEntries(payload.history);
         setServerStatus("connected");
@@ -198,6 +218,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
             ? error.message
             : "Unable to reach the mlody server.";
         setWorkspace(null);
+        setAvailableWorkspaces([]);
         setAvailableUsers([]);
         setPrimedHistoryEntries(null);
         setServerStatus("unavailable");
@@ -233,6 +254,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     command,
     input,
     currentUserName: submittedUserName,
+    workspace: submittedWorkspace,
   }: CommandSubmission) => {
     const combinedCommand = [command, input].filter(Boolean).join(" ").trim();
     if (combinedCommand === "") return;
@@ -249,13 +271,18 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
 
     void Promise.resolve()
       .then(() =>
-        executor.run(combinedCommand, submittedUserName, (chunk) => {
-          setExecutions((prev) =>
-            prev.map((r) =>
-              r.id === record.id ? { ...r, output: [...r.output, chunk] } : r,
-            ),
-          );
-        }),
+        executor.run(
+          combinedCommand,
+          submittedUserName,
+          submittedWorkspace?.workspaceRoot ?? null,
+          (chunk) => {
+            setExecutions((prev) =>
+              prev.map((r) =>
+                r.id === record.id ? { ...r, output: [...r.output, chunk] } : r,
+              ),
+            );
+          },
+        ),
       )
       .then((status) => {
         setExecutions((prev) =>
@@ -292,6 +319,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
         currentCommand={currentCommand}
         location={location}
         topdir={topdir}
+        availableWorkspaces={availableWorkspaces}
         workspace={workspace}
         showLocation={showLocation}
         availableUsers={availableUsers}
@@ -300,6 +328,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
         primedHistoryEntries={primedHistoryEntries}
         onCommandChange={setCurrentCommand}
         onCurrentUserChange={setCurrentUserName}
+        onWorkspaceChange={setWorkspace}
         onSubmit={handleSubmit}
         disabled={serverStatus === "connecting"}
       />

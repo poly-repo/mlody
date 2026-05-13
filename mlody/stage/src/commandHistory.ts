@@ -8,6 +8,7 @@ export interface CommandHistorySnapshot {
   value: string;
   promotedSegments: string[];
   currentUserName?: string;
+  workspace: WorkspaceSummary | null;
 }
 
 export interface CommandHistoryEntry {
@@ -199,6 +200,7 @@ export function toHistorySnapshot(
     value: entry.prompt,
     promotedSegments: [...entry.breadcrumb],
     currentUserName: entry.currentUserName,
+    workspace: cloneWorkspaceSummary(entry.workspace),
   };
 }
 

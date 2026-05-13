@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import logging
@@ -137,6 +137,13 @@ def _history_file_path() -> Path:
     return Path.home() / ".cache" / "mlody" / "history.json"
 
 
+def _config_for_workspace_root(
+    config: ServerConfig,
+    workspace_root: Path,
+) -> ServerConfig:
+    return replace(config, workspace_root=workspace_root)
+
+
 def _read_string_option(
     options: Mapping[str, object],
     *names: str,
@@ -169,6 +176,64 @@ def _read_string_list_option(
     return []
 
 
+def _workspace_root_from_request(
+    config: ServerConfig,
+    request: ServerCommandRequest,
+) -> Path:
+    raw_workspace_root = _read_string_option(
+        request.options,
+        "workspaceRoot",
+        "workspace_root",
+        default=str(config.workspace_root),
+    ).strip()
+    if raw_workspace_root == "":
+        return config.workspace_root
+
+    candidate = Path(raw_workspace_root).expanduser()
+    if not candidate.is_absolute():
+        candidate = (config.monorepo_root / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+
+    monorepo_root = config.monorepo_root.resolve()
+    try:
+        candidate.relative_to(monorepo_root)
+    except ValueError as exc:
+        raise ServerRequestError(
+            "Workspace root must stay within the current monorepo."
+        ) from exc
+
+    if not candidate.exists():
+        raise ServerRequestError(f"Workspace root does not exist: {candidate}")
+    if not candidate.is_dir():
+        raise ServerRequestError(f"Workspace root is not a directory: {candidate}")
+
+    return candidate
+
+
+def _available_workspace_roots(config: ServerConfig) -> tuple[Path, ...]:
+    monorepo_root = config.monorepo_root.resolve()
+    current_workspace_root = config.workspace_root.resolve()
+    candidates: set[Path] = {monorepo_root, current_workspace_root}
+
+    for workspace_file in monorepo_root.rglob("workspace.mlody"):
+        try:
+            workspace_root = workspace_file.parent.resolve()
+            workspace_root.relative_to(monorepo_root)
+        except ValueError:
+            continue
+        candidates.add(workspace_root)
+
+    def _sort_key(workspace_root: Path) -> tuple[int, str]:
+        if workspace_root == current_workspace_root:
+            return (0, ".")
+        if workspace_root == monorepo_root:
+            return (1, ".")
+        return (2, str(workspace_root.relative_to(monorepo_root)))
+
+    return tuple(sorted(candidates, key=_sort_key))
+
+
 def parse_command_request(payload: object) -> ServerCommandRequest:
     """Validate and normalize an incoming JSON command payload."""
 
@@ -197,7 +262,14 @@ def parse_command_request(payload: object) -> ServerCommandRequest:
         raise ServerRequestError("Field 'options' must be a JSON object when provided.")
 
     options = dict(raw_options)
-    for alias in ("runAs", "run_as", "config", "with"):
+    for alias in (
+        "runAs",
+        "run_as",
+        "config",
+        "with",
+        "workspaceRoot",
+        "workspace_root",
+    ):
         if alias in payload and alias not in options:
             options[alias] = payload[alias]
 
@@ -262,7 +334,14 @@ def parse_verbatim_command_request(payload: object) -> ServerCommandRequest:
         raise ServerRequestError("Field 'options' must be a JSON object when provided.")
 
     options = dict(raw_options)
-    for alias in ("runAs", "run_as", "config", "with"):
+    for alias in (
+        "runAs",
+        "run_as",
+        "config",
+        "with",
+        "workspaceRoot",
+        "workspace_root",
+    ):
         if alias in payload and alias not in options:
             options[alias] = payload[alias]
 
@@ -362,6 +441,15 @@ def _current_baseline_workspace(config: ServerConfig) -> object:
     )
 
 
+def _baseline_workspace_for_root(
+    config: ServerConfig,
+    workspace_root: Path,
+) -> object:
+    return _current_baseline_workspace(
+        _config_for_workspace_root(config, workspace_root)
+    )
+
+
 def _serialize_registered_users(workspace: object) -> list[dict[str, object]]:
     evaluator = getattr(workspace, "evaluator", None)
     registry = getattr(evaluator, "registry", None)
@@ -427,10 +515,16 @@ def _serialize_workspace_context(workspace: object) -> dict[str, object]:
     return payload
 
 
-def _workspace_summary_payload(config: ServerConfig, workspace: object) -> dict[str, object]:
+def _workspace_summary_payload(
+    config: ServerConfig,
+    workspace: object,
+    *,
+    workspace_root: Path | None = None,
+) -> dict[str, object]:
+    effective_workspace_root = workspace_root or config.workspace_root
     return {
         "monorepoRoot": str(config.monorepo_root),
-        "workspaceRoot": str(config.workspace_root),
+        "workspaceRoot": str(effective_workspace_root),
         "rootsFile": str(config.roots) if config.roots is not None else None,
         "fullWorkspace": config.full_workspace,
         "info": _runtime_json_data(getattr(workspace, "info", None)),
@@ -439,10 +533,15 @@ def _workspace_summary_payload(config: ServerConfig, workspace: object) -> dict[
     }
 
 
-def _default_workspace_summary_payload(config: ServerConfig) -> dict[str, object]:
+def _default_workspace_summary_payload(
+    config: ServerConfig,
+    *,
+    workspace_root: Path | None = None,
+) -> dict[str, object]:
+    effective_workspace_root = workspace_root or config.workspace_root
     return {
         "monorepoRoot": str(config.monorepo_root),
-        "workspaceRoot": str(config.workspace_root),
+        "workspaceRoot": str(effective_workspace_root),
         "rootsFile": str(config.roots) if config.roots is not None else None,
         "fullWorkspace": config.full_workspace,
         "info": None,
@@ -552,13 +651,22 @@ def _load_history_entries(path: Path) -> list[dict[str, object]]:
 def _append_history_entry(config: ServerConfig, request: ServerCommandRequest) -> None:
     history_path = _history_file_path()
     history_path.parent.mkdir(parents=True, exist_ok=True)
+    workspace_root = _workspace_root_from_request(config, request)
+    request_config = _config_for_workspace_root(config, workspace_root)
 
     try:
-        workspace = _current_baseline_workspace(config)
-        workspace_payload = _workspace_summary_payload(config, workspace)
+        workspace = _current_baseline_workspace(request_config)
+        workspace_payload = _workspace_summary_payload(
+            request_config,
+            workspace,
+            workspace_root=workspace_root,
+        )
     except Exception:  # noqa: BLE001
         _logger.exception("Failed to load workspace summary for command history")
-        workspace_payload = _default_workspace_summary_payload(config)
+        workspace_payload = _default_workspace_summary_payload(
+            request_config,
+            workspace_root=workspace_root,
+        )
 
     breadcrumb, prompt = _history_prompt_and_breadcrumb(request)
     current_user_name = _request_run_as(request)
@@ -1113,12 +1221,15 @@ def execute_verbatim_command_response(
 
     config_overrides = _read_string_list_option(request.options, "config", "with")
     run_as = _request_run_as(request)
+    workspace_root = _workspace_root_from_request(config, request)
 
     cli_args: list[str] = []
     if config.verbose:
         cli_args.append("--verbose")
     if config.full_workspace:
         cli_args.append("--full-workspace")
+    if workspace_root != config.monorepo_root:
+        cli_args.extend(["--workspace", str(workspace_root)])
     cli_args.extend(["show"])
     for override in config_overrides:
         cli_args.extend(["--with", override])
@@ -1158,11 +1269,12 @@ def execute_stage_command_response(
     config_overrides = _read_string_list_option(request.options, "config", "with")
     run_as = _request_run_as(request)
     target = request.arguments[0]
+    workspace_root = _workspace_root_from_request(config, request)
 
     workspace, _resolved_sha = resolve_workspace(
         target,
         monorepo_root=config.monorepo_root,
-        workspace_root=config.workspace_root,
+        workspace_root=workspace_root,
         config=config_overrides,
         user=run_as,
         roots_file=config.roots,
@@ -1276,6 +1388,44 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                 )
             except Exception as exc:  # noqa: BLE001
                 _logger.exception("Failed to load workspace API payload")
+                self._write_json_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": str(exc)},
+                )
+            return
+
+        if path == "/api/workspaces":
+            try:
+                payloads: list[dict[str, object]] = []
+                for workspace_root in _available_workspace_roots(
+                    self.server.server_config
+                ):
+                    try:
+                        workspace = _baseline_workspace_for_root(
+                            self.server.server_config,
+                            workspace_root,
+                        )
+                        payloads.append(
+                            _workspace_summary_payload(
+                                self.server.server_config,
+                                workspace,
+                                workspace_root=workspace_root,
+                            )
+                        )
+                    except Exception:  # noqa: BLE001
+                        _logger.exception(
+                            "Failed to load workspace summary for %s",
+                            workspace_root,
+                        )
+                        payloads.append(
+                            _default_workspace_summary_payload(
+                                self.server.server_config,
+                                workspace_root=workspace_root,
+                            )
+                        )
+                self._write_json_response(HTTPStatus.OK, payloads)
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Failed to load workspaces API payload")
                 self._write_json_response(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": str(exc)},

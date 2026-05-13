@@ -59,6 +59,17 @@ class TestParseCommandRequest:
         assert request.options["runAs"] == "maya"
         assert request.options["config"] == ["foo=1"]
 
+    def test_preserves_workspace_root_alias(self) -> None:
+        request = parse_command_request(
+            {
+                "command": "show",
+                "targets": ["@root//projects:artifacts"],
+                "workspaceRoot": "/tmp/workspace-a",
+            }
+        )
+
+        assert request.options["workspaceRoot"] == "/tmp/workspace-a"
+
     def test_falls_back_to_shell_split_input(self) -> None:
         request = parse_command_request(
             {
@@ -195,6 +206,42 @@ class TestExecuteVerbatimCommandResponse:
         assert response["status"] == "done"
         assert response["output"] == "Value for user 'mav'\nrow 1\n"
 
+    def test_invokes_real_show_command_with_workspace_flag(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+        workspace_root = tmp_path / "sandboxes" / "exp1"
+        workspace_root.mkdir(parents=True)
+
+        def _fake_invoke(self, cli, args, **kwargs):
+            captured["args"] = list(args)
+            return SimpleNamespace(exit_code=0, output="ok\n")
+
+        monkeypatch.setattr("click.testing.CliRunner.invoke", _fake_invoke)
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                "options": {
+                    "runAs": "agarcia",
+                    "workspaceRoot": str(workspace_root),
+                },
+            }
+        )
+        execute_verbatim_command_response(_server_config(tmp_path), request)
+
+        assert captured["args"] == [
+            "--workspace",
+            str(workspace_root),
+            "show",
+            "--as",
+            "agarcia",
+            "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+        ]
+
 
 class TestExecuteStageCommandResponse:
     def test_resolves_show_into_stage_json_without_workspace_flag(
@@ -245,6 +292,51 @@ class TestExecuteStageCommandResponse:
         assert response["view"]["type"] == "json"
         assert response["data"]["kind"] == "folder"
         assert response["data"]["payload"]["path"] == "artifacts"
+
+    def test_resolves_show_into_selected_workspace_root(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+        workspace_root = tmp_path / "sandboxes" / "exp1"
+        workspace_root.mkdir(parents=True)
+
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        def _fake_resolve_workspace(target: str, **kwargs):
+            captured["target"] = target
+            captured["workspace_root"] = kwargs.get("workspace_root")
+            return _FakeWorkspace(), "sha123"
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            _fake_resolve_workspace,
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyFolderValue(
+                path="artifacts",
+                children=["config", "plots"],
+            ),
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                "options": {"workspaceRoot": str(workspace_root)},
+            }
+        )
+        execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert captured["target"] == "@pixelle//datasets:celebA-dataset.train[@sql limit 2]"
+        assert captured["workspace_root"] == workspace_root
 
     def test_serializes_raw_tabular_results_as_stage_table(
         self,
@@ -522,9 +614,11 @@ class TestHttpApi:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         history_path = tmp_path / ".cache" / "mlody" / "history.json"
+        selected_workspace_root = tmp_path / "sandboxes" / "exp1"
+        selected_workspace_root.mkdir(parents=True)
         fake_workspace = SimpleNamespace(
             info=SimpleNamespace(
-                path=str(tmp_path),
+                path=str(selected_workspace_root),
                 branch="main",
                 sha="abc123",
                 roots=["pixelle"],
@@ -532,13 +626,15 @@ class TestHttpApi:
             root_infos={},
             evaluator=SimpleNamespace(_extra_ctx=SimpleNamespace()),
         )
+        captured_workspace_roots: list[Path] = []
         monkeypatch.setattr(
             "mlody.cli.server._history_file_path",
             lambda: history_path,
         )
         monkeypatch.setattr(
             "mlody.cli.server._current_baseline_workspace",
-            lambda _config: fake_workspace,
+            lambda config: captured_workspace_roots.append(config.workspace_root)
+            or fake_workspace,
         )
         monkeypatch.setattr(
             "mlody.cli.server.execute_stage_command_response",
@@ -560,7 +656,10 @@ class TestHttpApi:
                     {
                         "command": "show",
                         "input": "@pixelle//datasets:celebA-dataset.train",
-                        "options": {"runAs": "agarcia"},
+                        "options": {
+                            "runAs": "agarcia",
+                            "workspaceRoot": str(selected_workspace_root),
+                        },
                     }
                 ).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
@@ -581,6 +680,10 @@ class TestHttpApi:
             ]
             assert payload[0]["currentUserName"] == "agarcia"
             assert payload[0]["workspace"]["info"]["sha"] == "abc123"
+            assert payload[0]["workspace"]["workspaceRoot"] == str(
+                selected_workspace_root
+            )
+            assert captured_workspace_roots == [selected_workspace_root]
         finally:
             http_server.shutdown()
             http_server.server_close()
@@ -675,6 +778,57 @@ class TestHttpApi:
             assert payload[0]["id"] == "history-1"
             assert payload[0]["breadcrumb"] == ["projects", "omega"]
             assert payload[0]["currentUserName"] == "mav"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_workspaces_endpoint_returns_available_workspace_summaries(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace_root = tmp_path / "sandboxes" / "exp1"
+        workspace_root.mkdir(parents=True)
+        available_roots = (tmp_path, workspace_root)
+
+        def _fake_workspace(workspace_root: Path) -> SimpleNamespace:
+            return SimpleNamespace(
+                info=SimpleNamespace(
+                    path=str(workspace_root),
+                    branch="main",
+                    sha="abc123",
+                    roots=["workspace"],
+                ),
+                root_infos={},
+                evaluator=SimpleNamespace(_extra_ctx=SimpleNamespace()),
+            )
+
+        monkeypatch.setattr(
+            "mlody.cli.server._available_workspace_roots",
+            lambda _config: available_roots,
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            lambda _config, root: _fake_workspace(root),
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{http_server.server_port}/api/workspaces",
+                timeout=5,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            assert [item["workspaceRoot"] for item in payload] == [
+                str(tmp_path),
+                str(workspace_root),
+            ]
+            assert payload[1]["info"]["path"] == str(workspace_root)
         finally:
             http_server.shutdown()
             http_server.server_close()

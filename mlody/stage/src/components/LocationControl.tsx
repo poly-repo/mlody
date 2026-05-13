@@ -1,4 +1,5 @@
 import { Anchor } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   LocationCrumb,
   LocationPiece,
@@ -16,7 +17,9 @@ import {
 interface LocationControlProps {
   location: LocationCrumb[];
   topdir: string;
+  availableWorkspaces: WorkspaceSummary[];
   workspace: WorkspaceSummary | null;
+  onWorkspaceChange: (workspace: WorkspaceSummary | null) => void;
 }
 
 function getRecordValue(
@@ -54,6 +57,25 @@ function getRootsFileLabel(workspace: WorkspaceSummary | null): string {
   return workspace.rootsFile;
 }
 
+function normalizePath(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function getWorkspaceTopdir(workspace: WorkspaceSummary): string {
+  const monorepoRoot = normalizePath(workspace.monorepoRoot);
+  const workspaceRoot = normalizePath(workspace.workspaceRoot);
+
+  if (workspaceRoot === monorepoRoot) {
+    return "/";
+  }
+
+  if (workspaceRoot.startsWith(`${monorepoRoot}/`)) {
+    return workspaceRoot.slice(monorepoRoot.length + 1);
+  }
+
+  return workspace.workspaceRoot;
+}
+
 function renderLocationPiece(piece: LocationPiece, crumbId: string) {
   return (
     <span
@@ -68,8 +90,13 @@ function renderLocationPiece(piece: LocationPiece, crumbId: string) {
 export function LocationControl({
   location,
   topdir,
+  availableWorkspaces,
   workspace,
+  onWorkspaceChange,
 }: LocationControlProps) {
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const workspacePickerRef = useRef<HTMLDivElement>(null);
+  const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   const branch = getRecordValue(workspace?.info ?? null, "branch");
   const sha = getRecordValue(workspace?.info ?? null, "sha");
   const workspaceUser = getRecordValue(
@@ -78,9 +105,90 @@ export function LocationControl({
   );
   const runUser = getRecordValue(workspace?.context?.run ?? null, "user");
   const stateLabel = getWorkspaceStateLabel(workspace);
+  const workspaceChoices = useMemo(() => {
+    const selectedRoot = workspace ? normalizePath(workspace.workspaceRoot) : null;
+    const seen = new Set<string>();
+    const ordered: WorkspaceSummary[] = [];
+
+    if (workspace) {
+      ordered.push(workspace);
+      seen.add(selectedRoot ?? workspace.workspaceRoot);
+    }
+
+    const remaining = availableWorkspaces
+      .filter((candidate) => {
+        const key = normalizePath(candidate.workspaceRoot);
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      })
+      .sort((left, right) => {
+        return (
+          getWorkspaceTopdir(left).localeCompare(getWorkspaceTopdir(right)) ||
+          left.workspaceRoot.localeCompare(right.workspaceRoot)
+        );
+      });
+
+    return [...ordered, ...remaining];
+  }, [availableWorkspaces, workspace]);
+
+  useEffect(() => {
+    if (!workspacePickerOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent | TouchEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (workspacePickerRef.current?.contains(target)) {
+        return;
+      }
+
+      if (workspaceButtonRef.current?.contains(target)) {
+        return;
+      }
+
+      setWorkspacePickerOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      setWorkspacePickerOpen(false);
+      workspaceButtonRef.current?.focus();
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [workspacePickerOpen]);
+
+  function handleWorkspaceSelect(nextWorkspace: WorkspaceSummary) {
+    onWorkspaceChange(nextWorkspace);
+    setWorkspacePickerOpen(false);
+    workspaceButtonRef.current?.focus();
+  }
 
   return (
-    <div className="LocationControl" tabIndex={0}>
+    <div
+      className="LocationControl"
+      tabIndex={0}
+      data-workspace-picker-open={workspacePickerOpen ? "true" : undefined}
+    >
       <div className="LocationControl-shell">
         <div className="LocationControl-primaryRow">
           <span className="LocationControl-stateBadge">
@@ -110,9 +218,21 @@ export function LocationControl({
           </Breadcrumb>
         </div>
         {topdir ? (
-          <div className="LocationControl-topdir" title={topdir}>
-            {topdir}
-          </div>
+          <button
+            ref={workspaceButtonRef}
+            type="button"
+            className="LocationControl-topdirButton"
+            title={workspace?.workspaceRoot ?? topdir}
+            aria-label="Choose workspace"
+            aria-haspopup="dialog"
+            aria-expanded={workspacePickerOpen}
+            onClick={() => setWorkspacePickerOpen((open) => !open)}
+          >
+            <span className="LocationControl-topdir">{topdir}</span>
+            <span className="LocationControl-topdirCaret" aria-hidden="true">
+              ▾
+            </span>
+          </button>
         ) : null}
       </div>
 
@@ -182,6 +302,62 @@ export function LocationControl({
           </p>
         )}
       </div>
+
+      {workspacePickerOpen ? (
+        <div
+          ref={workspacePickerRef}
+          className="LocationControl-workspacePicker"
+          role="dialog"
+          aria-label="Workspace picker"
+        >
+          <div className="LocationControl-workspacePickerHeader">
+            <span className="LocationControl-workspacePickerEyebrow">
+              Available workspaces
+            </span>
+            <span className="LocationControl-workspacePickerCurrent">
+              {workspace ? getWorkspaceTopdir(workspace) : "Unavailable"}
+            </span>
+          </div>
+          {workspaceChoices.length === 0 ? (
+            <p className="LocationControl-workspacePickerEmpty">
+              No workspace entries are available yet.
+            </p>
+          ) : (
+            <div className="LocationControl-workspacePickerList">
+              {workspaceChoices.map((candidate) => {
+                const candidateTopdir = getWorkspaceTopdir(candidate);
+                const isSelected =
+                  workspace !== null &&
+                  normalizePath(workspace.workspaceRoot) ===
+                    normalizePath(candidate.workspaceRoot);
+                const candidateSha = getRecordValue(candidate.info ?? null, "sha");
+
+                return (
+                  <button
+                    key={candidate.workspaceRoot}
+                    type="button"
+                    className="LocationControl-workspacePickerChoice"
+                    data-selected={isSelected ? "true" : undefined}
+                    onClick={() => handleWorkspaceSelect(candidate)}
+                  >
+                    <span className="LocationControl-workspacePickerLabelRow">
+                      <span className="LocationControl-workspacePickerLabel">
+                        {candidateTopdir}
+                      </span>
+                      <span className="LocationControl-workspacePickerMode">
+                        {candidateSha ? candidateSha.slice(0, 8) : getWorkspaceMode(candidate)}
+                      </span>
+                    </span>
+                    <span className="LocationControl-workspacePickerPath">
+                      {candidate.workspaceRoot}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

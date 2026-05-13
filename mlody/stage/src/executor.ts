@@ -22,10 +22,16 @@ export const serverExecutor: Executor = {
   async run(
     commandLine: string,
     currentUserName: string,
+    workspaceRoot: string | null,
     onChunk: OutputCallback,
   ): Promise<ExecutionResultStatus> {
     const { command, input } = splitCommandInput(commandLine);
-    const response = await executeStageCommand(command, input, currentUserName);
+    const response = await executeStageCommand(
+      command,
+      input,
+      currentUserName,
+      workspaceRoot,
+    );
     onChunk({ kind: "stage-json", value: response });
 
     return "done";
@@ -36,6 +42,7 @@ export const stubExecutor: Executor = {
   async run(
     command: string,
     _currentUserName: string,
+    _workspaceRoot: string | null,
     onChunk: OutputCallback,
   ): Promise<ExecutionResultStatus> {
     onChunk({

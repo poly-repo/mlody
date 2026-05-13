@@ -127,6 +127,7 @@ export interface CommandSubmission {
   command: string;
   input: string;
   currentUserName: string;
+  workspace: WorkspaceSummary | null;
 }
 
 /** Represents one submitted command and its execution state. */
@@ -149,6 +150,7 @@ export interface Executor {
   run(
     command: string,
     currentUserName: string,
+    workspaceRoot: string | null,
     onChunk: OutputCallback,
   ): Promise<ExecutionResultStatus>;
 }
