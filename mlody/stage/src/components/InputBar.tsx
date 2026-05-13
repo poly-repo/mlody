@@ -17,6 +17,7 @@ import type {
   LocationCrumb,
   UserSummary,
   WorkspaceSummary,
+  WorkspaceUser,
 } from "../types.js";
 import { CommandInputEditor } from "./CommandInputEditor.js";
 import { InputToolbar } from "./InputToolbar.js";
@@ -29,8 +30,11 @@ interface InputBarProps {
   topdir: string;
   workspace: WorkspaceSummary | null;
   showLocation: boolean;
+  availableUsers: WorkspaceUser[];
+  currentUserName: string;
   currentUser: UserSummary;
   onCommandChange: (command: string) => void;
+  onCurrentUserChange: (name: string) => void;
   onSubmit: (submission: CommandSubmission) => void;
   disabled?: boolean;
 }
@@ -62,8 +66,11 @@ export function InputBar({
   topdir,
   workspace,
   showLocation,
+  availableUsers,
+  currentUserName,
   currentUser,
   onCommandChange,
+  onCurrentUserChange,
   onSubmit,
   disabled = false,
 }: InputBarProps) {
@@ -367,8 +374,11 @@ export function InputBar({
         topdir={topdir}
         workspace={workspace}
         showLocation={showLocation}
+        availableUsers={availableUsers}
+        currentUserName={currentUserName}
         currentUser={currentUser}
         onCommandChange={onCommandChange}
+        onCurrentUserChange={onCurrentUserChange}
       />
       <div className="CommandShell-entry">
         <div className="CommandShell-gutter" aria-hidden="true">

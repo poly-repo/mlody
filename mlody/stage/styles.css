@@ -761,6 +761,14 @@ textarea {
   justify-self: end;
 }
 
+.CommandToolbar-userMenu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+
 .CommandToolbar-select {
   width: 100%;
 }
@@ -1114,6 +1122,9 @@ textarea {
   align-items: center;
   justify-content: center;
   overflow: visible;
+  border: 0;
+  background: transparent;
+  padding: 0;
   outline: none;
   border-radius: 999px;
   transition: transform 120ms ease;
@@ -1165,15 +1176,19 @@ textarea {
 
 .CommandToolbar-userCard:hover,
 .CommandToolbar-userCard:focus-visible,
-.CommandToolbar-userCard:focus-within {
+.CommandToolbar-userMenu:focus-within .CommandToolbar-userCard {
   transform: translateY(-1px);
 }
 
-.CommandToolbar-userCard:hover .CommandToolbar-userPopup,
-.CommandToolbar-userCard:focus-visible .CommandToolbar-userPopup,
-.CommandToolbar-userCard:focus-within .CommandToolbar-userPopup {
+.CommandToolbar-userMenu:hover .CommandToolbar-userPopup,
+.CommandToolbar-userMenu:focus-within .CommandToolbar-userPopup {
   opacity: 1;
   transform: translateY(0);
+}
+
+.CommandToolbar-userMenu[data-picker-open="true"] .CommandToolbar-userPopup {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 .CommandToolbar-userName {
@@ -1185,6 +1200,133 @@ textarea {
 .CommandToolbar-userRole {
   color: var(--stage-ink-soft);
   font-size: 0.76rem;
+}
+
+.CommandToolbar-userPicker {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  z-index: 30;
+  display: flex;
+  width: min(42rem, calc(100vw - 2.5rem));
+  max-width: calc(100vw - 2.5rem);
+  max-height: min(32rem, calc(100vh - 2rem));
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid rgba(120, 138, 174, 0.24);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 254, 0.96)),
+    radial-gradient(circle at top right, rgba(77, 103, 217, 0.1), transparent 42%);
+  box-shadow: 0 18px 36px rgba(49, 60, 90, 0.18);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 16px 16px;
+  backdrop-filter: blur(20px);
+}
+
+.CommandToolbar-userPickerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.CommandToolbar-userPickerEyebrow {
+  color: var(--stage-ink-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.CommandToolbar-userPickerCurrent {
+  color: var(--stage-primary);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.CommandToolbar-userPickerRows {
+  display: grid;
+  gap: 12px;
+}
+
+.CommandToolbar-userPickerRow {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.CommandToolbar-userPickerTeam {
+  padding-top: 7px;
+  color: var(--stage-ink-soft);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.CommandToolbar-userPickerUsers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+}
+
+.CommandToolbar-userPickerChoice {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 5.75rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  padding: 8px 6px;
+  text-align: center;
+  transition:
+    background-color 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.CommandToolbar-userPickerChoice:hover,
+.CommandToolbar-userPickerChoice:focus-visible {
+  background: rgba(77, 103, 217, 0.08);
+  transform: translateY(-1px);
+}
+
+.CommandToolbar-userPickerChoice[data-selected="true"] {
+  background: rgba(77, 103, 217, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(77, 103, 217, 0.18);
+}
+
+.CommandToolbar-userPickerChoice[data-admin="true"] .CommandToolbar-userPickerLabel {
+  color: #1f2738;
+}
+
+.CommandToolbar-userPickerAvatar.UiAvatar--default {
+  width: 42px;
+  height: 42px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.82);
+}
+
+.CommandToolbar-userPickerLabel {
+  color: rgba(57, 70, 93, 0.88);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.CommandToolbar-userPickerEmpty {
+  margin: 0;
+  color: var(--stage-ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.5;
 }
 
 .CommandShell-entry {
@@ -1713,6 +1855,20 @@ textarea {
     right: 0;
   }
 
+  .CommandToolbar-userPicker {
+    right: 0;
+    width: min(34rem, calc(100vw - 1.5rem));
+  }
+
+  .CommandToolbar-userPickerRow {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .CommandToolbar-userPickerTeam {
+    padding-top: 0;
+  }
+
   .CommandShell-entry {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -1738,6 +1894,12 @@ textarea {
 
   .CommandToolbar {
     padding: 10px 12px;
+  }
+
+  .CommandToolbar-userPicker {
+    right: -2px;
+    width: min(30rem, calc(100vw - 1rem));
+    padding: 12px;
   }
 
   .CommandShell-entry {

@@ -54,12 +54,6 @@ const DEFAULT_CURRENT_USER = "mav";
 const LOCATION_COMMANDS = new Set(["show"]);
 const INITIAL_TOPDIR = "";
 
-const FALLBACK_USER: UserSummary = {
-  name: DEFAULT_CURRENT_USER,
-  role: "Workspace user",
-  initials: "MV",
-};
-
 function createExecutionId(): string {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -97,9 +91,17 @@ function formatUserRole(user: WorkspaceUser): string {
   return `${username} · ${groups.join(", ")}`;
 }
 
-function toUserSummary(user: WorkspaceUser | null): UserSummary {
+function buildFallbackUser(name: string): UserSummary {
+  return {
+    name,
+    role: "Workspace user",
+    initials: buildInitials(name),
+  };
+}
+
+function toUserSummary(user: WorkspaceUser | null, fallbackName: string): UserSummary {
   if (user === null) {
-    return FALLBACK_USER;
+    return buildFallbackUser(fallbackName);
   }
 
   const displayName = user.description?.trim() || user.name;
@@ -161,7 +163,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
   const [location] = useState<LocationCrumb[]>(INITIAL_LOCATION);
   const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(null);
   const [availableUsers, setAvailableUsers] = useState<WorkspaceUser[]>([]);
-  const [currentUserName] = useState(DEFAULT_CURRENT_USER);
+  const [currentUserName, setCurrentUserName] = useState(DEFAULT_CURRENT_USER);
   const [primedHistoryEntries, setPrimedHistoryEntries] = useState<
     CommandHistoryEntry[] | null
   >(null);
@@ -223,7 +225,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
 
   const currentWorkspaceUser =
     availableUsers.find((user) => user.name === currentUserName) ?? null;
-  const currentUser = toUserSummary(currentWorkspaceUser);
+  const currentUser = toUserSummary(currentWorkspaceUser, currentUserName);
   const showLocation = LOCATION_COMMANDS.has(currentCommand);
   const topdir = getWorkspaceTopdir(workspace);
 
@@ -288,9 +290,12 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
         topdir={topdir}
         workspace={workspace}
         showLocation={showLocation}
+        availableUsers={availableUsers}
+        currentUserName={currentUserName}
         currentUser={currentUser}
         primedHistoryEntries={primedHistoryEntries}
         onCommandChange={setCurrentCommand}
+        onCurrentUserChange={setCurrentUserName}
         onSubmit={handleSubmit}
         disabled={serverStatus === "connecting"}
       />
