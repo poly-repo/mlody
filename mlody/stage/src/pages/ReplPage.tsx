@@ -1,3 +1,4 @@
+import type { CommandHistoryEntry } from "../commandHistory.js";
 import { useEffect, useState } from "react";
 import { InputBar } from "../components/InputBar.js";
 import { Layout } from "../components/Layout.js";
@@ -161,6 +162,9 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
   const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(null);
   const [availableUsers, setAvailableUsers] = useState<WorkspaceUser[]>([]);
   const [currentUserName] = useState(DEFAULT_CURRENT_USER);
+  const [primedHistoryEntries, setPrimedHistoryEntries] = useState<
+    CommandHistoryEntry[] | null
+  >(null);
   const [serverStatus, setServerStatus] = useState<ServerStatus>("connecting");
   const [admonitions, setAdmonitions] = useState<SystemAdmonition[]>([
     {
@@ -181,6 +185,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
         if (!active) return;
         setWorkspace(payload.workspace);
         setAvailableUsers(payload.users);
+        setPrimedHistoryEntries(payload.history);
         setServerStatus("connected");
         setAdmonitions([buildServerConnectedAdmonition(payload.health)]);
       })
@@ -192,6 +197,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
             : "Unable to reach the mlody server.";
         setWorkspace(null);
         setAvailableUsers([]);
+        setPrimedHistoryEntries(null);
         setServerStatus("unavailable");
         setAdmonitions([
           {
@@ -283,6 +289,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
         workspace={workspace}
         showLocation={showLocation}
         currentUser={currentUser}
+        primedHistoryEntries={primedHistoryEntries}
         onCommandChange={setCurrentCommand}
         onSubmit={handleSubmit}
         disabled={serverStatus === "connecting"}

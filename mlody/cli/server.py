@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import logging
 import shlex
@@ -130,6 +131,10 @@ def _completion_status(*, result_count: int, error_count: int) -> str:
     if result_count > 0:
         return "partial_error"
     return "error"
+
+
+def _history_file_path() -> Path:
+    return Path.home() / ".cache" / "mlody" / "history.json"
 
 
 def _read_string_option(
@@ -432,6 +437,147 @@ def _workspace_summary_payload(config: ServerConfig, workspace: object) -> dict[
         "rootInfos": _serialize_root_infos(workspace),
         "context": _serialize_workspace_context(workspace),
     }
+
+
+def _default_workspace_summary_payload(config: ServerConfig) -> dict[str, object]:
+    return {
+        "monorepoRoot": str(config.monorepo_root),
+        "workspaceRoot": str(config.workspace_root),
+        "rootsFile": str(config.roots) if config.roots is not None else None,
+        "fullWorkspace": config.full_workspace,
+        "info": None,
+        "rootInfos": [],
+        "context": {},
+    }
+
+
+def _command_history_input_text(request: ServerCommandRequest) -> str:
+    if request.input_text.strip():
+        return request.input_text.strip()
+    return " ".join(argument.strip() for argument in request.arguments if argument.strip())
+
+
+def _extract_next_history_segment(
+    value: str,
+) -> tuple[list[str], str] | None:
+    if value == "...":
+        return ["..."], ""
+
+    if value.startswith("...//"):
+        return ["..."], value[5:]
+
+    if value.startswith(".../"):
+        return ["..."], value[4:]
+
+    if value.startswith("...:"):
+        return ["...:"], value[4:]
+
+    if not value:
+        return None
+
+    index = 0
+    if value.startswith("@"):
+        index = 1
+
+    while index < len(value):
+        character = value[index]
+        if character.isalnum() or character in {"_", "-"}:
+            index += 1
+            continue
+        break
+
+    if index == 0 or (value.startswith("@") and index == 1):
+        return None
+
+    promoted_segment = value[:index]
+    rest = value[index:]
+
+    if rest.startswith("//"):
+        return [promoted_segment], rest[2:]
+
+    if rest.startswith("/"):
+        return [promoted_segment], rest[1:]
+
+    if rest.startswith(":"):
+        return [f"{promoted_segment}:"], rest[1:]
+
+    if rest.startswith("."):
+        return [promoted_segment], rest
+
+    return None
+
+
+def _history_prompt_and_breadcrumb(
+    request: ServerCommandRequest,
+) -> tuple[list[str], str]:
+    input_text = _command_history_input_text(request)
+    if request.command != "show" or len(request.arguments) != 1:
+        return [], input_text
+
+    remainder = input_text
+    if remainder.startswith("//"):
+        remainder = remainder[2:]
+
+    breadcrumb: list[str] = []
+    while True:
+        split_result = _extract_next_history_segment(remainder)
+        if split_result is None:
+            break
+        promoted_segments, remainder = split_result
+        breadcrumb.extend(promoted_segments)
+
+    return breadcrumb, remainder
+
+
+def _load_history_entries(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        _logger.exception("Failed to read command history from %s", path)
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    return [entry for entry in payload if isinstance(entry, dict)]
+
+
+def _append_history_entry(config: ServerConfig, request: ServerCommandRequest) -> None:
+    history_path = _history_file_path()
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        workspace = _current_baseline_workspace(config)
+        workspace_payload = _workspace_summary_payload(config, workspace)
+    except Exception:  # noqa: BLE001
+        _logger.exception("Failed to load workspace summary for command history")
+        workspace_payload = _default_workspace_summary_payload(config)
+
+    breadcrumb, prompt = _history_prompt_and_breadcrumb(request)
+    entries = _load_history_entries(history_path)
+    entries.append(
+        {
+            "id": uuid.uuid4().hex,
+            "createdAt": datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+            "command": request.command,
+            "prompt": prompt,
+            "breadcrumb": breadcrumb,
+            "workspace": workspace_payload,
+        }
+    )
+    history_path.write_text(json.dumps(entries), encoding="utf-8")
+
+
+def _record_history_entry(config: ServerConfig, request: ServerCommandRequest) -> None:
+    try:
+        _append_history_entry(config, request)
+    except Exception:  # noqa: BLE001
+        _logger.exception("Failed to persist command history")
 
 
 def _stage_json_result(
@@ -1132,6 +1278,20 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                 )
             return
 
+        if path == "/api/history":
+            try:
+                self._write_json_response(
+                    HTTPStatus.OK,
+                    _load_history_entries(_history_file_path()),
+                )
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Failed to load command history API payload")
+                self._write_json_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": str(exc)},
+                )
+            return
+
         self._write_json_response(
             HTTPStatus.NOT_FOUND,
             {"error": f"Unknown endpoint: {path}"},
@@ -1149,6 +1309,7 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/execute/verbatim":
             try:
                 request = parse_verbatim_command_request(payload)
+                _record_history_entry(self.server.server_config, request)
                 response = execute_verbatim_command_response(
                     self.server.server_config,
                     request,
@@ -1167,6 +1328,7 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/execute/stage":
             try:
                 request = parse_verbatim_command_request(payload)
+                _record_history_entry(self.server.server_config, request)
                 response = execute_stage_command_response(
                     self.server.server_config,
                     request,
@@ -1189,6 +1351,7 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/execute":
+            _record_history_entry(self.server.server_config, request)
             response = collect_command_response(
                 self.server.server_config,
                 request,
@@ -1198,6 +1361,7 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/execute/stream":
+            _record_history_entry(self.server.server_config, request)
             self._write_ndjson_response(
                 self.server.event_source(self.server.server_config, request)
             )

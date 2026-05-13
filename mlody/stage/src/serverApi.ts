@@ -1,3 +1,4 @@
+import type { CommandHistoryEntry } from "./commandHistory.js";
 import type {
   ServerHealthStatus,
   StageResultPayload,
@@ -12,6 +13,7 @@ export interface StageBootstrapPayload {
   health: ServerHealthStatus;
   users: WorkspaceUser[];
   workspace: WorkspaceSummary;
+  history: CommandHistoryEntry[];
 }
 
 export function resolveServerBaseUrl(): string {
@@ -120,13 +122,15 @@ export async function fetchStageBootstrap(
     throw new Error("Server health check did not report ok");
   }
 
-  const [usersPayload, workspace] = await Promise.all([
+  const [usersPayload, workspace, history] = await Promise.all([
     fetchJson<unknown[]>("/api/users", signal),
     fetchJson<WorkspaceSummary>("/api/workspace", signal),
+    fetchJson<CommandHistoryEntry[]>("/api/history", signal).catch(() => []),
   ]);
 
   return {
     health,
+    history,
     users: usersPayload
       .map(normalizeUser)
       .filter((user): user is WorkspaceUser => user !== null),

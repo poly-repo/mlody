@@ -14,6 +14,8 @@ import pytest
 from mlody.cli.server import (
     MlodyApiRequestHandler,
     ServerConfig,
+    ServerCommandRequest,
+    _history_prompt_and_breadcrumb,
     _stage_json_data,
     collect_command_response,
     create_http_server,
@@ -304,6 +306,36 @@ class TestStageJsonData:
         assert payload["base64"] == "iVBORw0KGgpmYWtl"
 
 
+class TestCommandHistoryParsing:
+    def test_splits_remote_show_input_into_breadcrumb_and_prompt(self) -> None:
+        breadcrumb, prompt = _history_prompt_and_breadcrumb(
+            ServerCommandRequest(
+                request_id="req-1",
+                command="show",
+                arguments=("@pixelle//datasets:celebA-dataset.train",),
+                options={},
+                input_text="@pixelle//datasets:celebA-dataset.train",
+            )
+        )
+
+        assert breadcrumb == ["@pixelle", "datasets:", "celebA-dataset"]
+        assert prompt == ".train"
+
+    def test_splits_absolute_show_input_into_breadcrumb_and_prompt(self) -> None:
+        breadcrumb, prompt = _history_prompt_and_breadcrumb(
+            ServerCommandRequest(
+                request_id="req-2",
+                command="show",
+                arguments=("//projects/omega.summary",),
+                options={},
+                input_text="//projects/omega.summary",
+            )
+        )
+
+        assert breadcrumb == ["projects", "omega"]
+        assert prompt == ".summary"
+
+
 class TestHttpApi:
     def test_healthz_reports_http_and_lsp_endpoints(self, tmp_path: Path) -> None:
         http_server = create_http_server(_server_config(tmp_path))
@@ -482,6 +514,74 @@ class TestHttpApi:
             http_server.server_close()
             server_thread.join(timeout=5)
 
+    def test_stage_execute_endpoint_appends_command_history(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        history_path = tmp_path / ".cache" / "mlody" / "history.json"
+        fake_workspace = SimpleNamespace(
+            info=SimpleNamespace(
+                path=str(tmp_path),
+                branch="main",
+                sha="abc123",
+                roots=["pixelle"],
+            ),
+            root_infos={},
+            evaluator=SimpleNamespace(_extra_ctx=SimpleNamespace()),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._history_file_path",
+            lambda: history_path,
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._current_baseline_workspace",
+            lambda _config: fake_workspace,
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.execute_stage_command_response",
+            lambda _config, _request: {
+                "kind": "result",
+                "view": {"type": "json", "title": "Stub"},
+                "data": {"ok": True},
+            },
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{http_server.server_port}/api/execute/stage",
+                data=json.dumps(
+                    {
+                        "command": "show",
+                        "input": "@pixelle//datasets:celebA-dataset.train",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request, timeout=5):
+                pass
+
+            payload = json.loads(history_path.read_text(encoding="utf-8"))
+
+            assert len(payload) == 1
+            assert payload[0]["command"] == "show"
+            assert payload[0]["prompt"] == ".train"
+            assert payload[0]["breadcrumb"] == [
+                "@pixelle",
+                "datasets:",
+                "celebA-dataset",
+            ]
+            assert payload[0]["workspace"]["info"]["sha"] == "abc123"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
     def test_users_endpoint_returns_registered_users(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         fake_workspace = SimpleNamespace(
             evaluator=SimpleNamespace(
@@ -524,6 +624,51 @@ class TestHttpApi:
             assert [item["name"] for item in payload] == ["alex", "maya"]
             assert payload[0]["description"] == "Alex Rivera"
             assert payload[1]["groups"] == ["operator", "admin"]
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_history_endpoint_returns_persisted_entries(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        history_path = tmp_path / ".cache" / "mlody" / "history.json"
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        history_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": "history-1",
+                        "createdAt": "2026-05-13T12:00:00Z",
+                        "command": "show",
+                        "prompt": ".summary",
+                        "breadcrumb": ["projects", "omega"],
+                        "workspace": {"workspaceRoot": str(tmp_path)},
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._history_file_path",
+            lambda: history_path,
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{http_server.server_port}/api/history",
+                timeout=5,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            assert payload[0]["id"] == "history-1"
+            assert payload[0]["breadcrumb"] == ["projects", "omega"]
         finally:
             http_server.shutdown()
             http_server.server_close()

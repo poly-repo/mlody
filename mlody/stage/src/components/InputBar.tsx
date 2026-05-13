@@ -25,6 +25,7 @@ interface InputBarProps {
   commandOptions: CommandOption[];
   currentCommand: string;
   location: LocationCrumb[];
+  primedHistoryEntries: CommandHistoryEntry[] | null;
   topdir: string;
   workspace: WorkspaceSummary | null;
   showLocation: boolean;
@@ -57,6 +58,7 @@ export function InputBar({
   commandOptions,
   currentCommand,
   location,
+  primedHistoryEntries,
   topdir,
   workspace,
   showLocation,
@@ -80,6 +82,17 @@ export function InputBar({
   useEffect(() => {
     saveCommandHistory(historyEntries);
   }, [historyEntries]);
+
+  useEffect(() => {
+    if (primedHistoryEntries === null) {
+      return;
+    }
+
+    setHistoryEntries(primedHistoryEntries);
+    setHistoryCursor(null);
+    setHistoryDraft(null);
+    setHistorySearch(null);
+  }, [primedHistoryEntries]);
 
   const locationWithDraftSegments =
     promotedSegments.length === 0
