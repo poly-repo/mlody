@@ -21,10 +21,11 @@ function splitCommandInput(commandLine: string): {
 export const serverExecutor: Executor = {
   async run(
     commandLine: string,
+    currentUserName: string,
     onChunk: OutputCallback,
   ): Promise<ExecutionResultStatus> {
     const { command, input } = splitCommandInput(commandLine);
-    const response = await executeStageCommand(command, input);
+    const response = await executeStageCommand(command, input, currentUserName);
     onChunk({ kind: "stage-json", value: response });
 
     return "done";
@@ -32,7 +33,11 @@ export const serverExecutor: Executor = {
 };
 
 export const stubExecutor: Executor = {
-  async run(command: string, onChunk: OutputCallback): Promise<ExecutionResultStatus> {
+  async run(
+    command: string,
+    _currentUserName: string,
+    onChunk: OutputCallback,
+  ): Promise<ExecutionResultStatus> {
     onChunk({
       kind: "stage-json",
       value: {

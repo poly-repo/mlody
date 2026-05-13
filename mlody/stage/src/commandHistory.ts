@@ -7,6 +7,7 @@ export interface CommandHistorySnapshot {
   command: string;
   value: string;
   promotedSegments: string[];
+  currentUserName?: string;
 }
 
 export interface CommandHistoryEntry {
@@ -15,6 +16,7 @@ export interface CommandHistoryEntry {
   command: string;
   prompt: string;
   breadcrumb: string[];
+  currentUserName?: string;
   workspace: WorkspaceSummary | null;
 }
 
@@ -107,6 +109,7 @@ function areEntriesEquivalent(
   return (
     left.command === right.command &&
     left.prompt === right.prompt &&
+    left.currentUserName === right.currentUserName &&
     left.breadcrumb.length === right.breadcrumb.length &&
     left.breadcrumb.every((segment, index) => segment === right.breadcrumb[index]) &&
     JSON.stringify(left.workspace) === JSON.stringify(right.workspace)
@@ -143,7 +146,9 @@ export function loadCommandHistory(): CommandHistoryEntry[] {
         typeof entry === "object" &&
         typeof entry.command === "string" &&
         typeof entry.prompt === "string" &&
-        Array.isArray(entry.breadcrumb)
+        Array.isArray(entry.breadcrumb) &&
+        (entry.currentUserName === undefined ||
+          typeof entry.currentUserName === "string")
       );
     });
   } catch {
@@ -173,6 +178,7 @@ export function appendCommandHistoryEntry(
     command: snapshot.command,
     prompt: snapshot.value,
     breadcrumb: [...snapshot.promotedSegments],
+    currentUserName: snapshot.currentUserName,
     workspace: cloneWorkspaceSummary(workspace),
   };
 
@@ -192,6 +198,7 @@ export function toHistorySnapshot(
     command: entry.command,
     value: entry.prompt,
     promotedSegments: [...entry.breadcrumb],
+    currentUserName: entry.currentUserName,
   };
 }
 

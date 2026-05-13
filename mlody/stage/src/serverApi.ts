@@ -150,9 +150,13 @@ export function createServerBootstrapController(): {
 export async function executeStageCommand(
   command: string,
   input: string,
+  currentUserName: string,
 ): Promise<StageResultPayload> {
   return await postJson<StageResultPayload>("/api/execute/stage", {
     command,
     input,
+    options: {
+      runAs: currentUserName,
+    },
   });
 }

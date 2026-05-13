@@ -229,7 +229,11 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
   const showLocation = LOCATION_COMMANDS.has(currentCommand);
   const topdir = getWorkspaceTopdir(workspace);
 
-  const handleSubmit = ({ command, input }: CommandSubmission) => {
+  const handleSubmit = ({
+    command,
+    input,
+    currentUserName: submittedUserName,
+  }: CommandSubmission) => {
     const combinedCommand = [command, input].filter(Boolean).join(" ").trim();
     if (combinedCommand === "") return;
 
@@ -245,7 +249,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
 
     void Promise.resolve()
       .then(() =>
-        executor.run(combinedCommand, (chunk) => {
+        executor.run(combinedCommand, submittedUserName, (chunk) => {
           setExecutions((prev) =>
             prev.map((r) =>
               r.id === record.id ? { ...r, output: [...r.output, chunk] } : r,

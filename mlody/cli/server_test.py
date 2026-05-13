@@ -175,6 +175,7 @@ class TestExecuteVerbatimCommandResponse:
             {
                 "command": "show",
                 "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                "options": {"runAs": "agarcia"},
             }
         )
         response = execute_verbatim_command_response(_server_config(tmp_path), request)
@@ -182,7 +183,7 @@ class TestExecuteVerbatimCommandResponse:
         assert captured["args"] == [
             "show",
             "--as",
-            "mav",
+            "agarcia",
             "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
         ]
         assert captured["obj"] == {
@@ -232,13 +233,14 @@ class TestExecuteStageCommandResponse:
             {
                 "command": "show",
                 "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                "options": {"runAs": "agarcia"},
             }
         )
         response = execute_stage_command_response(_server_config(tmp_path), request)
 
         assert captured["target"] == "@pixelle//datasets:celebA-dataset.train[@sql limit 2]"
         assert captured["workspace_root"] == tmp_path
-        assert captured["user"] == "mav"
+        assert captured["user"] == "agarcia"
         assert response["kind"] == "result"
         assert response["view"]["type"] == "json"
         assert response["data"]["kind"] == "folder"
@@ -558,6 +560,7 @@ class TestHttpApi:
                     {
                         "command": "show",
                         "input": "@pixelle//datasets:celebA-dataset.train",
+                        "options": {"runAs": "agarcia"},
                     }
                 ).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
@@ -576,6 +579,7 @@ class TestHttpApi:
                 "datasets:",
                 "celebA-dataset",
             ]
+            assert payload[0]["currentUserName"] == "agarcia"
             assert payload[0]["workspace"]["info"]["sha"] == "abc123"
         finally:
             http_server.shutdown()
@@ -645,6 +649,7 @@ class TestHttpApi:
                         "command": "show",
                         "prompt": ".summary",
                         "breadcrumb": ["projects", "omega"],
+                        "currentUserName": "mav",
                         "workspace": {"workspaceRoot": str(tmp_path)},
                     }
                 ]
@@ -669,6 +674,7 @@ class TestHttpApi:
 
             assert payload[0]["id"] == "history-1"
             assert payload[0]["breadcrumb"] == ["projects", "omega"]
+            assert payload[0]["currentUserName"] == "mav"
         finally:
             http_server.shutdown()
             http_server.server_close()

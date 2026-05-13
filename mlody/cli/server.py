@@ -457,6 +457,10 @@ def _command_history_input_text(request: ServerCommandRequest) -> str:
     return " ".join(argument.strip() for argument in request.arguments if argument.strip())
 
 
+def _request_run_as(request: ServerCommandRequest) -> str:
+    return _read_string_option(request.options, "runAs", "run_as", default="mav")
+
+
 def _extract_next_history_segment(
     value: str,
 ) -> tuple[list[str], str] | None:
@@ -557,6 +561,7 @@ def _append_history_entry(config: ServerConfig, request: ServerCommandRequest) -
         workspace_payload = _default_workspace_summary_payload(config)
 
     breadcrumb, prompt = _history_prompt_and_breadcrumb(request)
+    current_user_name = _request_run_as(request)
     entries = _load_history_entries(history_path)
     entries.append(
         {
@@ -567,6 +572,7 @@ def _append_history_entry(config: ServerConfig, request: ServerCommandRequest) -
             "command": request.command,
             "prompt": prompt,
             "breadcrumb": breadcrumb,
+            "currentUserName": current_user_name,
             "workspace": workspace_payload,
         }
     )
@@ -959,9 +965,7 @@ def _execute_show_command(
     request: ServerCommandRequest,
 ) -> Iterator[CommandEvent]:
     config_overrides = _read_string_list_option(request.options, "config", "with")
-    run_as = _read_string_option(
-        request.options, "runAs", "run_as", default="mav"
-    )
+    run_as = _request_run_as(request)
 
     for target in request.arguments:
         yield _event(
@@ -1108,7 +1112,7 @@ def execute_verbatim_command_response(
     from mlody.cli.main import cli as root_cli
 
     config_overrides = _read_string_list_option(request.options, "config", "with")
-    run_as = _read_string_option(request.options, "runAs", "run_as", default="mav")
+    run_as = _request_run_as(request)
 
     cli_args: list[str] = []
     if config.verbose:
@@ -1152,7 +1156,7 @@ def execute_stage_command_response(
         raise ServerRequestError(f"Unsupported command: {request.command}")
 
     config_overrides = _read_string_list_option(request.options, "config", "with")
-    run_as = _read_string_option(request.options, "runAs", "run_as", default="mav")
+    run_as = _request_run_as(request)
     target = request.arguments[0]
 
     workspace, _resolved_sha = resolve_workspace(

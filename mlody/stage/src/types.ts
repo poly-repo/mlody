@@ -126,6 +126,7 @@ export interface SystemAdmonition {
 export interface CommandSubmission {
   command: string;
   input: string;
+  currentUserName: string;
 }
 
 /** Represents one submitted command and its execution state. */
@@ -145,5 +146,9 @@ export type ExecutionResultStatus = "done" | "error";
 
 /** The executor abstraction — swap stub for real backend without touching UI */
 export interface Executor {
-  run(command: string, onChunk: OutputCallback): Promise<ExecutionResultStatus>;
+  run(
+    command: string,
+    currentUserName: string,
+    onChunk: OutputCallback,
+  ): Promise<ExecutionResultStatus>;
 }

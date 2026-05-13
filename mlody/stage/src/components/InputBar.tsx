@@ -50,11 +50,13 @@ function createCommandSnapshot(
   command: string,
   value: string,
   promotedSegments: string[],
+  currentUserName: string,
 ): CommandHistorySnapshot {
   return {
     command,
     value,
     promotedSegments: [...promotedSegments],
+    currentUserName,
   };
 }
 
@@ -127,7 +129,12 @@ export function InputBar({
       : null;
 
   function currentSnapshot(): CommandHistorySnapshot {
-    return createCommandSnapshot(currentCommand, value, promotedSegments);
+    return createCommandSnapshot(
+      currentCommand,
+      value,
+      promotedSegments,
+      currentUserName,
+    );
   }
 
   function applySnapshot(snapshot: CommandHistorySnapshot) {
@@ -136,6 +143,13 @@ export function InputBar({
 
     if (snapshot.command !== currentCommand) {
       onCommandChange(snapshot.command);
+    }
+
+    if (
+      snapshot.currentUserName &&
+      snapshot.currentUserName !== currentUserName
+    ) {
+      onCurrentUserChange(snapshot.currentUserName);
     }
   }
 
@@ -346,6 +360,7 @@ export function InputBar({
       currentCommand,
       snapshot.value,
       snapshot.promotedSegments,
+      currentUserName,
     );
     const combinedInput = buildCommandInput(
       currentCommand,
@@ -361,7 +376,11 @@ export function InputBar({
       setPromotedSegments([]);
       setHistorySearch(null);
       resetHistoryNavigation();
-      onSubmit({ command: currentCommand, input: combinedInput });
+      onSubmit({
+        command: currentCommand,
+        input: combinedInput,
+        currentUserName,
+      });
     }
   }
 
