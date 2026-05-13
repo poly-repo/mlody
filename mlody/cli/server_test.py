@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+from common.python.starlarkish.core.struct import Struct
 from mlody.cli.autocomplete import StageAutocompleteRequest
 from mlody.cli.server import (
     MlodyApiRequestHandler,
@@ -74,7 +75,7 @@ def _autocomplete_workspace(tmp_path: Path) -> tuple[SimpleNamespace, Path]:
             [
                 (("task", "sandboxes/exp1/projects", "omega"), object()),
                 (("task", "sandboxes/exp1/projects", "orbit"), object()),
-                (("task", "sandboxes/exp1/projects/reports", "sales"), object()),
+                (("task", "sandboxes/exp1/folders/reports", "sales"), object()),
                 (("task", "mlody/teams/pixelle/datasets", "celebA-dataset"), object()),
                 (("task", "mlody/teams/pixelle/datasets", "imagenet"), object()),
             ]
@@ -251,9 +252,31 @@ class TestStageAutocompleteResponse:
             ),
         )
 
-        assert response["completions"] == ["pixelle"]
+        assert response["completions"] == [{"label": "pixelle", "kind": "root"}]
 
-    def test_rootless_package_completion_uses_selected_workspace_prefix(
+    def test_rootless_package_completion_returns_folder_kind(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace, workspace_root = _autocomplete_workspace(tmp_path)
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            lambda _config, _workspace_root: workspace,
+        )
+
+        response = execute_stage_autocomplete_response(
+            _server_config(tmp_path),
+            StageAutocompleteRequest(
+                workspace_root=str(workspace_root),
+                breadcrumb=("//",),
+                prompt="fo",
+            ),
+        )
+
+        assert response["completions"] == [{"label": "folders", "kind": "folder"}]
+
+    def test_package_completion_returns_source_file_kind(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -273,7 +296,9 @@ class TestStageAutocompleteResponse:
             ),
         )
 
-        assert response["completions"] == ["projects"]
+        assert response["completions"] == [
+            {"label": "projects", "kind": "source_file"},
+        ]
 
     def test_target_completion_returns_matching_entity_names(
         self,
@@ -295,7 +320,10 @@ class TestStageAutocompleteResponse:
             ),
         )
 
-        assert response["completions"] == ["omega", "orbit"]
+        assert response["completions"] == [
+            {"label": "omega", "kind": "entity"},
+            {"label": "orbit", "kind": "entity"},
+        ]
 
     def test_field_completion_resolves_parent_label_and_lists_immediate_fields(
         self,
@@ -334,7 +362,10 @@ class TestStageAutocompleteResponse:
         )
 
         assert captured["label"] == "//projects:omega"
-        assert response["completions"] == ["name", "namespace"]
+        assert response["completions"] == [
+            {"label": "name", "kind": "field"},
+            {"label": "namespace", "kind": "field"},
+        ]
 
     def test_unsupported_syntax_returns_no_completions(
         self,
@@ -577,6 +608,54 @@ class TestExecuteStageCommandResponse:
             {"name": "Ada", "salary": 120000},
             {"name": "Grace", "salary": 135000},
         ]
+
+    def test_falls_back_to_json_when_value_has_no_tabular_source(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyValueValue(
+                struct=Struct(
+                    kind="value",
+                    name="a-string",
+                    data=("FOOBAR",),
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.source_from_value",
+            lambda _value: None,
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "//simple:a-string",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"]["type"] == "json"
+        assert response["view"]["title"] == "//simple:a-string"
+        assert response["data"] == {
+            "kind": "value",
+            "name": "a-string",
+            "data": ["FOOBAR"],
+        }
 
 
 class TestStageJsonData:
@@ -824,7 +903,7 @@ class TestHttpApi:
         monkeypatch.setattr(
             "mlody.cli.server.execute_stage_autocomplete_response",
             lambda _config, _request: {
-                "completions": ["pixelle"],
+                "completions": [{"label": "pixelle", "kind": "root"}],
                 "additionalData": {},
             },
         )
@@ -851,7 +930,10 @@ class TestHttpApi:
                 content_type = response.headers.get("Content-Type")
                 cors_origin = response.headers.get("Access-Control-Allow-Origin")
 
-            assert payload == {"completions": ["pixelle"], "additionalData": {}}
+            assert payload == {
+                "completions": [{"label": "pixelle", "kind": "root"}],
+                "additionalData": {},
+            }
             assert content_type == "application/json; charset=utf-8"
             assert cors_origin == "*"
         finally:

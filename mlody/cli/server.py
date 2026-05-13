@@ -934,6 +934,8 @@ def _stage_dispatched_result(
             tabular_source = source_from_value(display_payload)
         except ValueError:
             return None
+        if tabular_source is None:
+            return None
 
         try:
             preview = tabular_source.preview(50)

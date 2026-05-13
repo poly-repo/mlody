@@ -25,8 +25,20 @@ export interface StageResultPayload {
   data: unknown;
 }
 
+export type StageAutocompleteCompletionKind =
+  | "root"
+  | "folder"
+  | "source_file"
+  | "entity"
+  | "field";
+
+export interface StageAutocompleteCompletion {
+  label: string;
+  kind: StageAutocompleteCompletionKind;
+}
+
 export interface StageAutocompletePayload {
-  completions: string[];
+  completions: StageAutocompleteCompletion[];
   additionalData: Record<string, unknown>;
 }
 

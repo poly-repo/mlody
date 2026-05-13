@@ -28,6 +28,10 @@ import { Prec, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 import { fetchStageAutocomplete } from "../serverApi.js";
+import type {
+  StageAutocompleteCompletion,
+  StageAutocompleteCompletionKind,
+} from "../types.js";
 
 type CommandInputImplementation = "codemirror" | "textarea";
 
@@ -180,6 +184,43 @@ function analyzeAutocompleteRequest(
   }
 
   return null;
+}
+
+function autocompleteSuffixForKind(
+  kind: StageAutocompleteCompletionKind,
+): string {
+  switch (kind) {
+    case "root":
+      return "//";
+    case "folder":
+      return "/";
+    case "source_file":
+      return ":";
+    default:
+      return "";
+  }
+}
+
+function applyStageAutocompleteCompletion(
+  view: EditorView,
+  from: number,
+  to: number,
+  completion: StageAutocompleteCompletion,
+): void {
+  const suffix = autocompleteSuffixForKind(completion.kind);
+  view.dispatch({
+    changes: {
+      from,
+      to,
+      insert: `${completion.label}${suffix}`,
+    },
+  });
+
+  if (suffix !== "") {
+    queueMicrotask(() => {
+      startCompletion(view);
+    });
+  }
 }
 
 function extractNextPromotableSegment(
@@ -510,7 +551,12 @@ function CodeMirrorCommandInput({
 
     return {
       from: analysis.from,
-      options: response.completions.map((label) => ({ label })),
+      options: response.completions.map((completion) => ({
+        label: completion.label,
+        apply(view, _completion, from, to) {
+          applyStageAutocompleteCompletion(view, from, to, completion);
+        },
+      })),
       validFor: AUTOCOMPLETE_VALID_FOR,
     };
   };

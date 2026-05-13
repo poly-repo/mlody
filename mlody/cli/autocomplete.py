@@ -33,6 +33,12 @@ class StageAutocompleteRequest:
 
 
 @dataclass(frozen=True)
+class StageAutocompleteCompletion:
+    label: str
+    kind: str
+
+
+@dataclass(frozen=True)
 class _ParsedBreadcrumb:
     root: str | None
     has_scope_separator: bool
@@ -82,7 +88,7 @@ def stage_label_completions(
     workspace: object,
     breadcrumb: Sequence[str],
     prompt: str,
-) -> list[str]:
+) -> list[StageAutocompleteCompletion]:
     """Return stage label completion candidates for the current editor state."""
 
     context = _detect_completion_context(breadcrumb, prompt)
@@ -125,7 +131,10 @@ def stage_autocomplete_payload(
     """Build the JSON payload returned to the stage frontend."""
 
     return {
-        "completions": stage_label_completions(workspace, breadcrumb, prompt),
+        "completions": [
+            {"label": completion.label, "kind": completion.kind}
+            for completion in stage_label_completions(workspace, breadcrumb, prompt)
+        ],
         "additionalData": {},
     }
 
@@ -276,12 +285,15 @@ def _is_root_segment(value: str) -> bool:
     return value.startswith("@") and _is_identifier_prefix(value[1:]) and value != "@"
 
 
-def _root_completions(workspace: object, prefix: str) -> list[str]:
+def _root_completions(
+    workspace: object,
+    prefix: str,
+) -> list[StageAutocompleteCompletion]:
     root_infos = getattr(workspace, "root_infos", {})
     if not isinstance(root_infos, Mapping):
         return []
-    return _sorted_unique(
-        root_name
+    return _sorted_unique_completions(
+        StageAutocompleteCompletion(label=root_name, kind="root")
         for root_name in root_infos
         if isinstance(root_name, str) and root_name.startswith(prefix)
     )
@@ -293,8 +305,8 @@ def _package_completions(
     root: str | None,
     package_segments: Sequence[str],
     prefix: str,
-) -> list[str]:
-    suggestions: list[str] = []
+) -> list[StageAutocompleteCompletion]:
+    suggestions: dict[str, tuple[bool, bool]] = {}
     for rel_stem, _name in _iter_relative_registry_entries(workspace, root=root):
         rel_segments = _split_stem_segments(rel_stem)
         if len(rel_segments) <= len(package_segments):
@@ -303,8 +315,19 @@ def _package_completions(
             continue
         candidate = rel_segments[len(package_segments)]
         if candidate.startswith(prefix):
-            suggestions.append(candidate)
-    return _sorted_unique(suggestions)
+            has_source_file, has_children = suggestions.get(candidate, (False, False))
+            if len(rel_segments) == len(package_segments) + 1:
+                has_source_file = True
+            if len(rel_segments) > len(package_segments) + 1:
+                has_children = True
+            suggestions[candidate] = (has_source_file, has_children)
+    return _sorted_unique_completions(
+        StageAutocompleteCompletion(
+            label=label,
+            kind="folder" if has_children else "source_file",
+        )
+        for label, (_has_source_file, has_children) in suggestions.items()
+    )
 
 
 def _target_completions(
@@ -313,15 +336,15 @@ def _target_completions(
     root: str | None,
     package_segments: Sequence[str],
     prefix: str,
-) -> list[str]:
+) -> list[StageAutocompleteCompletion]:
     package_path = "/".join(package_segments)
-    suggestions: list[str] = []
+    suggestions: list[StageAutocompleteCompletion] = []
     for rel_stem, name in _iter_relative_registry_entries(workspace, root=root):
         if rel_stem != package_path:
             continue
         if name.startswith(prefix):
-            suggestions.append(name)
-    return _sorted_unique(suggestions)
+            suggestions.append(StageAutocompleteCompletion(label=name, kind="entity"))
+    return _sorted_unique_completions(suggestions)
 
 
 def _field_completions(
@@ -331,7 +354,7 @@ def _field_completions(
     package_segments: Sequence[str],
     entity_segments: Sequence[str],
     prefix: str,
-) -> list[str]:
+) -> list[StageAutocompleteCompletion]:
     parent_label = _render_entity_label(root, package_segments, entity_segments)
     try:
         parsed_label = parse_label(parent_label)
@@ -344,14 +367,14 @@ def _field_completions(
 
     structured = _unwrap_structured_value(resolved)
     if isinstance(structured, Struct):
-        return _sorted_unique(
-            name
+        return _sorted_unique_completions(
+            StageAutocompleteCompletion(label=name, kind="field")
             for name in structured.as_mapping()
             if isinstance(name, str) and name.startswith(prefix)
         )
     if isinstance(structured, Mapping):
-        return _sorted_unique(
-            str(name)
+        return _sorted_unique_completions(
+            StageAutocompleteCompletion(label=str(name), kind="field")
             for name in structured
             if isinstance(name, str) and name.startswith(prefix)
         )
@@ -477,3 +500,13 @@ def _render_entity_label(
 
 def _sorted_unique(values: Iterable[str]) -> list[str]:
     return sorted({value for value in values if value})
+
+
+def _sorted_unique_completions(
+    values: Iterable[StageAutocompleteCompletion],
+) -> list[StageAutocompleteCompletion]:
+    unique: dict[tuple[str, str], StageAutocompleteCompletion] = {}
+    for completion in values:
+        if completion.label:
+            unique[(completion.label, completion.kind)] = completion
+    return [unique[key] for key in sorted(unique, key=lambda item: (item[0], item[1]))]
