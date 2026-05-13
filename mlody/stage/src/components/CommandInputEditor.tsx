@@ -30,12 +30,22 @@ const COMMAND_INPUT_IMPLEMENTATION: CommandInputImplementation = "codemirror";
 interface CommandInputEditorProps {
   value: string;
   promotedSegments: string[];
+  historySearchActive: boolean;
   disabled?: boolean;
   placeholder: string;
   onChange: (value: string) => void;
   onPromotedSegmentsChange: (segments: string[]) => void;
   onSubmit: (snapshot: CommandInputSnapshot) => void;
   onAutocompleteRequest: () => void;
+  onHistoryPrevious: () => boolean;
+  onHistoryNext: () => boolean;
+  onHistorySearchRequest: () => boolean;
+  onHistorySearchBackspace: () => boolean;
+  onHistorySearchAccept: () => boolean;
+  onHistorySearchCancel: () => boolean;
+  onHistorySearchAppend: (text: string) => boolean;
+  onHistorySearchPreviousMatch: () => boolean;
+  onHistorySearchNextMatch: () => boolean;
 }
 
 interface CommandInputSnapshot {
@@ -293,12 +303,22 @@ function deletePreviousWordFromText(value: string, cursor: number): string {
 function CodeMirrorCommandInput({
   value,
   promotedSegments,
+  historySearchActive,
   disabled = false,
   placeholder,
   onChange,
   onPromotedSegmentsChange,
   onSubmit,
   onAutocompleteRequest,
+  onHistoryPrevious,
+  onHistoryNext,
+  onHistorySearchRequest,
+  onHistorySearchBackspace,
+  onHistorySearchAccept,
+  onHistorySearchCancel,
+  onHistorySearchAppend,
+  onHistorySearchPreviousMatch,
+  onHistorySearchNextMatch,
 }: CommandInputEditorProps) {
   const editorRef = useRef<ReactCodeMirrorRef>(null);
 
@@ -355,6 +375,25 @@ function CodeMirrorCommandInput({
           "aria-label": "Command input",
           spellcheck: "false",
         }),
+        EditorView.domEventHandlers({
+          keydown(event) {
+            if (!historySearchActive) {
+              return false;
+            }
+
+            if (
+              event.key.length === 1 &&
+              !event.ctrlKey &&
+              !event.metaKey &&
+              !event.altKey
+            ) {
+              event.preventDefault();
+              return onHistorySearchAppend(event.key);
+            }
+
+            return false;
+          },
+        }),
         promotedSegmentsField,
         promotedSegmentsHistory,
         EditorView.updateListener.of((update) => {
@@ -391,6 +430,10 @@ function CodeMirrorCommandInput({
             {
               key: "Enter",
               run(view) {
+                if (historySearchActive) {
+                  return onHistorySearchAccept();
+                }
+
                 onSubmit({
                   value: view.state.doc.toString(),
                   promotedSegments: [...getPromotedSegments(view)],
@@ -401,6 +444,10 @@ function CodeMirrorCommandInput({
             {
               key: "Tab",
               run() {
+                if (historySearchActive) {
+                  return true;
+                }
+
                 onAutocompleteRequest();
                 return true;
               },
@@ -409,6 +456,48 @@ function CodeMirrorCommandInput({
               key: "Ctrl-a",
               run(view) {
                 return runAndReport(view, cursorLineStart);
+              },
+            },
+            {
+              key: "Ctrl-p",
+              run() {
+                if (historySearchActive) {
+                  return onHistorySearchPreviousMatch();
+                }
+
+                return onHistoryPrevious();
+              },
+            },
+            {
+              key: "Ctrl-n",
+              run() {
+                if (historySearchActive) {
+                  return onHistorySearchNextMatch();
+                }
+
+                return onHistoryNext();
+              },
+            },
+            {
+              key: "Ctrl-r",
+              run() {
+                if (historySearchActive) {
+                  return onHistorySearchPreviousMatch();
+                }
+
+                return onHistorySearchRequest();
+              },
+            },
+            {
+              key: "Escape",
+              run() {
+                return historySearchActive ? onHistorySearchCancel() : false;
+              },
+            },
+            {
+              key: "Ctrl-g",
+              run() {
+                return historySearchActive ? onHistorySearchCancel() : false;
               },
             },
             {
@@ -450,12 +539,20 @@ function CodeMirrorCommandInput({
             {
               key: "Backspace",
               run(view) {
+                if (historySearchActive) {
+                  return onHistorySearchBackspace();
+                }
+
                 return popLocationSegment(view) || deletePreviousWordInView(view);
               },
             },
             {
               key: "Ctrl-h",
               run(view) {
+                if (historySearchActive) {
+                  return onHistorySearchBackspace();
+                }
+
                 return popLocationSegment(view) || runAndReport(view, deleteCharBackward);
               },
             },
@@ -567,12 +664,22 @@ function CodeMirrorCommandInput({
 function TextareaCommandInput({
   value,
   promotedSegments,
+  historySearchActive,
   disabled = false,
   placeholder,
   onChange,
   onPromotedSegmentsChange,
   onSubmit,
   onAutocompleteRequest,
+  onHistoryPrevious,
+  onHistoryNext,
+  onHistorySearchRequest,
+  onHistorySearchBackspace,
+  onHistorySearchAccept,
+  onHistorySearchCancel,
+  onHistorySearchAppend,
+  onHistorySearchPreviousMatch,
+  onHistorySearchNextMatch,
 }: CommandInputEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -625,6 +732,66 @@ function TextareaCommandInput({
       value={value}
       onChange={(event) => handleChange(event.target.value)}
       onKeyDown={(event) => {
+        if (historySearchActive) {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            onHistorySearchAccept();
+            return;
+          }
+
+          if (
+            event.key === "Escape" ||
+            (event.ctrlKey && event.key.toLowerCase() === "g")
+          ) {
+            event.preventDefault();
+            onHistorySearchCancel();
+            return;
+          }
+
+          if (
+            event.key === "Backspace" ||
+            (event.ctrlKey && event.key.toLowerCase() === "h")
+          ) {
+            event.preventDefault();
+            onHistorySearchBackspace();
+            return;
+          }
+
+          if (event.ctrlKey && event.key.toLowerCase() === "r") {
+            event.preventDefault();
+            onHistorySearchPreviousMatch();
+            return;
+          }
+
+          if (event.ctrlKey && event.key.toLowerCase() === "p") {
+            event.preventDefault();
+            onHistorySearchPreviousMatch();
+            return;
+          }
+
+          if (event.ctrlKey && event.key.toLowerCase() === "n") {
+            event.preventDefault();
+            onHistorySearchNextMatch();
+            return;
+          }
+
+          if (
+            event.key.length === 1 &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.altKey
+          ) {
+            event.preventDefault();
+            onHistorySearchAppend(event.key);
+            return;
+          }
+
+          if (event.key === "Tab") {
+            event.preventDefault();
+            return;
+          }
+        }
+
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           onSubmit({
@@ -637,6 +804,24 @@ function TextareaCommandInput({
         if (event.key === "Tab") {
           event.preventDefault();
           onAutocompleteRequest();
+          return;
+        }
+
+        if (event.ctrlKey && event.key.toLowerCase() === "p") {
+          event.preventDefault();
+          onHistoryPrevious();
+          return;
+        }
+
+        if (event.ctrlKey && event.key.toLowerCase() === "n") {
+          event.preventDefault();
+          onHistoryNext();
+          return;
+        }
+
+        if (event.ctrlKey && event.key.toLowerCase() === "r") {
+          event.preventDefault();
+          onHistorySearchRequest();
           return;
         }
 

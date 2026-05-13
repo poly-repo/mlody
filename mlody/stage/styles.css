@@ -1317,6 +1317,40 @@ textarea {
   font-weight: 700;
 }
 
+.CommandShell-historyPanel {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid rgba(120, 138, 174, 0.14);
+  background:
+    linear-gradient(180deg, rgba(245, 247, 252, 0.92), rgba(255, 255, 255, 0.84)),
+    radial-gradient(circle at left center, rgba(77, 103, 217, 0.08), transparent 42%);
+  padding: 10px 14px 12px 48px;
+}
+
+.CommandShell-historyLabel {
+  color: var(--stage-primary);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.CommandShell-historyQuery {
+  color: var(--stage-ink);
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.CommandShell-historyResult {
+  color: var(--stage-ink-soft);
+  font-size: 0.74rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .SettingsPage {
   border: 1px solid var(--stage-card-border);
   border-radius: 26px;
