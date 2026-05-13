@@ -469,7 +469,27 @@ function CodeMirrorCommandInput({
               },
             },
             {
+              key: "ArrowUp",
+              run() {
+                if (historySearchActive) {
+                  return onHistorySearchPreviousMatch();
+                }
+
+                return onHistoryPrevious();
+              },
+            },
+            {
               key: "Ctrl-n",
+              run() {
+                if (historySearchActive) {
+                  return onHistorySearchNextMatch();
+                }
+
+                return onHistoryNext();
+              },
+            },
+            {
+              key: "ArrowDown",
               run() {
                 if (historySearchActive) {
                   return onHistorySearchNextMatch();
@@ -769,7 +789,19 @@ function TextareaCommandInput({
             return;
           }
 
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            onHistorySearchPreviousMatch();
+            return;
+          }
+
           if (event.ctrlKey && event.key.toLowerCase() === "n") {
+            event.preventDefault();
+            onHistorySearchNextMatch();
+            return;
+          }
+
+          if (event.key === "ArrowDown") {
             event.preventDefault();
             onHistorySearchNextMatch();
             return;
@@ -813,7 +845,19 @@ function TextareaCommandInput({
           return;
         }
 
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          onHistoryPrevious();
+          return;
+        }
+
         if (event.ctrlKey && event.key.toLowerCase() === "n") {
+          event.preventDefault();
+          onHistoryNext();
+          return;
+        }
+
+        if (event.key === "ArrowDown") {
           event.preventDefault();
           onHistoryNext();
           return;
