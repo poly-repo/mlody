@@ -445,6 +445,17 @@ class TestTwoPhaseLoading:
 
         assert "workspace_only" in ws.evaluator.registry.roots.by_name
 
+    def test_workspace_registers_synthetic_mav_user(self, project: Path) -> None:
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        mav = ws.evaluator.registry.users.by_name["mav"]
+        assert mav.kind == "user"
+        assert mav.name == "mav"
+        assert mav.description == "Maurizio Vitale"
+        assert mav.groups == ["admin"]
+        assert mav.avatar == "assets/images/avatars/avatars-4-2.png"
+
     def test_workspace_mlody_uses_workspace_root_without_monorepo_fallback(
         self, project: Path
     ) -> None:

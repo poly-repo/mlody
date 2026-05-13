@@ -21,10 +21,14 @@ class _FakeRegistry:
     root_infos_to_return: dict[str, RootInfo]
     eval_failures: dict[Path, Exception] = field(default_factory=dict)
     registry_items: tuple[tuple[tuple[object, object, object], object], ...] = ()
+    type_names_to_return: dict[str, object] = field(default_factory=dict)
     loaded_files: set[Path] = field(default_factory=set)
     eval_calls: list[Path] = field(default_factory=list)
     propagated_injections: list[tuple[Path, list[str]]] = field(default_factory=list)
     placeholders: list[tuple[str, str, str]] = field(default_factory=list)
+    registry_entities_set: list[tuple[tuple[object, object, object], object]] = field(
+        default_factory=list
+    )
     resolved: bool = False
     configs_to_return: list[tuple[str, object]] = field(default_factory=list)
 
@@ -63,7 +67,17 @@ class _FakeRegistry:
     def iter_registry_items(
         self,
     ) -> tuple[tuple[tuple[object, object, object], object], ...]:
-        return self.registry_items
+        return self.registry_items + tuple(self.registry_entities_set)
+
+    def type_by_name(self, type_name: str) -> object | None:
+        return self.type_names_to_return.get(type_name)
+
+    def set_registry_entity(
+        self,
+        key: tuple[object, object, object],
+        value: object,
+    ) -> None:
+        self.registry_entities_set.append((key, value))
 
     def task_values_snapshot(self) -> dict[str, object]:
         return {
@@ -274,8 +288,93 @@ def test_workspace_loader_validates_contextual_values_after_port_conversion(
     with pytest.raises(ContextRestrictedValueValidationError):
         loader.load()
 
+
+def test_workspace_loader_injects_synthetic_mav_user(
+    fs: FakeFilesystem,
+) -> None:
+    project = Path("/workspace")
+    fs.create_dir(str(project / "mlody" / "teams" / "lexica"))
+    fs.create_file(str(project / "mlody" / "common" / "types.mlody"), contents="")
+
+    user_type = Struct(name="mlody-user")
+    registry = _FakeRegistry(
+        root_infos_to_return={
+            "lexica": RootInfo(
+                name="lexica",
+                path="//mlody/teams/lexica",
+                description="team root",
+            )
+        },
+        type_names_to_return={"mlody-user": user_type},
+    )
+    loader = WorkspaceLoader(
+        monorepo_root=project,
+        roots_file=project / "mlody" / "roots.mlody",
+        root_infos={},
+        registry=registry,  # type: ignore[arg-type]
+        extra_roots={},
+        lazy_roots={},
+        should_skip_mlody_file=lambda _path: True,
+        convert_ports_to_structs=lambda: None,
+        resolve_value_sources=lambda: None,
+    )
+
+    loader.load()
+
+    assert len(registry.registry_entities_set) == 1
+    key, value = registry.registry_entities_set[0]
+    assert key == ("user", "", "mav")
+    assert value.kind == "user"
+    assert value.name == "mav"
+    assert value.description == "Maurizio Vitale"
+    assert value.groups == ["admin"]
+    assert value.avatar == "assets/images/avatars/avatars-4-2.png"
+    assert value._entity_type is user_type
+
+
+def test_workspace_loader_keeps_explicit_mav_user(
+    fs: FakeFilesystem,
+) -> None:
+    project = Path("/workspace")
+    fs.create_dir(str(project / "mlody" / "teams" / "lexica"))
+    fs.create_file(str(project / "mlody" / "common" / "types.mlody"), contents="")
+
+    registry = _FakeRegistry(
+        root_infos_to_return={
+            "lexica": RootInfo(
+                name="lexica",
+                path="//mlody/teams/lexica",
+                description="team root",
+            )
+        },
+        registry_items=(
+            (
+                ("user", "", "mav"),
+                Struct(
+                    kind="user",
+                    name="mav",
+                    description="Existing User",
+                    groups=["ops"],
+                ),
+            ),
+        ),
+    )
+    loader = WorkspaceLoader(
+        monorepo_root=project,
+        roots_file=project / "mlody" / "roots.mlody",
+        root_infos={},
+        registry=registry,  # type: ignore[arg-type]
+        extra_roots={},
+        lazy_roots={},
+        should_skip_mlody_file=lambda _path: True,
+        convert_ports_to_structs=lambda: None,
+        resolve_value_sources=lambda: None,
+    )
+
+    loader.load()
+
+    assert registry.registry_entities_set == []
     assert registry.resolved is True
-    assert converted == ["converted"]
 
 
 # ---------------------------------------------------------------------------
@@ -314,4 +413,3 @@ def test_workspace_loader_config_application_noop_when_no_configs(
 
     loader.load()
     assert converted == ["converted"]
-

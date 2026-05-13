@@ -6,6 +6,8 @@ import logging
 from collections.abc import Callable, Mapping, MutableMapping
 from pathlib import Path
 
+from common.python.starlarkish.core.struct import Struct
+
 from mlody.core.registry_view import RegistryView
 from mlody.core.value_context_validation import (
     validate_context_restricted_values_registry,
@@ -13,6 +15,7 @@ from mlody.core.value_context_validation import (
 from mlody.core.workspace_models import RootInfo, WorkspaceLoadError
 
 _logger = logging.getLogger(__name__)
+_SYNTHETIC_MAV_USER_KEY = ("user", "", "mav")
 
 
 class WorkspaceLoader:
@@ -52,6 +55,7 @@ class WorkspaceLoader:
         load_errors = self._phase2_full_evaluation()
         if load_errors:
             raise WorkspaceLoadError(load_errors)
+        self._ensure_synthetic_mav_user()
         self._registry.resolve_all()
         self._convert_ports_to_structs()
         self._resolve_value_sources()
@@ -157,3 +161,24 @@ class WorkspaceLoader:
                     )
                     load_errors.append((mlody_file, exc))
         return load_errors
+
+    def _ensure_synthetic_mav_user(self) -> None:
+        for key, _value in self._registry.iter_registry_items():
+            if (
+                len(key) == 3
+                and key[0] == _SYNTHETIC_MAV_USER_KEY[0]
+                and key[2] == _SYNTHETIC_MAV_USER_KEY[2]
+            ):
+                return
+
+        user_fields: dict[str, object] = {
+            "kind": "user",
+            "name": "mav",
+            "description": "Maurizio Vitale",
+            "groups": ["admin"],
+            "avatar": "assets/images/avatars/avatars-4-2.png",
+        }
+        entity_type = self._registry.type_by_name("mlody-user")
+        if entity_type is not None:
+            user_fields["_entity_type"] = entity_type
+        self._registry.set_registry_entity(_SYNTHETIC_MAV_USER_KEY, Struct(**user_fields))
