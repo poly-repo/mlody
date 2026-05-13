@@ -134,6 +134,10 @@ export interface CommandSubmission {
 export interface ExecutionRecord {
   id: string; // browser-safe unique id
   command: string;
+  commandName: string;
+  commandInput: string;
+  runAs: string;
+  workspaceRoot: string | null;
   /** ISO timestamp when the command was submitted */
   submittedAt: string;
   status: "running" | "done" | "error";

@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { LuCheck, LuCopy } from "react-icons/lu";
 import type { ExecutionRecord } from "../types.js";
 import { StageResultBlock } from "./StageResultBlock.js";
 
@@ -5,12 +7,32 @@ interface ExecutionBlockProps {
   record: ExecutionRecord;
 }
 
+const COPY_RESET_MS = 1800;
+const COPY_COMMAND_PREFIX = "bazel run --config=silent //mlody/cli:mlody --";
+
 function formatTimestamp(isoString: string): string {
   const date = new Date(isoString);
   const hh = String(date.getHours()).padStart(2, "0");
   const mm = String(date.getMinutes()).padStart(2, "0");
   const ss = String(date.getSeconds()).padStart(2, "0");
   return `${hh}:${mm}:${ss}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function buildCopyCommand(record: ExecutionRecord): string {
+  const segments = [COPY_COMMAND_PREFIX];
+  if (record.workspaceRoot !== null) {
+    segments.push(`--workspace ${shellQuote(record.workspaceRoot)}`);
+  }
+  segments.push(record.commandName);
+  if (record.commandInput.trim() !== "") {
+    segments.push(shellQuote(record.commandInput));
+  }
+  segments.push(`--as ${shellQuote(record.runAs)}`);
+  return segments.join(" ");
 }
 
 interface StatusIconProps {
@@ -63,6 +85,40 @@ function ErrorIcon() {
 }
 
 export function ExecutionBlock({ record }: ExecutionBlockProps) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
+  const copyCommand = buildCopyCommand(record);
+  const copyButtonLabel =
+    copyState === "copied"
+      ? "Copied full bazel run command"
+      : copyState === "error"
+      ? "Copy full bazel run command failed"
+      : "Copy full bazel run command";
+
+  useEffect(() => {
+    if (copyState === "idle") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCopyState("idle");
+    }, COPY_RESET_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [copyState]);
+
+  async function handleCopyClick() {
+    try {
+      await navigator.clipboard.writeText(copyCommand);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  }
+
   return (
     <div className={`ExecutionBlock ExecutionBlock--${record.status}`}>
       <div className="ExecutionBlock-header">
@@ -72,6 +128,21 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
         <span className="ExecutionBlock-command" title={record.command}>
           {record.command}
         </span>
+        <button
+          type="button"
+          className={`ExecutionBlock-copyButton ExecutionBlock-copyButton--${copyState}`}
+          aria-label={copyButtonLabel}
+          title={copyCommand}
+          onClick={() => {
+            void handleCopyClick();
+          }}
+        >
+          {copyState === "copied" ? (
+            <LuCheck aria-hidden="true" />
+          ) : (
+            <LuCopy aria-hidden="true" />
+          )}
+        </button>
         <span className="ExecutionBlock-status">
           {record.status === "running" && <SpinnerIcon />}
           {record.status === "done" && <CheckIcon />}

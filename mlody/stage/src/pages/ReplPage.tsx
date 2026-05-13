@@ -262,6 +262,10 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     const record: ExecutionRecord = {
       id: createExecutionId(),
       command: combinedCommand,
+      commandName: command,
+      commandInput: input,
+      runAs: submittedUserName,
+      workspaceRoot: submittedWorkspace?.workspaceRoot ?? null,
       submittedAt: new Date().toISOString(),
       status: "running",
       output: [],
