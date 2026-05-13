@@ -380,6 +380,16 @@ class RegistryView:
             else:
                 rel_path = stem
 
+            # Rootless empty-stem entities are not addressable as concrete labels.
+            # In particular, the synthetic "mav" user lives at stem "", and
+            # expanding it would incorrectly manufacture labels like "//:mav[...]".
+            if (
+                not rel_path
+                and entity.root is None
+                and (entity.name is not None or expand_entities or lbl.entity_query is not None)
+            ):
+                continue
+
             parts: list[str] = []
             if entity.root:
                 parts.append(f"@{entity.root}//{rel_path}")

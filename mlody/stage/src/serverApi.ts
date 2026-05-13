@@ -1,5 +1,6 @@
 import type { CommandHistoryEntry } from "./commandHistory.js";
 import type {
+  StageAutocompletePayload,
   ServerHealthStatus,
   StageResultPayload,
   WorkspaceSummary,
@@ -72,7 +73,11 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function postJson<T>(path: string, payload: object): Promise<T> {
+async function postJson<T>(
+  path: string,
+  payload: object,
+  signal?: AbortSignal,
+): Promise<T> {
   const response = await fetch(`${resolveServerBaseUrl()}${path}`, {
     method: "POST",
     headers: {
@@ -80,6 +85,7 @@ async function postJson<T>(path: string, payload: object): Promise<T> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
+    signal,
   });
 
   if (!response.ok) {
@@ -169,4 +175,21 @@ export async function executeStageCommand(
       ...(workspaceRoot ? { workspaceRoot } : {}),
     },
   });
+}
+
+export async function fetchStageAutocomplete(
+  workspaceRoot: string | null,
+  breadcrumb: string[],
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<StageAutocompletePayload> {
+  return await postJson<StageAutocompletePayload>(
+    "/api/autocomplete/stage",
+    {
+      workspaceRoot,
+      breadcrumb,
+      prompt,
+    },
+    signal,
+  );
 }

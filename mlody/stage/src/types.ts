@@ -25,6 +25,11 @@ export interface StageResultPayload {
   data: unknown;
 }
 
+export interface StageAutocompletePayload {
+  completions: string[];
+  additionalData: Record<string, unknown>;
+}
+
 /** One line / chunk of output from an execution. */
 export type OutputChunk =
   | {

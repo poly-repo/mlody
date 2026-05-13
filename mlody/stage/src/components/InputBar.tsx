@@ -435,6 +435,7 @@ export function InputBar({
         <CommandInputEditor
           value={value}
           promotedSegments={promotedSegments}
+          workspaceRoot={workspace?.workspaceRoot ?? null}
           historySearchActive={historySearch !== null}
           onChange={setValue}
           disabled={disabled}

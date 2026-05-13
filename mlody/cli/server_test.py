@@ -7,10 +7,12 @@ import threading
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 
+from mlody.cli.autocomplete import StageAutocompleteRequest
 from mlody.cli.server import (
     MlodyApiRequestHandler,
     ServerConfig,
@@ -19,12 +21,14 @@ from mlody.cli.server import (
     _stage_json_data,
     collect_command_response,
     create_http_server,
+    execute_stage_autocomplete_response,
     execute_stage_command_response,
     execute_verbatim_command_response,
     parse_command_request,
     parse_verbatim_command_request,
 )
-from mlody.resolver import MlodyFolderValue
+from mlody.core.workspace_models import RootInfo
+from mlody.resolver import MlodyFolderValue, MlodyValueValue
 from mlody.resolver.label_value import _RawAttrValue
 
 
@@ -40,6 +44,45 @@ def _server_config(tmp_path: Path, *, http_port: int = 0) -> ServerConfig:
         lsp_host="127.0.0.1",
         lsp_port=8766,
     )
+
+
+class _FakeRegistryView:
+    def __init__(self, items: list[tuple[tuple[object, object, object], object]]) -> None:
+        self._items = tuple(items)
+
+    def iter_registry_items(self) -> tuple[tuple[tuple[object, object, object], object], ...]:
+        return self._items
+
+
+def _autocomplete_workspace(tmp_path: Path) -> tuple[SimpleNamespace, Path]:
+    workspace_root = tmp_path / "sandboxes" / "exp1"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    workspace = SimpleNamespace(
+        root_infos={
+            "common": RootInfo(
+                name="common",
+                path="//mlody/common",
+                description="shared",
+            ),
+            "pixelle": RootInfo(
+                name="pixelle",
+                path="//mlody/teams/pixelle",
+                description="vision",
+            ),
+        },
+        registry_view=_FakeRegistryView(
+            [
+                (("task", "sandboxes/exp1/projects", "omega"), object()),
+                (("task", "sandboxes/exp1/projects", "orbit"), object()),
+                (("task", "sandboxes/exp1/projects/reports", "sales"), object()),
+                (("task", "mlody/teams/pixelle/datasets", "celebA-dataset"), object()),
+                (("task", "mlody/teams/pixelle/datasets", "imagenet"), object()),
+            ]
+        ),
+        _monorepo_root=tmp_path,
+        _workspace_root=workspace_root,
+    )
+    return workspace, workspace_root
 
 
 class TestParseCommandRequest:
@@ -163,6 +206,157 @@ class TestCollectCommandResponse:
         assert response["results"] == []
         assert len(response["errors"]) == 1
         assert response["errors"][0]["message"] == "Unsupported command: system"
+
+
+class TestStageAutocompleteResponse:
+    def test_empty_breadcrumb_and_prompt_returns_no_completions(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace, workspace_root = _autocomplete_workspace(tmp_path)
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            lambda _config, _workspace_root: workspace,
+        )
+
+        response = execute_stage_autocomplete_response(
+            _server_config(tmp_path),
+            StageAutocompleteRequest(
+                workspace_root=str(workspace_root),
+                breadcrumb=(),
+                prompt="",
+            ),
+        )
+
+        assert response == {"completions": [], "additionalData": {}}
+
+    def test_root_completion_returns_matching_root_names(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace, workspace_root = _autocomplete_workspace(tmp_path)
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            lambda _config, _workspace_root: workspace,
+        )
+
+        response = execute_stage_autocomplete_response(
+            _server_config(tmp_path),
+            StageAutocompleteRequest(
+                workspace_root=str(workspace_root),
+                breadcrumb=(),
+                prompt="@p",
+            ),
+        )
+
+        assert response["completions"] == ["pixelle"]
+
+    def test_rootless_package_completion_uses_selected_workspace_prefix(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace, workspace_root = _autocomplete_workspace(tmp_path)
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            lambda _config, _workspace_root: workspace,
+        )
+
+        response = execute_stage_autocomplete_response(
+            _server_config(tmp_path),
+            StageAutocompleteRequest(
+                workspace_root=str(workspace_root),
+                breadcrumb=("//",),
+                prompt="pr",
+            ),
+        )
+
+        assert response["completions"] == ["projects"]
+
+    def test_target_completion_returns_matching_entity_names(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace, workspace_root = _autocomplete_workspace(tmp_path)
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            lambda _config, _workspace_root: workspace,
+        )
+
+        response = execute_stage_autocomplete_response(
+            _server_config(tmp_path),
+            StageAutocompleteRequest(
+                workspace_root=str(workspace_root),
+                breadcrumb=("//", "projects:"),
+                prompt="o",
+            ),
+        )
+
+        assert response["completions"] == ["omega", "orbit"]
+
+    def test_field_completion_resolves_parent_label_and_lists_immediate_fields(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace, workspace_root = _autocomplete_workspace(tmp_path)
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            lambda _config, _workspace_root: workspace,
+        )
+        captured: dict[str, object] = {}
+
+        def _fake_resolve(label, _workspace):
+            captured["label"] = label.format_inner()
+            return MlodyValueValue(
+                struct={
+                    "name": "omega",
+                    "namespace": "projects",
+                    "notes": "ready",
+                }
+            )
+
+        monkeypatch.setattr(
+            "mlody.cli.autocomplete.resolve_label_to_value",
+            _fake_resolve,
+        )
+
+        response = execute_stage_autocomplete_response(
+            _server_config(tmp_path),
+            StageAutocompleteRequest(
+                workspace_root=str(workspace_root),
+                breadcrumb=("//", "projects:", "omega"),
+                prompt=".na",
+            ),
+        )
+
+        assert captured["label"] == "//projects:omega"
+        assert response["completions"] == ["name", "namespace"]
+
+    def test_unsupported_syntax_returns_no_completions(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace, workspace_root = _autocomplete_workspace(tmp_path)
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            lambda _config, _workspace_root: workspace,
+        )
+
+        response = execute_stage_autocomplete_response(
+            _server_config(tmp_path),
+            StageAutocompleteRequest(
+                workspace_root=str(workspace_root),
+                breadcrumb=("//", "projects:", "omega"),
+                prompt="|next",
+            ),
+        )
+
+        assert response == {"completions": [], "additionalData": {}}
 
 
 class TestExecuteVerbatimCommandResponse:
@@ -412,7 +606,7 @@ class TestCommandHistoryParsing:
             )
         )
 
-        assert breadcrumb == ["@pixelle", "datasets:", "celebA-dataset"]
+        assert breadcrumb == ["@pixelle", "//", "datasets:", "celebA-dataset"]
         assert prompt == ".train"
 
     def test_splits_absolute_show_input_into_breadcrumb_and_prompt(self) -> None:
@@ -426,8 +620,22 @@ class TestCommandHistoryParsing:
             )
         )
 
-        assert breadcrumb == ["projects", "omega"]
+        assert breadcrumb == ["//", "projects", "omega"]
         assert prompt == ".summary"
+
+    def test_splits_wildcard_query_show_input_into_breadcrumb_and_prompt(self) -> None:
+        breadcrumb, prompt = _history_prompt_and_breadcrumb(
+            ServerCommandRequest(
+                request_id="req-3",
+                command="show",
+                arguments=('//.../[@mlody _.kind == "user"]',),
+                options={},
+                input_text='//.../[@mlody _.kind == "user"]',
+            )
+        )
+
+        assert breadcrumb == ["//", "..."]
+        assert prompt == '[@mlody _.kind == "user"]'
 
 
 class TestHttpApi:
@@ -608,6 +816,81 @@ class TestHttpApi:
             http_server.server_close()
             server_thread.join(timeout=5)
 
+    def test_stage_autocomplete_endpoint_returns_json_payload_and_headers(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            "mlody.cli.server.execute_stage_autocomplete_response",
+            lambda _config, _request: {
+                "completions": ["pixelle"],
+                "additionalData": {},
+            },
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{http_server.server_port}/api/autocomplete/stage",
+                data=json.dumps(
+                    {
+                        "workspaceRoot": None,
+                        "breadcrumb": [],
+                        "prompt": "@p",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                content_type = response.headers.get("Content-Type")
+                cors_origin = response.headers.get("Access-Control-Allow-Origin")
+
+            assert payload == {"completions": ["pixelle"], "additionalData": {}}
+            assert content_type == "application/json; charset=utf-8"
+            assert cors_origin == "*"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_stage_autocomplete_endpoint_rejects_workspace_outside_monorepo(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{http_server.server_port}/api/autocomplete/stage",
+                data=json.dumps(
+                    {
+                        "workspaceRoot": "/tmp/outside-monorepo",
+                        "breadcrumb": [],
+                        "prompt": "@p",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with pytest.raises(HTTPError) as excinfo:
+                urlopen(request, timeout=5)
+
+            payload = json.loads(excinfo.value.read().decode("utf-8"))
+            assert excinfo.value.code == HTTPStatus.BAD_REQUEST
+            assert payload["error"] == "Workspace root must stay within the current monorepo."
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
     def test_stage_execute_endpoint_appends_command_history(
         self,
         tmp_path: Path,
@@ -675,6 +958,7 @@ class TestHttpApi:
             assert payload[0]["prompt"] == ".train"
             assert payload[0]["breadcrumb"] == [
                 "@pixelle",
+                "//",
                 "datasets:",
                 "celebA-dataset",
             ]

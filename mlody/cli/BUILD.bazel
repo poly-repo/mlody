@@ -4,6 +4,7 @@ o_py_library(
     name = "cli_lib",
     srcs = [
         "__init__.py",
+        "autocomplete.py",
         "dag_gui.py",
         "dag_render.py",
         "main.py",

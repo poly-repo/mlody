@@ -29,6 +29,11 @@ import click
 import pyarrow as pa
 
 from common.python.starlarkish.evaluator.evaluator import _runtime_json_data
+from mlody.cli.autocomplete import (
+    StageAutocompleteRequest,
+    parse_stage_autocomplete_request,
+    stage_autocomplete_payload,
+)
 from mlody.cli.show import (
     _describe_mlody_value,
     _display_payload,
@@ -563,11 +568,17 @@ def _request_run_as(request: ServerCommandRequest) -> str:
 def _extract_next_history_segment(
     value: str,
 ) -> tuple[list[str], str] | None:
+    if value == "//":
+        return ["//"], ""
+
+    if value.startswith("//"):
+        return ["//"], value[2:]
+
     if value == "...":
         return ["..."], ""
 
     if value.startswith("...//"):
-        return ["..."], value[5:]
+        return ["...", "//"], value[5:]
 
     if value.startswith(".../"):
         return ["..."], value[4:]
@@ -596,7 +607,7 @@ def _extract_next_history_segment(
     rest = value[index:]
 
     if rest.startswith("//"):
-        return [promoted_segment], rest[2:]
+        return [promoted_segment, "//"], rest[2:]
 
     if rest.startswith("/"):
         return [promoted_segment], rest[1:]
@@ -618,9 +629,6 @@ def _history_prompt_and_breadcrumb(
         return [], input_text
 
     remainder = input_text
-    if remainder.startswith("//"):
-        remainder = remainder[2:]
-
     breadcrumb: list[str] = []
     while True:
         split_result = _extract_next_history_segment(remainder)
@@ -1305,6 +1313,27 @@ def execute_stage_command_response(
     return _stage_json_result(target, stage_results)
 
 
+def execute_stage_autocomplete_response(
+    config: ServerConfig,
+    request: StageAutocompleteRequest,
+) -> dict[str, object]:
+    """Resolve stage label completions for the current workspace selection."""
+
+    workspace_root_request = ServerCommandRequest(
+        request_id="stage-autocomplete",
+        command="show",
+        arguments=("@autocomplete//request",),
+        options=(
+            {"workspaceRoot": request.workspace_root}
+            if request.workspace_root is not None
+            else {}
+        ),
+    )
+    workspace_root = _workspace_root_from_request(config, workspace_root_request)
+    workspace = _baseline_workspace_for_root(config, workspace_root)
+    return stage_autocomplete_payload(workspace, request.breadcrumb, request.prompt)
+
+
 class MlodyApiServer(ThreadingHTTPServer):
     """Threaded HTTP server carrying mlody server configuration."""
 
@@ -1492,6 +1521,26 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                 self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001
                 _logger.exception("Failed to execute stage command")
+                self._write_json_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": str(exc)},
+                )
+            return
+
+        if path == "/api/autocomplete/stage":
+            try:
+                request = parse_stage_autocomplete_request(payload)
+                response = execute_stage_autocomplete_response(
+                    self.server.server_config,
+                    request,
+                )
+                self._write_json_response(HTTPStatus.OK, response)
+            except ServerRequestError as exc:
+                self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            except ValueError as exc:
+                self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Failed to load stage autocomplete payload")
                 self._write_json_response(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": str(exc)},

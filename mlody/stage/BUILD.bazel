@@ -17,6 +17,7 @@ ts_project(
     transpiler = "tsc",
     tsconfig = ":tsconfig.json",
     deps = [
+        "//:node_modules/@codemirror/autocomplete",
         "//:node_modules/@codemirror/commands",
         "//:node_modules/@codemirror/search",
         "//:node_modules/@codemirror/state",
@@ -46,6 +47,7 @@ esbuild_bundle(
     format = "esm",
     platform = "browser",
     deps = [
+        "//:node_modules/@codemirror/autocomplete",
         "//:node_modules/@codemirror/commands",
         "//:node_modules/@codemirror/search",
         "//:node_modules/@codemirror/state",

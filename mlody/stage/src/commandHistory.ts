@@ -42,6 +42,16 @@ export function buildCommandInput(
     }
 
     const previousSegment = filteredSegments[index - 1] ?? "";
+    if (segment === "//") {
+      combinedInput += "//";
+      return;
+    }
+
+    if (combinedInput.endsWith("//")) {
+      combinedInput += segment;
+      return;
+    }
+
     if (previousSegment.endsWith(":")) {
       combinedInput += segment;
       return;
@@ -58,8 +68,11 @@ export function buildCommandInput(
   if (trimmedRemainder !== "") {
     if (combinedInput === "") {
       combinedInput = trimmedRemainder;
+    } else if (combinedInput.endsWith("//")) {
+      combinedInput += trimmedRemainder;
     } else if (
       combinedInput.endsWith(":") ||
+      trimmedRemainder.startsWith(":") ||
       trimmedRemainder.startsWith(".")
     ) {
       combinedInput += trimmedRemainder;

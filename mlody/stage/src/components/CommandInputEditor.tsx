@@ -1,5 +1,12 @@
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import {
+  acceptCompletion,
+  autocompletion,
+  type CompletionContext,
+  type CompletionResult,
+  startCompletion,
+} from "@codemirror/autocomplete";
+import {
   cursorCharLeft,
   cursorCharRight,
   cursorGroupLeft,
@@ -20,6 +27,7 @@ import {
 import { Prec, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
+import { fetchStageAutocomplete } from "../serverApi.js";
 
 type CommandInputImplementation = "codemirror" | "textarea";
 
@@ -30,6 +38,7 @@ const COMMAND_INPUT_IMPLEMENTATION: CommandInputImplementation = "codemirror";
 interface CommandInputEditorProps {
   value: string;
   promotedSegments: string[];
+  workspaceRoot: string | null;
   historySearchActive: boolean;
   disabled?: boolean;
   placeholder: string;
@@ -52,6 +61,13 @@ interface CommandInputSnapshot {
   value: string;
   promotedSegments: string[];
 }
+
+interface AutocompleteAnalysis {
+  from: number;
+  kind: "root" | "package" | "target" | "field";
+}
+
+const AUTOCOMPLETE_VALID_FOR = /^[A-Za-z0-9_-]*$/;
 
 const setPromotedSegmentsEffect = StateEffect.define<readonly string[]>();
 
@@ -86,9 +102,103 @@ function canPromoteLocationSegment(value: string): boolean {
   return value === "..." || /^@?[A-Za-z0-9_-]+$/.test(value);
 }
 
+function isRootLocationSegment(value: string): boolean {
+  return /^@[A-Za-z0-9_-]+$/.test(value);
+}
+
+function shouldStartAbsoluteScope(
+  promotedSegments: readonly string[],
+): boolean {
+  const lastSegment = promotedSegments[promotedSegments.length - 1] ?? "";
+  return promotedSegments.length === 0 || isRootLocationSegment(lastSegment);
+}
+
+function analyzeAutocompleteRequest(
+  prompt: string,
+  promotedSegments: readonly string[],
+): AutocompleteAnalysis | null {
+  if (prompt.includes("\n") || prompt.includes("\r")) {
+    return null;
+  }
+
+  if (
+    prompt.includes("'") ||
+    prompt.includes("[") ||
+    prompt.includes("]") ||
+    prompt.includes("|")
+  ) {
+    return null;
+  }
+
+  if (prompt.startsWith("@")) {
+    return /^@[A-Za-z0-9_-]*$/.test(prompt)
+      ? {
+          from: 1,
+          kind: "root",
+        }
+      : null;
+  }
+
+  if (prompt.startsWith(".")) {
+    const lastSegment = promotedSegments[promotedSegments.length - 1];
+    return prompt.startsWith(".") &&
+        /^\.?[A-Za-z0-9_-]*$/.test(prompt) &&
+        typeof lastSegment === "string" &&
+        promotedSegments.some((segment) => segment.endsWith(":"))
+      ? {
+          from: 1,
+          kind: "field",
+        }
+      : null;
+  }
+
+  if (prompt.includes("/") || prompt.includes(":") || prompt.includes(".")) {
+    return null;
+  }
+
+  if (!AUTOCOMPLETE_VALID_FOR.test(prompt)) {
+    return null;
+  }
+
+  const lastSegment = promotedSegments[promotedSegments.length - 1] ?? null;
+  if (typeof lastSegment === "string" && lastSegment.endsWith(":")) {
+    return {
+      from: 0,
+      kind: "target",
+    };
+  }
+
+  if (promotedSegments.some((segment) => segment.endsWith(":"))) {
+    return null;
+  }
+
+  if (promotedSegments.includes("//")) {
+    return {
+      from: 0,
+      kind: "package",
+    };
+  }
+
+  return null;
+}
+
 function extractNextPromotableSegment(
   value: string,
 ): { promotedSegments: string[]; remainder: string } | null {
+  if (value === "//") {
+    return {
+      promotedSegments: ["//"],
+      remainder: "",
+    };
+  }
+
+  if (value.startsWith("//")) {
+    return {
+      promotedSegments: ["//"],
+      remainder: value.slice(2),
+    };
+  }
+
   if (value === "...") {
     return {
       promotedSegments: ["..."],
@@ -98,7 +208,7 @@ function extractNextPromotableSegment(
 
   if (value.startsWith("...//")) {
     return {
-      promotedSegments: ["..."],
+      promotedSegments: ["...", "//"],
       remainder: value.slice(5),
     };
   }
@@ -127,7 +237,7 @@ function extractNextPromotableSegment(
 
   if (rest.startsWith("//")) {
     return {
-      promotedSegments: [promotedSegment],
+      promotedSegments: [promotedSegment, "//"],
       remainder: rest.slice(2),
     };
   }
@@ -303,6 +413,7 @@ function deletePreviousWordFromText(value: string, cursor: number): string {
 function CodeMirrorCommandInput({
   value,
   promotedSegments,
+  workspaceRoot,
   historySearchActive,
   disabled = false,
   placeholder,
@@ -321,6 +432,8 @@ function CodeMirrorCommandInput({
   onHistorySearchNextMatch,
 }: CommandInputEditorProps) {
   const editorRef = useRef<ReactCodeMirrorRef>(null);
+  const autocompleteRequestKeyRef = useRef<string | null>(null);
+  const autocompleteRequestSequenceRef = useRef(0);
 
   useEffect(() => {
     if (!disabled) {
@@ -353,6 +466,54 @@ function CodeMirrorCommandInput({
       });
     }
   }, [promotedSegments, value]);
+
+  const completionSource = async (
+    context: CompletionContext,
+  ): Promise<CompletionResult | null> => {
+    if (context.pos !== context.state.doc.length) {
+      return null;
+    }
+
+    const prompt = context.state.doc.toString();
+    const breadcrumb = [...context.state.field(promotedSegmentsField)];
+    const analysis = analyzeAutocompleteRequest(prompt, breadcrumb);
+    if (analysis === null) {
+      return null;
+    }
+
+    const requestKey = JSON.stringify({
+      workspaceRoot,
+      breadcrumb,
+      prompt,
+      cursorContext: analysis.kind,
+    });
+    autocompleteRequestSequenceRef.current += 1;
+    const requestSequence = autocompleteRequestSequenceRef.current;
+    autocompleteRequestKeyRef.current = requestKey;
+
+    let response: Awaited<ReturnType<typeof fetchStageAutocomplete>>;
+    try {
+      response = await fetchStageAutocomplete(
+        workspaceRoot,
+        breadcrumb,
+        prompt,
+      );
+    } catch {
+      return null;
+    }
+    if (
+      autocompleteRequestSequenceRef.current !== requestSequence ||
+      autocompleteRequestKeyRef.current !== requestKey
+    ) {
+      return null;
+    }
+
+    return {
+      from: analysis.from,
+      options: response.completions.map((label) => ({ label })),
+      validFor: AUTOCOMPLETE_VALID_FOR,
+    };
+  };
 
   return (
     <CodeMirror
@@ -396,6 +557,9 @@ function CodeMirrorCommandInput({
         }),
         promotedSegmentsField,
         promotedSegmentsHistory,
+        autocompletion({
+          override: [completionSource],
+        }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             const previousValue = update.startState.doc.toString();
@@ -443,12 +607,17 @@ function CodeMirrorCommandInput({
             },
             {
               key: "Tab",
-              run() {
+              run(view) {
                 if (historySearchActive) {
                   return true;
                 }
 
                 onAutocompleteRequest();
+                if (acceptCompletion(view)) {
+                  return true;
+                }
+
+                startCompletion(view);
                 return true;
               },
             },
@@ -602,10 +771,36 @@ function CodeMirrorCommandInput({
                   return true;
                 }
 
+                const promotedSegments = getPromotedSegments(view);
                 const segment = view.state.doc.toString();
-                if (segment === "") {
+                if (segment === "/") {
+                  dispatchPromotedSegmentsUpdate(
+                    view,
+                    [...promotedSegments, "//"],
+                    { insert: "" },
+                  );
+                  startCompletion(view);
                   return true;
                 }
+
+                if (segment === "") {
+                  if (shouldStartAbsoluteScope(promotedSegments)) {
+                    insertText(view, "/");
+                    return true;
+                  }
+                  startCompletion(view);
+                  return true;
+                }
+
+                if (isRootLocationSegment(segment)) {
+                  dispatchPromotedSegmentsUpdate(
+                    view,
+                    [...promotedSegments, segment],
+                    { insert: "/" },
+                  );
+                  return true;
+                }
+
                 if (!canPromoteLocationSegment(segment)) {
                   insertText(view, "/");
                   return true;
@@ -613,9 +808,10 @@ function CodeMirrorCommandInput({
 
                 dispatchPromotedSegmentsUpdate(
                   view,
-                  [...getPromotedSegments(view), segment],
+                  [...promotedSegments, segment],
                   { insert: "" },
                 );
+                startCompletion(view);
                 return true;
               },
             },
@@ -638,6 +834,7 @@ function CodeMirrorCommandInput({
                   [...getPromotedSegments(view), `${segment}:`],
                   { insert: "" },
                 );
+                startCompletion(view);
                 return true;
               },
             },
@@ -656,6 +853,7 @@ function CodeMirrorCommandInput({
                     [...getPromotedSegments(view), "..."],
                     { insert: "" },
                   );
+                  startCompletion(view);
                   return true;
                 }
 
@@ -669,6 +867,7 @@ function CodeMirrorCommandInput({
                   [...getPromotedSegments(view), segment],
                   { insert: "." },
                 );
+                startCompletion(view);
                 return true;
               },
             },
@@ -873,9 +1072,36 @@ function TextareaCommandInput({
           event.key === "/" &&
           event.currentTarget.selectionStart === value.length &&
           event.currentTarget.selectionEnd === value.length &&
+          value === "/"
+        ) {
+          event.preventDefault();
+          onPromotedSegmentsChange([...promotedSegments, "//"]);
+          onChange("");
+          return;
+        }
+
+        if (
+          event.key === "/" &&
+          event.currentTarget.selectionStart === value.length &&
+          event.currentTarget.selectionEnd === value.length &&
           value === ""
         ) {
           event.preventDefault();
+          if (shouldStartAbsoluteScope(promotedSegments)) {
+            onChange("/");
+          }
+          return;
+        }
+
+        if (
+          event.key === "/" &&
+          event.currentTarget.selectionStart === value.length &&
+          event.currentTarget.selectionEnd === value.length &&
+          isRootLocationSegment(value)
+        ) {
+          event.preventDefault();
+          onPromotedSegmentsChange([...promotedSegments, value]);
+          onChange("/");
           return;
         }
 

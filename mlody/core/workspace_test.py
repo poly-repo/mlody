@@ -909,6 +909,41 @@ builtins.register("action", Struct(kind="action", name="deploy", inputs=[], outp
             "//mlody/teams/lexica/pipeline:trainer[@mlody _.kind == 'task']",
         ]
 
+    def test_query_only_mlody_wildcard_excludes_synthetic_rootless_user(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        labels = ws.expand_wildcard_label("//...:[@mlody _.kind == 'user']")
+        assert labels == []
+
+    def test_query_only_mlody_wildcard_keeps_file_backed_user_entities(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/pipeline.mlody"),
+            contents="""\
+builtins.register("user", Struct(
+    kind="user",
+    name="agarcia",
+    description="Alice Garcia",
+    groups=["vision"],
+))
+""",
+        )
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        labels = ws.expand_wildcard_label("//...:[@mlody _.kind == 'user']")
+        assert labels == [
+            "//mlody/teams/lexica/pipeline:agarcia[@mlody _.kind == 'user']",
+        ]
+
 
 class TestWorkspaceStepResolvedObject:
     """Requirement: workspace traversal preserves list-by-name semantics."""
