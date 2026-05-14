@@ -902,6 +902,113 @@ class TestCommandHistoryParsing:
 
 
 class TestHttpApi:
+    def test_root_serves_stage_index_html(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stage_root = tmp_path / "stage-static"
+        avatar_root = tmp_path / "avatars"
+        stage_root.mkdir()
+        avatar_root.mkdir()
+        (stage_root / "index.html").write_text("<!doctype html><title>Stage</title>")
+        monkeypatch.setattr(
+            "mlody.cli.server._stage_static_roots",
+            lambda: (stage_root, avatar_root),
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{http_server.server_port}/",
+                timeout=5,
+            ) as response:
+                body = response.read().decode("utf-8")
+                content_type = response.headers.get("Content-Type")
+
+            assert "<title>Stage</title>" in body
+            assert content_type == "text/html; charset=utf-8"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_non_api_route_falls_back_to_stage_index_html(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stage_root = tmp_path / "stage-static"
+        avatar_root = tmp_path / "avatars"
+        stage_root.mkdir()
+        avatar_root.mkdir()
+        (stage_root / "index.html").write_text("<!doctype html><title>Stage SPA</title>")
+        monkeypatch.setattr(
+            "mlody.cli.server._stage_static_roots",
+            lambda: (stage_root, avatar_root),
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{http_server.server_port}/settings",
+                timeout=5,
+            ) as response:
+                body = response.read().decode("utf-8")
+
+            assert "<title>Stage SPA</title>" in body
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_bundle_js_served_via_runfiles_manifest_lookup(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stage_root = tmp_path / "stage-static"
+        avatar_root = tmp_path / "avatars"
+        bundle_file = tmp_path / "bundle.js"
+        stage_root.mkdir()
+        avatar_root.mkdir()
+        bundle_file.write_text("console.log('stage bundle');")
+        monkeypatch.setattr(
+            "mlody.cli.server._stage_static_roots",
+            lambda: (stage_root, avatar_root),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._runfiles_path",
+            lambda logical_path: bundle_file
+            if logical_path == "_main/mlody/stage/bundle.js"
+            else None,
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{http_server.server_port}/bundle.js",
+                timeout=5,
+            ) as response:
+                body = response.read().decode("utf-8")
+                content_type = response.headers.get("Content-Type")
+
+            assert "stage bundle" in body
+            assert content_type == "text/javascript; charset=utf-8"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
     def test_healthz_reports_http_and_lsp_endpoints(self, tmp_path: Path) -> None:
         http_server = create_http_server(_server_config(tmp_path))
         server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)

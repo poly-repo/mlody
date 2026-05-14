@@ -86,6 +86,10 @@ o_py_binary(
     srcs = ["__main__.py"],
     main = "__main__.py",
     package_collisions = "warning",
+    data = [
+        "//mlody/assets/images/avatars:avatars",
+        "//mlody/stage:app",
+    ],
     visibility = ["//visibility:public"],
     deps = [":cli_lib"],
 )

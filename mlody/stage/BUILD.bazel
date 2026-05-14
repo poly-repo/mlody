@@ -81,4 +81,5 @@ filegroup(
         ":bundle",
         "//mlody/assets/images/avatars:avatars",
     ],
+    visibility = ["//visibility:public"],
 )

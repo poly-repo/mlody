@@ -8,6 +8,7 @@ import type {
 } from "./types.js";
 
 const DEFAULT_SERVER_BASE_URL = "http://127.0.0.1:8765";
+const STANDALONE_STAGE_PORTS = new Set(["8000", "8001"]);
 const SERVER_TIMEOUT_MS = 8000;
 
 export interface StageBootstrapPayload {
@@ -18,7 +19,36 @@ export interface StageBootstrapPayload {
   history: CommandHistoryEntry[];
 }
 
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+}
+
 export function resolveServerBaseUrl(): string {
+  if (typeof window === "undefined") {
+    return DEFAULT_SERVER_BASE_URL;
+  }
+
+  const explicitOverride = (
+    window as typeof window & { __MLODY_SERVER_BASE_URL__?: unknown }
+  ).__MLODY_SERVER_BASE_URL__;
+  if (typeof explicitOverride === "string" && explicitOverride.trim() !== "") {
+    return normalizeBaseUrl(explicitOverride.trim());
+  }
+
+  const queryOverride = new URLSearchParams(window.location.search).get(
+    "serverBaseUrl",
+  );
+  if (queryOverride && queryOverride.trim() !== "") {
+    return normalizeBaseUrl(queryOverride.trim());
+  }
+
+  if (
+    window.location.protocol.startsWith("http") &&
+    !STANDALONE_STAGE_PORTS.has(window.location.port)
+  ) {
+    return normalizeBaseUrl(window.location.origin);
+  }
+
   return DEFAULT_SERVER_BASE_URL;
 }
 

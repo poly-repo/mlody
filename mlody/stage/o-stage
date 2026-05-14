@@ -4,16 +4,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 
-DEV_HOST="${O_STAGE_DEV_HOST:-127.0.0.1}"
-DEV_PORT="${O_STAGE_DEV_PORT:-8000}"
 API_HOST="${O_STAGE_API_HOST:-127.0.0.1}"
 API_PORT="${O_STAGE_API_PORT:-8765}"
 LSP_PORT="${O_STAGE_LSP_PORT:-8766}"
 LOG_ROOT="${O_STAGE_LOG_ROOT:-/tmp/o-stage-${USER}}"
 
-DEVSERVER_LOG="$LOG_ROOT/devserver.log"
 BACKEND_LOG="$LOG_ROOT/backend.log"
-STAGE_URL="http://${DEV_HOST}:${DEV_PORT}/"
+STAGE_URL="http://${API_HOST}:${API_PORT}/"
 STAGE_LAUNCH_URL="${STAGE_URL}?v=$(date +%s%N)"
 HEALTH_URL="http://${API_HOST}:${API_PORT}/healthz"
 BROWSER_MODE="vivaldi"
@@ -33,7 +30,7 @@ while [[ $# -gt 0 ]]; do
       cat <<'EOF'
 Usage: o-stage [--chrome|--vivaldi]
 
-Starts a fresh mlody backend and stage devserver, then opens the stage UI.
+Starts a fresh mlody backend server, then opens the stage UI.
 Defaults to Vivaldi unless --chrome is passed.
 EOF
       exit 0
@@ -449,7 +446,6 @@ require_command bazel
 require_command curl
 require_command lsof
 
-kill_listener_on_port "$DEV_PORT" "stage devserver"
 kill_listener_on_port "$API_PORT" "mlody backend"
 kill_listener_on_port "$LSP_PORT" "mlody LSP"
 
@@ -465,15 +461,6 @@ echo "Starting mlody backend server..."
 )
 
 wait_for_http "$HEALTH_URL" "mlody backend server" "$BACKEND_LOG"
-
-echo "Starting mlody stage devserver..."
-(
-  cd "$REPO_ROOT"
-  nohup env PORT="$DEV_PORT" bazel run //mlody/stage:devserver \
-    >"$DEVSERVER_LOG" 2>&1 &
-)
-
-wait_for_http "$STAGE_URL" "mlody stage devserver" "$DEVSERVER_LOG"
 
 if [[ "$BROWSER_MODE" == "chrome" ]]; then
   echo "Opening ${STAGE_LAUNCH_URL} in Chrome..."

@@ -17,12 +17,16 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import logging
+import mimetypes
+import os
 import shlex
 import threading
+from urllib.parse import unquote
 import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import sys
 from typing import Any, cast
 
 import click
@@ -77,6 +81,12 @@ _CLIENT_DISCONNECT_ERRORS = (
     ConnectionAbortedError,
     ConnectionResetError,
 )
+_STATIC_TEXT_CONTENT_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+}
+_RUNFILES_MANIFEST: dict[str, Path] | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +129,137 @@ def _compact_json(value: object) -> bytes:
 
 def _noop_print(*_args: object, **_kwargs: object) -> None:
     """Suppress incidental print output while loading workspace metadata."""
+
+
+def _stage_static_roots() -> tuple[Path, Path]:
+    """Return the runfiles-visible roots for the stage app and avatar assets."""
+
+    runfiles_root = _runfiles_root()
+    if runfiles_root is not None:
+        stage_root = runfiles_root / "_main" / "mlody" / "stage"
+        avatar_root = runfiles_root / "_main" / "mlody" / "assets" / "images" / "avatars"
+        return stage_root, avatar_root
+
+    mlody_root = Path(__file__).resolve().parents[1]
+    return (mlody_root / "stage", mlody_root / "assets" / "images" / "avatars")
+
+
+def _runfiles_root() -> Path | None:
+    candidates: list[Path] = []
+
+    env_dir = os.environ.get("RUNFILES_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir))
+
+    argv0 = Path(sys.argv[0]).resolve()
+    candidates.append(argv0.parent / f"{argv0.name}.runfiles")
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _runfiles_manifest_path() -> Path | None:
+    env_manifest = os.environ.get("RUNFILES_MANIFEST_FILE")
+    if env_manifest:
+        candidate = Path(env_manifest)
+        if candidate.is_file():
+            return candidate
+
+    runfiles_root = _runfiles_root()
+    if runfiles_root is not None:
+        manifest = runfiles_root / "MANIFEST"
+        if manifest.is_file():
+            return manifest
+
+    argv0 = Path(sys.argv[0]).resolve()
+    adjacent_manifest = argv0.parent / f"{argv0.name}.runfiles_manifest"
+    if adjacent_manifest.is_file():
+        return adjacent_manifest
+
+    return None
+
+
+def _runfiles_manifest() -> Mapping[str, Path]:
+    global _RUNFILES_MANIFEST
+    if _RUNFILES_MANIFEST is not None:
+        return _RUNFILES_MANIFEST
+
+    manifest_path = _runfiles_manifest_path()
+    if manifest_path is None:
+        _RUNFILES_MANIFEST = {}
+        return _RUNFILES_MANIFEST
+
+    mapping: dict[str, Path] = {}
+    for line in manifest_path.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        logical, separator, physical = line.partition(" ")
+        if not separator or not physical:
+            continue
+        mapping[logical] = Path(physical)
+    _RUNFILES_MANIFEST = mapping
+    return _RUNFILES_MANIFEST
+
+
+def _runfiles_path(logical_path: str) -> Path | None:
+    mapped = _runfiles_manifest().get(logical_path)
+    if mapped is not None and mapped.is_file():
+        return mapped
+    return None
+
+
+def _resolve_stage_static_asset(request_path: str) -> Path | None:
+    """Map a browser path to a stage static asset or SPA entrypoint."""
+
+    stage_root, avatar_root = _stage_static_roots()
+    raw_relative = unquote(request_path.lstrip("/"))
+    if raw_relative == "":
+        return _resolve_stage_static_logical_asset("index.html")
+
+    relative_path = Path(raw_relative)
+    if relative_path.is_absolute() or any(part in {"..", ""} for part in relative_path.parts):
+        return None
+
+    if relative_path.parts[:3] == ("assets", "images", "avatars"):
+        avatar_relative = Path(*relative_path.parts[3:])
+        avatar_candidate = avatar_root / avatar_relative
+        if avatar_candidate.is_file():
+            return avatar_candidate
+        return _runfiles_path(
+            f"_main/mlody/assets/images/avatars/{avatar_relative.as_posix()}"
+        )
+
+    candidate = stage_root / relative_path
+    if candidate.is_file():
+        return candidate
+    manifest_candidate = _resolve_stage_static_logical_asset(relative_path.as_posix())
+    if manifest_candidate is not None:
+        return manifest_candidate
+
+    if candidate.suffix == "":
+        return _resolve_stage_static_logical_asset("index.html")
+
+    return None
+
+
+def _resolve_stage_static_logical_asset(relative_path: str) -> Path | None:
+    stage_root, _avatar_root = _stage_static_roots()
+    direct_candidate = stage_root / relative_path
+    if direct_candidate.is_file():
+        return direct_candidate
+    return _runfiles_path(f"_main/mlody/stage/{relative_path}")
+
+
+def _static_content_type(path: Path) -> str:
+    """Return the HTTP content-type for a static stage asset."""
+
+    suffix = path.suffix.lower()
+    if suffix in _STATIC_TEXT_CONTENT_TYPES:
+        return _STATIC_TEXT_CONTENT_TYPES[suffix]
+    guessed, _encoding = mimetypes.guess_type(path.name)
+    return guessed or "application/octet-stream"
 
 
 def _event(
@@ -1506,6 +1647,12 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                 )
             return
 
+        if path == "/" or not path.startswith("/api"):
+            static_asset = _resolve_stage_static_asset(path)
+            if static_asset is not None:
+                self._write_static_response(static_asset)
+                return
+
         self._write_json_response(
             HTTPStatus.NOT_FOUND,
             {"error": f"Unknown endpoint: {path}"},
@@ -1662,6 +1809,24 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
         except _CLIENT_DISCONNECT_ERRORS:
             _logger.debug("Client disconnected before NDJSON response completed.")
 
+    def _write_static_response(self, asset_path: Path) -> None:
+        try:
+            body = asset_path.read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self._send_common_headers()
+            self.send_header("Content-Type", _static_content_type(asset_path))
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            self.wfile.flush()
+        except FileNotFoundError:
+            self._write_json_response(
+                HTTPStatus.NOT_FOUND,
+                {"error": f"Static asset not found: {asset_path.name}"},
+            )
+        except _CLIENT_DISCONNECT_ERRORS:
+            _logger.debug("Client disconnected before static response completed.")
+
 
 def create_http_server(
     config: ServerConfig,
@@ -1707,6 +1872,12 @@ def _start_lsp_thread(
     return thread
 
 
+def _display_http_host(host: str) -> str:
+    if host in {"0.0.0.0", "::"}:
+        return "127.0.0.1"
+    return host
+
+
 def run_server(
     config: ServerConfig,
     *,
@@ -1720,6 +1891,9 @@ def run_server(
 
     click.echo(
         f"HTTP API listening on http://{config.http_host}:{http_server.server_port}"
+    )
+    click.echo(
+        f"Stage UI available at http://{_display_http_host(config.http_host)}:{http_server.server_port}/"
     )
     click.echo(f"LSP listening on tcp://{config.lsp_host}:{config.lsp_port}")
 
