@@ -686,6 +686,69 @@ class TestExecuteStageCommandResponse:
             "name": "a-string",
             "data": ["FOOBAR"],
         }
+        assert "valueType" not in response
+
+    def test_typed_scalar_json_result_includes_value_type_metadata(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        string_type = Struct(
+            kind="type",
+            name="string",
+            type="string",
+            _root_kind="string",
+            attributes={},
+        )
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyValueValue(
+                struct=Struct(
+                    kind="value",
+                    name="_hash",
+                    type=string_type,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._display_payload",
+            lambda _value: "019e27e2-5acc-72a2-8a0c-d56295a4e0fa",
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.source_from_value",
+            lambda _value: None,
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "@common//huggingface/downloader:downloader._hash",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"]["type"] == "json"
+        assert response["data"] == "019e27e2-5acc-72a2-8a0c-d56295a4e0fa"
+        assert response["valueType"] == {
+            "kind": "type",
+            "name": "string",
+            "type": "string",
+            "_root_kind": "string",
+            "attributes": {},
+        }
 
     def test_serializes_lineage_values_as_stage_lineage_payload(
         self,

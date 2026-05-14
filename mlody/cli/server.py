@@ -1126,6 +1126,32 @@ def _raw_value_type_struct(workspace: object, value: _RawAttrValue) -> object | 
     return getattr(base_value, "type", None)
 
 
+def _stage_value_type_struct(workspace: object, value: MlodyValue) -> object | None:
+    if isinstance(value, _RawAttrValue):
+        return _raw_value_type_struct(workspace, value)
+
+    if isinstance(value, (MlodyTaskValue, MlodyActionValue, MlodyValueValue)):
+        return getattr(value.struct, "type", None)
+
+    return None
+
+
+def _attach_stage_value_type(
+    result: dict[str, object],
+    *,
+    workspace: object,
+    value: MlodyValue,
+) -> dict[str, object]:
+    type_struct = _stage_value_type_struct(workspace, value)
+    if type_struct is None:
+        return result
+
+    return {
+        **result,
+        "valueType": _stage_json_data(type_struct),
+    }
+
+
 def _stage_dispatched_result(
     workspace: object,
     value: MlodyValue,
@@ -1531,13 +1557,19 @@ def execute_stage_command_response(
         mlody_value = resolve_label_to_value(concrete_label, workspace)
         if isinstance(mlody_value, MlodyUnresolvedValue):
             raise ServerRequestError(mlody_value.reason)
+        stage_result = _stage_dispatched_result(
+            workspace,
+            mlody_value,
+            title=full_label,
+        )
+        if stage_result is None:
+            stage_result = _stage_result_for_mlody_value(mlody_value, title=full_label)
         stage_results.append(
-            _stage_dispatched_result(
-                workspace,
-                mlody_value,
-                title=full_label,
+            _attach_stage_value_type(
+                stage_result,
+                workspace=workspace,
+                value=mlody_value,
             )
-            or _stage_result_for_mlody_value(mlody_value, title=full_label)
         )
 
     if len(stage_results) == 1:

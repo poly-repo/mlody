@@ -8,6 +8,7 @@ import type {
 import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
 import { StageDagBlock } from "./StageDagBlock.js";
 import { StageLineageBlock } from "./StageLineageBlock.js";
+import { StageScalarBlock } from "./StageScalarBlock.js";
 import { StageSourceCodeBlock } from "./StageSourceCodeBlock.js";
 import { StageTableBlock } from "./StageTableBlock.js";
 
@@ -28,6 +29,64 @@ type StageDagPayload = StageResultPayload & {
   data: StageDagData;
 };
 
+type StageTablePayload = StageResultPayload & {
+  view: {
+    type: "table";
+    title?: string;
+    columns: { key: string; label: string; format?: string }[];
+    rowCount?: number;
+    truncated?: boolean;
+  };
+  data: Record<string, unknown>[];
+};
+
+type StageLineagePayload = StageResultPayload & {
+  view: {
+    type: "lineage";
+    title?: string;
+    rowCount?: number;
+  };
+  data: StageLineageRow[];
+};
+
+type StageSourceCodePayload = StageResultPayload & {
+  view: {
+    type: "source-code";
+    title?: string;
+  };
+  data: StageSourceCodeData;
+};
+
+type StageScalarPayload = StageResultPayload & {
+  view: {
+    type: "json";
+    title?: string;
+  };
+  data: string | number | boolean | null;
+};
+
+type StageSpecializedRenderer =
+  | {
+      kind: "table";
+      payload: StageTablePayload;
+    }
+  | {
+      kind: "lineage";
+      payload: StageLineagePayload;
+    }
+  | {
+      kind: "dag";
+      payload: StageDagPayload;
+    }
+  | {
+      kind: "source-code";
+      payload: StageSourceCodePayload;
+    }
+  | {
+      kind: "scalar";
+      payload: StageScalarPayload;
+    };
+
 interface DagRenderBoundaryProps {
   payload: StageDagPayload;
   children: ReactNode;
@@ -46,16 +105,7 @@ function isTableRowArray(value: unknown): value is Record<string, unknown>[] {
 
 function isTablePayload(
   payload: StageResultPayload,
-): payload is StageResultPayload & {
-  view: {
-    type: "table";
-    title?: string;
-    columns: { key: string; label: string; format?: string }[];
-    rowCount?: number;
-    truncated?: boolean;
-  };
-  data: Record<string, unknown>[];
-} {
+): payload is StageTablePayload {
   return (
     payload.view.type === "table" &&
     Array.isArray(payload.view.columns) &&
@@ -95,14 +145,7 @@ function isLineageRowArray(value: unknown): value is StageLineageRow[] {
 
 function isLineagePayload(
   payload: StageResultPayload,
-): payload is StageResultPayload & {
-  view: {
-    type: "lineage";
-    title?: string;
-    rowCount?: number;
-  };
-  data: StageLineageRow[];
-} {
+): payload is StageLineagePayload {
   return payload.view.type === "lineage" && isLineageRowArray(payload.data);
 }
 
@@ -123,23 +166,44 @@ function isStageSourceCodeData(value: unknown): value is StageSourceCodeData {
 
 function isSourceCodePayload(
   payload: StageResultPayload,
-): payload is StageResultPayload & {
-  view: {
-    type: "source-code";
-    title?: string;
-  };
-  data: StageSourceCodeData;
-} {
+): payload is StageSourceCodePayload {
   return payload.view.type === "source-code" && isStageSourceCodeData(payload.data);
 }
 
-export function hasSpecializedStageRenderer(payload: StageResultPayload): boolean {
+function isScalarPayload(payload: StageResultPayload): payload is StageScalarPayload {
   return (
-    isTablePayload(payload) ||
-    isLineagePayload(payload) ||
-    isDagPayload(payload) ||
-    isSourceCodePayload(payload)
+    payload.view.type === "json" &&
+    (payload.data === null ||
+      typeof payload.data === "string" ||
+      typeof payload.data === "number" ||
+      typeof payload.data === "boolean")
   );
+}
+
+function resolveSpecializedRenderer(
+  payload: StageResultPayload,
+): StageSpecializedRenderer | null {
+  if (isTablePayload(payload)) {
+    return { kind: "table", payload };
+  }
+  if (isLineagePayload(payload)) {
+    return { kind: "lineage", payload };
+  }
+  if (isDagPayload(payload)) {
+    return { kind: "dag", payload };
+  }
+  if (isSourceCodePayload(payload)) {
+    return { kind: "source-code", payload };
+  }
+  if (isScalarPayload(payload)) {
+    return { kind: "scalar", payload };
+  }
+
+  return null;
+}
+
+export function hasSpecializedStageRenderer(payload: StageResultPayload): boolean {
+  return resolveSpecializedRenderer(payload) !== null;
 }
 
 class DagRenderBoundary extends Component<
@@ -186,21 +250,26 @@ export function StageResultBlock({
   if (mode === "json") {
     return <JsonSyntaxBlock value={payload} />;
   }
-  if (isTablePayload(payload)) {
-    return <StageTableBlock payload={payload} />;
+  const specializedRenderer = resolveSpecializedRenderer(payload);
+
+  if (specializedRenderer?.kind === "table") {
+    return <StageTableBlock payload={specializedRenderer.payload} />;
   }
-  if (isLineagePayload(payload)) {
-    return <StageLineageBlock payload={payload} />;
+  if (specializedRenderer?.kind === "lineage") {
+    return <StageLineageBlock payload={specializedRenderer.payload} />;
   }
-  if (isDagPayload(payload)) {
+  if (specializedRenderer?.kind === "dag") {
     return (
-      <DagRenderBoundary payload={payload}>
-        <StageDagBlock payload={payload} />
+      <DagRenderBoundary payload={specializedRenderer.payload}>
+        <StageDagBlock payload={specializedRenderer.payload} />
       </DagRenderBoundary>
     );
   }
-  if (isSourceCodePayload(payload)) {
-    return <StageSourceCodeBlock payload={payload} />;
+  if (specializedRenderer?.kind === "source-code") {
+    return <StageSourceCodeBlock payload={specializedRenderer.payload} />;
+  }
+  if (specializedRenderer?.kind === "scalar") {
+    return <StageScalarBlock payload={specializedRenderer.payload} />;
   }
 
   return <JsonSyntaxBlock value={payload} />;

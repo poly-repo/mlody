@@ -64,6 +64,15 @@ export interface StageSourceCodeData {
   code: string;
 }
 
+export interface StageValueType {
+  kind?: string;
+  name?: string;
+  type?: string;
+  _root_kind?: string;
+  attributes?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 export interface StageResultPayload {
   kind: string;
   view: {
@@ -76,6 +85,7 @@ export interface StageResultPayload {
     edgeCount?: number;
   };
   data: unknown;
+  valueType?: StageValueType | null;
 }
 
 export type StageAutocompleteCompletionKind =
