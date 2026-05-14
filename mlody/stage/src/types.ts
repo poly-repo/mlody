@@ -48,6 +48,14 @@ export interface StageEncodedImageCell {
   path?: string;
 }
 
+export type StageLineageSource = "default" | "config" | "user" | "task";
+
+export interface StageLineageRow {
+  source: StageLineageSource;
+  value: unknown;
+  active: boolean;
+}
+
 export interface StageResultPayload {
   kind: string;
   view: {

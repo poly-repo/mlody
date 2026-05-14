@@ -1,7 +1,8 @@
 import { Component, type ReactNode } from "react";
-import type { StageDagData, StageResultPayload } from "../types.js";
+import type { StageDagData, StageLineageRow, StageResultPayload } from "../types.js";
 import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
 import { StageDagBlock } from "./StageDagBlock.js";
+import { StageLineageBlock } from "./StageLineageBlock.js";
 import { StageTableBlock } from "./StageTableBlock.js";
 
 interface StageResultBlockProps {
@@ -67,6 +68,35 @@ function isDagPayload(
   return payload.view.type === "dag" && isStageDagData(payload.data);
 }
 
+function isLineageRowArray(value: unknown): value is StageLineageRow[] {
+  return (
+    Array.isArray(value) &&
+    value.every((row) => {
+      if (row === null || typeof row !== "object" || Array.isArray(row)) {
+        return false;
+      }
+      const candidate = row as Record<string, unknown>;
+      return (
+        typeof candidate.source === "string" &&
+        typeof candidate.active === "boolean"
+      );
+    })
+  );
+}
+
+function isLineagePayload(
+  payload: StageResultPayload,
+): payload is StageResultPayload & {
+  view: {
+    type: "lineage";
+    title?: string;
+    rowCount?: number;
+  };
+  data: StageLineageRow[];
+} {
+  return payload.view.type === "lineage" && isLineageRowArray(payload.data);
+}
+
 class DagRenderBoundary extends Component<
   DagRenderBoundaryProps,
   DagRenderBoundaryState
@@ -107,6 +137,9 @@ class DagRenderBoundary extends Component<
 export function StageResultBlock({ payload }: StageResultBlockProps) {
   if (isTablePayload(payload)) {
     return <StageTableBlock payload={payload} />;
+  }
+  if (isLineagePayload(payload)) {
+    return <StageLineageBlock payload={payload} />;
   }
   if (isDagPayload(payload)) {
     return (

@@ -40,6 +40,7 @@ from mlody.cli.autocomplete import (
     stage_autocomplete_payload,
 )
 from mlody.cli.dag_render import build_stage_dag_data
+from mlody.cli.lineage_render import is_lineage_type, lineage_rows_from_payload
 from mlody.cli.show import (
     _dag_title_for_value,
     _describe_mlody_value,
@@ -887,6 +888,28 @@ def _stage_table_result(
     }
 
 
+def _stage_lineage_result(
+    title: str,
+    rows: Sequence[object],
+) -> dict[str, object]:
+    return {
+        "kind": "result",
+        "view": {
+            "type": "lineage",
+            "title": title,
+            "rowCount": len(rows),
+        },
+        "data": [
+            {
+                "source": getattr(row, "source"),
+                "value": _stage_json_data(getattr(row, "value")),
+                "active": bool(getattr(row, "active")),
+            }
+            for row in rows
+        ],
+    }
+
+
 def _stage_dag_result(
     title: str,
     graph: networkx.MultiDiGraph,
@@ -1088,6 +1111,10 @@ def _stage_dispatched_result(
             return None
 
         display_payload = _display_payload(value)
+        if is_lineage_type(getattr(value.struct, "type", None)):
+            lineage_rows = lineage_rows_from_payload(display_payload)
+            if lineage_rows is not None:
+                return _stage_lineage_result(title, lineage_rows)
         render_dispatch_value = value.struct
         if display_payload is not value.struct:
             if hasattr(display_payload, "as_mapping") and getattr(

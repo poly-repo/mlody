@@ -685,6 +685,93 @@ class TestExecuteStageCommandResponse:
             "data": ["FOOBAR"],
         }
 
+    def test_serializes_lineage_values_as_stage_lineage_payload(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        lineage_type = Struct(
+            kind="type",
+            name="vector",
+            type="vector",
+            _root_kind="vector",
+            attributes={
+                "element_type": Struct(
+                    kind="type",
+                    name="mlody-lineage-event",
+                    type="mlody-lineage-event",
+                    type_name="mlody-lineage-event",
+                    _root_kind="record",
+                    attributes={},
+                )
+            },
+        )
+        lineage_events = [
+            Struct(
+                kind="lineage_event",
+                source="DEFAULT: foo",
+                new_value=Struct(kind="location", data="foo"),
+            ),
+            Struct(
+                kind="lineage_event",
+                source="COMMAND_LINE: //simple:a-string=bar",
+                new_value=Struct(kind="location", data="bar"),
+            ),
+        ]
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyValueValue(
+                struct=Struct(
+                    kind="value",
+                    name="lineage",
+                    type=lineage_type,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._display_payload",
+            lambda _value: lineage_events,
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "//simple:a-string.lineage",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"] == {
+            "type": "lineage",
+            "title": "//simple:a-string.lineage",
+            "rowCount": 2,
+        }
+        assert response["data"] == [
+            {
+                "source": "default",
+                "value": "foo",
+                "active": False,
+            },
+            {
+                "source": "user",
+                "value": "bar",
+                "active": True,
+            },
+        ]
+
     def test_serializes_dag_values_as_stage_dag_payload(
         self,
         tmp_path: Path,

@@ -531,6 +531,120 @@ textarea {
   color: rgba(103, 118, 153, 0.94);
 }
 
+.StageLineageBlock {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.StageLineageBlock-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px 10px;
+}
+
+.StageLineageBlock-headingGroup {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.StageLineageBlock-label {
+  color: rgba(98, 116, 160, 0.96);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.StageLineageBlock-title {
+  color: rgba(35, 48, 80, 0.98);
+  font-size: 0.96rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.StageLineageBlock-count {
+  flex-shrink: 0;
+  color: rgba(103, 118, 153, 0.94);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.StageLineageBlock-scroll {
+  overflow-x: auto;
+  padding: 0 16px 14px;
+}
+
+.StageLineageBlock-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 6px;
+}
+
+.StageLineageBlock-th,
+.StageLineageBlock-td {
+  padding: 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.StageLineageBlock-th {
+  color: rgba(90, 106, 143, 0.96);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding-bottom: 4px;
+}
+
+.StageLineageBlock-th:first-child,
+.StageLineageBlock-td:first-child {
+  width: 108px;
+  padding-right: 18px;
+}
+
+.StageLineageBlock-source,
+.StageLineageBlock-value {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.StageLineageBlock-tr--active .StageLineageBlock-source,
+.StageLineageBlock-tr--active .StageLineageBlock-value {
+  color: rgba(34, 48, 79, 0.98);
+}
+
+.StageLineageBlock-tr--inactive .StageLineageBlock-source,
+.StageLineageBlock-tr--inactive .StageLineageBlock-value {
+  color: rgba(122, 133, 161, 0.94);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.StageLineageBlock-value {
+  white-space: nowrap;
+}
+
+.StageLineageBlock-value--code {
+  font-size: 0.82rem;
+}
+
+.StageLineageBlock-value--muted {
+  color: rgba(122, 133, 161, 0.92);
+}
+
+.StageLineageBlock-tr--empty .StageLineageBlock-value {
+  text-decoration: none;
+}
+
 .StageDagBlock {
   display: flex;
   min-width: 0;

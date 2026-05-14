@@ -28,6 +28,11 @@ from rich.table import Table
 from common.python.console import RichDomNode, RichDomExecutor, SyntaxNode, panel
 
 from mlody.cli.dag_render import build_dag_table, render_dag_table, resolve_show_output_selection
+from mlody.cli.lineage_render import (
+    build_lineage_console_table,
+    is_lineage_type,
+    lineage_rows_from_payload,
+)
 from mlody.cli.main import cli
 from mlody.core.dag import build_dag
 from mlody.core.derived import DerivedValueShapeError
@@ -1118,6 +1123,16 @@ def _print_mlody_value(
             return
 
         display_payload = _display_payload(value)
+        if is_lineage_type(getattr(value.struct, "type", None)):
+            lineage_rows = lineage_rows_from_payload(display_payload)
+            if lineage_rows is not None:
+                dom_executor.render(
+                    panel(
+                        _RichRenderableNode(build_lineage_console_table(lineage_rows)),
+                        title="lineage",
+                    )
+                )
+                return
         render_dispatch_value = value.struct
         if display_payload is not value.struct:
             if hasattr(display_payload, "as_mapping") and getattr(display_payload, "kind", None) == "value":
@@ -1291,6 +1306,13 @@ def _print_mlody_value(
 
 def _render_mlody_value(value: MlodyValue) -> RichDomNode:
     if isinstance(value, MlodyValueValue):
+        if is_lineage_type(getattr(value.struct, "type", None)):
+            lineage_rows = lineage_rows_from_payload(_display_payload(value))
+            if lineage_rows is not None:
+                return panel(
+                    _RichRenderableNode(build_lineage_console_table(lineage_rows)),
+                    title="lineage",
+                )
         payload = _display_payload(value)
         raw_json = _raw_json_blob(payload, name=getattr(value.struct, "name", None))
         if raw_json is not None:

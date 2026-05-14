@@ -9,6 +9,7 @@ import json
 import logging
 from pathlib import Path
 import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import networkx
@@ -1078,6 +1079,51 @@ class TestShowCommandDagPlan:
 
         assert result.exit_code == 0
         mock_render.assert_not_called()
+
+
+class TestShowCommandLineageRendering:
+    def test_lineage_renders_source_and_value_columns(self) -> None:
+        lineage_type = _make_type_struct(
+            "vector",
+            root_kind="vector",
+            attributes={
+                "element_type": _make_type_struct(
+                    "mlody-lineage-event",
+                    root_kind="record",
+                )
+            },
+        )
+        lineage_value = MlodyValueValue(
+            struct=Struct(
+                kind="value",
+                name="lineage",
+                type=lineage_type,
+            ),
+        )
+        lineage_events = [
+            Struct(
+                kind="lineage_event",
+                source="DEFAULT: foo",
+                new_value=Struct(kind="location", data="foo"),
+            ),
+            Struct(
+                kind="lineage_event",
+                source="COMMAND_LINE: //simple:a-string=bar",
+                new_value=Struct(kind="location", data="bar"),
+            ),
+        ]
+
+        with patch("mlody.cli.show.force", return_value=lineage_events):
+            node = mlody.cli.show._render_mlody_value(lineage_value)
+
+        renderable = node.render(SimpleNamespace(console=Console(file=StringIO())))
+
+        assert renderable.title == "lineage"
+        table = renderable.renderable
+        assert table.columns[0].header == "source"
+        assert table.columns[1].header == "value"
+        assert [cell.plain for cell in table.columns[0]._cells] == ["default", "user"]
+        assert [cell.plain for cell in table.columns[1]._cells] == ["foo", "bar"]
 
 
 # ---------------------------------------------------------------------------
