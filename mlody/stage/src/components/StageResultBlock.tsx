@@ -1,8 +1,14 @@
 import { Component, type ReactNode } from "react";
-import type { StageDagData, StageLineageRow, StageResultPayload } from "../types.js";
+import type {
+  StageDagData,
+  StageLineageRow,
+  StageResultPayload,
+  StageSourceCodeData,
+} from "../types.js";
 import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
 import { StageDagBlock } from "./StageDagBlock.js";
 import { StageLineageBlock } from "./StageLineageBlock.js";
+import { StageSourceCodeBlock } from "./StageSourceCodeBlock.js";
 import { StageTableBlock } from "./StageTableBlock.js";
 
 interface StageResultBlockProps {
@@ -100,11 +106,39 @@ function isLineagePayload(
   return payload.view.type === "lineage" && isLineageRowArray(payload.data);
 }
 
+function isStageSourceCodeData(value: unknown): value is StageSourceCodeData {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.path === "string" &&
+    typeof candidate.language === "string" &&
+    typeof candidate.startLine === "number" &&
+    typeof candidate.endLine === "number" &&
+    typeof candidate.code === "string"
+  );
+}
+
+function isSourceCodePayload(
+  payload: StageResultPayload,
+): payload is StageResultPayload & {
+  view: {
+    type: "source-code";
+    title?: string;
+  };
+  data: StageSourceCodeData;
+} {
+  return payload.view.type === "source-code" && isStageSourceCodeData(payload.data);
+}
+
 export function hasSpecializedStageRenderer(payload: StageResultPayload): boolean {
   return (
     isTablePayload(payload) ||
     isLineagePayload(payload) ||
-    isDagPayload(payload)
+    isDagPayload(payload) ||
+    isSourceCodePayload(payload)
   );
 }
 
@@ -164,6 +198,9 @@ export function StageResultBlock({
         <StageDagBlock payload={payload} />
       </DagRenderBoundary>
     );
+  }
+  if (isSourceCodePayload(payload)) {
+    return <StageSourceCodeBlock payload={payload} />;
   }
 
   return <JsonSyntaxBlock value={payload} />;

@@ -71,7 +71,7 @@ from mlody.resolver import (
     resolve_label_to_value,
     resolve_workspace,
 )
-from mlody.resolver.label_value import _RawAttrValue
+from mlody.resolver.label_value import MlodySourceRangeValue, _RawAttrValue
 from mlody.resolver.errors import WorkspaceResolutionError
 from mlody.resolver.resolver import _workspace_injections, get_or_build_baseline_workspace
 
@@ -931,6 +931,35 @@ def _stage_dag_result(
     }
 
 
+def _stage_source_code_result(
+    title: str,
+    value: MlodySourceRangeValue,
+) -> dict[str, object]:
+    start_line = min(value.start_line, value.end_line)
+    end_line = max(value.start_line, value.end_line)
+
+    try:
+        lines = value.abs_path.read_text().splitlines()
+        code = "\n".join(lines[start_line - 1 : end_line])
+    except Exception:
+        code = f"# could not read {value.abs_path}"
+
+    return {
+        "kind": "result",
+        "view": {
+            "type": "source-code",
+            "title": title,
+        },
+        "data": {
+            "path": value.filepath,
+            "language": "python",
+            "startLine": start_line,
+            "endLine": end_line,
+            "code": code,
+        },
+    }
+
+
 def _image_mime_type(raw: bytes) -> str | None:
     if raw.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -1209,6 +1238,9 @@ def _stage_result_for_mlody_value(
     *,
     title: str,
 ) -> dict[str, object]:
+    if isinstance(value, MlodySourceRangeValue):
+        return _stage_source_code_result(title, value)
+
     if isinstance(value, _RawAttrValue):
         raw_value = value.value
         if isinstance(raw_value, list) and raw_value and all(

@@ -56,6 +56,14 @@ export interface StageLineageRow {
   active: boolean;
 }
 
+export interface StageSourceCodeData {
+  path: string;
+  language: string;
+  startLine: number;
+  endLine: number;
+  code: string;
+}
+
 export interface StageResultPayload {
   kind: string;
   view: {

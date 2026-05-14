@@ -98,6 +98,7 @@ export function InputBar({
 }: InputBarProps) {
   const [value, setValue] = useState("");
   const [promotedSegments, setPromotedSegments] = useState<string[]>([]);
+  const [cursorToEndToken, setCursorToEndToken] = useState(0);
   const [historyEntries, setHistoryEntries] = useState<CommandHistoryEntry[]>(
     () => loadCommandHistory(),
   );
@@ -158,9 +159,16 @@ export function InputBar({
     );
   }
 
-  function applySnapshot(snapshot: CommandHistorySnapshot) {
+  function applySnapshot(
+    snapshot: CommandHistorySnapshot,
+    options?: { placeCursorAtEnd?: boolean },
+  ) {
     setValue(snapshot.value);
     setPromotedSegments([...snapshot.promotedSegments]);
+
+    if (options?.placeCursorAtEnd) {
+      setCursorToEndToken((previous) => previous + 1);
+    }
 
     if (snapshot.command !== currentCommand) {
       onCommandChange(snapshot.command);
@@ -192,7 +200,7 @@ export function InputBar({
     const activeSearch = historySearch;
 
     if (restoreDraft && activeSearch) {
-      applySnapshot(activeSearch.draft);
+      applySnapshot(activeSearch.draft, { placeCursorAtEnd: true });
     }
 
     setHistorySearch(null);
@@ -224,9 +232,11 @@ export function InputBar({
     if (query.trim() === "" || matches.length === 0) {
       setHistoryCursor(null);
       setHistoryDraft(draft);
-      applySnapshot(draft);
+      applySnapshot(draft, { placeCursorAtEnd: true });
     } else {
-      applySnapshot(toHistorySnapshot(matches[nextSelectedMatch]!.entry));
+      applySnapshot(toHistorySnapshot(matches[nextSelectedMatch]!.entry), {
+        placeCursorAtEnd: true,
+      });
       setHistoryCursor(matches[nextSelectedMatch]!.index);
       setHistoryDraft(draft);
     }
@@ -251,7 +261,9 @@ export function InputBar({
 
     setHistoryDraft(draft);
     setHistoryCursor(nextCursor);
-    applySnapshot(toHistorySnapshot(historyEntries[nextCursor]!));
+    applySnapshot(toHistorySnapshot(historyEntries[nextCursor]!), {
+      placeCursorAtEnd: true,
+    });
     return true;
   }
 
@@ -267,14 +279,16 @@ export function InputBar({
     const draft = historyDraft ?? currentSnapshot();
     const nextCursor = historyCursor + 1;
     if (nextCursor >= historyEntries.length) {
-      applySnapshot(draft);
+      applySnapshot(draft, { placeCursorAtEnd: true });
       resetHistoryNavigation();
       return true;
     }
 
     setHistoryDraft(draft);
     setHistoryCursor(nextCursor);
-    applySnapshot(toHistorySnapshot(historyEntries[nextCursor]!));
+    applySnapshot(toHistorySnapshot(historyEntries[nextCursor]!), {
+      placeCursorAtEnd: true,
+    });
     return true;
   }
 
@@ -435,6 +449,7 @@ export function InputBar({
         <CommandInputEditor
           value={value}
           promotedSegments={promotedSegments}
+          cursorToEndToken={cursorToEndToken}
           workspaceRoot={workspace?.workspaceRoot ?? null}
           historySearchActive={historySearch !== null}
           onChange={setValue}

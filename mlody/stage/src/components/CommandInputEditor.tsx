@@ -42,6 +42,7 @@ const COMMAND_INPUT_IMPLEMENTATION: CommandInputImplementation = "codemirror";
 interface CommandInputEditorProps {
   value: string;
   promotedSegments: string[];
+  cursorToEndToken: number;
   workspaceRoot: string | null;
   historySearchActive: boolean;
   disabled?: boolean;
@@ -454,6 +455,7 @@ function deletePreviousWordFromText(value: string, cursor: number): string {
 function CodeMirrorCommandInput({
   value,
   promotedSegments,
+  cursorToEndToken,
   workspaceRoot,
   historySearchActive,
   disabled = false,
@@ -475,6 +477,7 @@ function CodeMirrorCommandInput({
   const editorRef = useRef<ReactCodeMirrorRef>(null);
   const autocompleteRequestKeyRef = useRef<string | null>(null);
   const autocompleteRequestSequenceRef = useRef(0);
+  const cursorToEndTokenRef = useRef(cursorToEndToken);
 
   useEffect(() => {
     if (!disabled) {
@@ -489,15 +492,34 @@ function CodeMirrorCommandInput({
     }
 
     const currentValue = view.state.doc.toString();
-    if (currentValue !== value) {
+    const shouldMoveCursorToEnd =
+      cursorToEndTokenRef.current !== cursorToEndToken;
+    cursorToEndTokenRef.current = cursorToEndToken;
+
+    if (currentValue !== value || shouldMoveCursorToEnd) {
       view.dispatch({
-        changes: {
-          from: 0,
-          to: view.state.doc.length,
-          insert: value,
-        },
+        ...(currentValue !== value
+          ? {
+              changes: {
+                from: 0,
+                to: view.state.doc.length,
+                insert: value,
+              },
+            }
+          : {}),
+        ...(shouldMoveCursorToEnd
+          ? {
+              selection: {
+                anchor: value.length,
+              },
+            }
+          : {}),
         annotations: [Transaction.addToHistory.of(false)],
       });
+
+      if (shouldMoveCursorToEnd && !disabled) {
+        view.focus();
+      }
     }
 
     const currentSegments = getPromotedSegments(view);
@@ -506,7 +528,7 @@ function CodeMirrorCommandInput({
         addToHistory: false,
       });
     }
-  }, [promotedSegments, value]);
+  }, [cursorToEndToken, disabled, promotedSegments, value]);
 
   const completionSource = async (
     context: CompletionContext,
@@ -929,6 +951,7 @@ function CodeMirrorCommandInput({
 function TextareaCommandInput({
   value,
   promotedSegments,
+  cursorToEndToken,
   historySearchActive,
   disabled = false,
   placeholder,
@@ -947,6 +970,7 @@ function TextareaCommandInput({
   onHistorySearchNextMatch,
 }: CommandInputEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const cursorToEndTokenRef = useRef(cursorToEndToken);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -960,6 +984,25 @@ function TextareaCommandInput({
       textareaRef.current?.focus();
     }
   }, [disabled]);
+
+  useEffect(() => {
+    const shouldMoveCursorToEnd =
+      cursorToEndTokenRef.current !== cursorToEndToken;
+    cursorToEndTokenRef.current = cursorToEndToken;
+
+    if (!shouldMoveCursorToEnd || disabled) {
+      return;
+    }
+
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    const cursor = value.length;
+    textarea.focus();
+    textarea.setSelectionRange(cursor, cursor);
+  }, [cursorToEndToken, disabled, value]);
 
   function handleChange(nextValue: string) {
     if (!shouldAttemptBulkPromotion(value, nextValue)) {

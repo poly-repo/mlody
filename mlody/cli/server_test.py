@@ -35,7 +35,7 @@ from mlody.core.dag import Edge, TaskNode, ValueNode
 from mlody.core.dag_value import MlodyDagType
 from mlody.core.workspace_models import RootInfo
 from mlody.resolver import MlodyFolderValue, MlodyValueValue
-from mlody.resolver.label_value import _RawAttrValue
+from mlody.resolver.label_value import MlodySourceRangeValue, _RawAttrValue
 
 
 def _server_config(tmp_path: Path, *, http_port: int = 0) -> ServerConfig:
@@ -929,6 +929,68 @@ class TestExecuteStageCommandResponse:
                 "typeLabel": "dataset",
             },
         ]
+
+    def test_serializes_source_range_values_as_stage_source_code_payload(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        source_path = tmp_path / "pipeline.mlody"
+        source_path.write_text(
+            "before = 1\n"
+            "builtins.register(\n"
+            "    \"value\",\n"
+            "    struct(name=\"raw-employees-remote\"),\n"
+            ")\n"
+            "after = 2\n"
+        )
+
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodySourceRangeValue(
+                filepath="pipeline.mlody",
+                abs_path=source_path,
+                start_line=2,
+                end_line=5,
+            ),
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "//pipeline:raw-employees-remote._source_range",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"] == {
+            "type": "source-code",
+            "title": "//pipeline:raw-employees-remote._source_range",
+        }
+        assert response["data"] == {
+            "path": "pipeline.mlody",
+            "language": "python",
+            "startLine": 2,
+            "endLine": 5,
+            "code": (
+                "builtins.register(\n"
+                "    \"value\",\n"
+                "    struct(name=\"raw-employees-remote\"),\n"
+                ")"
+            ),
+        }
 
 
 class TestStageJsonData:

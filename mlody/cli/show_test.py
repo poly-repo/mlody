@@ -31,6 +31,7 @@ from mlody.resolver.errors import UnknownRefError, WorkspaceResolutionError
 from mlody.resolver.label_value import (
     MlodyActionValue,
     MlodyFolderValue,
+    MlodySourceRangeValue,
     MlodySourceValue,
     MlodyTaskValue,
     MlodyUnresolvedValue,
@@ -1124,6 +1125,29 @@ class TestShowCommandLineageRendering:
         assert table.columns[1].header == "value"
         assert [cell.plain for cell in table.columns[0]._cells] == ["default", "user"]
         assert [cell.plain for cell in table.columns[1]._cells] == ["foo", "bar"]
+
+    def test_source_range_uses_syntax_highlighted_source_panel(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        source_path = tmp_path / "pipeline.mlody"
+        source_path.write_text(
+            "x = 1\n"
+            "cached_value(name=\"raw-employees-remote\")\n"
+            "y = 2\n"
+        )
+        node = mlody.cli.show._render_mlody_value(
+            MlodySourceRangeValue(
+                filepath="pipeline.mlody",
+                abs_path=source_path,
+                start_line=2,
+                end_line=2,
+            )
+        )
+        assert isinstance(node, mlody.cli.show.SyntaxNode)
+        assert node.language == "python"
+        assert "# pipeline.mlody:2" in node.value
+        assert "cached_value(name=\"raw-employees-remote\")" in node.value
 
 
 # ---------------------------------------------------------------------------
