@@ -15,11 +15,13 @@ import base64
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+import errno
 import json
 import logging
 import mimetypes
 import os
 import shlex
+import socket
 import threading
 from urllib.parse import unquote
 import uuid
@@ -1869,6 +1871,76 @@ def create_http_server(
     )
 
 
+def _listener_bind_exception(
+    listener_name: str,
+    host: str,
+    port: int,
+    port_flag: str,
+    exc: OSError,
+) -> click.ClickException:
+    endpoint = f"{host}:{port}"
+    if exc.errno == errno.EADDRINUSE:
+        return click.ClickException(
+            f"Could not start {listener_name} on {endpoint}: address already in use. "
+            f"Stop the existing process or choose a different {port_flag}."
+        )
+    if exc.errno == errno.EACCES:
+        return click.ClickException(
+            f"Could not start {listener_name} on {endpoint}: permission denied."
+        )
+    return click.ClickException(
+        f"Could not start {listener_name} on {endpoint}: {exc}."
+    )
+
+
+def _assert_listener_available(
+    listener_name: str,
+    host: str,
+    port: int,
+    *,
+    port_flag: str,
+) -> None:
+    try:
+        candidates = socket.getaddrinfo(
+            host,
+            port,
+            type=socket.SOCK_STREAM,
+            flags=socket.AI_PASSIVE,
+        )
+    except OSError as exc:
+        raise _listener_bind_exception(
+            listener_name,
+            host,
+            port,
+            port_flag,
+            exc,
+        ) from None
+
+    bind_errors: list[OSError] = []
+    seen: set[tuple[object, ...]] = set()
+    for family, socktype, proto, _canonname, sockaddr in candidates:
+        cache_key = (family, socktype, proto, sockaddr)
+        if cache_key in seen:
+            continue
+        seen.add(cache_key)
+        try:
+            with socket.socket(family, socktype, proto) as probe:
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                probe.bind(sockaddr)
+            return
+        except OSError as exc:
+            bind_errors.append(exc)
+
+    if bind_errors:
+        raise _listener_bind_exception(
+            listener_name,
+            host,
+            port,
+            port_flag,
+            bind_errors[0],
+        ) from None
+
+
 def _run_lsp_tcp_server(config: ServerConfig) -> None:
     from mlody.lsp.server import configure_runtime_roots, server as lsp_server
 
@@ -1913,7 +1985,29 @@ def run_server(
 ) -> None:
     """Run the persistent HTTP+LSP server until interrupted."""
 
-    http_server = create_http_server(config, event_source=event_source)
+    _assert_listener_available(
+        "HTTP API listener",
+        config.http_host,
+        config.http_port,
+        port_flag="--server-port",
+    )
+    _assert_listener_available(
+        "LSP listener",
+        config.lsp_host,
+        config.lsp_port,
+        port_flag="--lsp-port",
+    )
+
+    try:
+        http_server = create_http_server(config, event_source=event_source)
+    except OSError as exc:
+        raise _listener_bind_exception(
+            "HTTP API listener",
+            config.http_host,
+            config.http_port,
+            "--server-port",
+            exc,
+        ) from None
     _start_lsp_thread(config, lsp_runner=lsp_runner)
 
     click.echo(

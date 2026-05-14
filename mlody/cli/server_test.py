@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 import json
 import threading
 from http import HTTPStatus
@@ -12,6 +13,7 @@ from urllib.request import Request, urlopen
 
 import networkx
 import pytest
+import click
 
 from common.python.starlarkish.core.struct import Struct
 from mlody.cli.autocomplete import StageAutocompleteRequest
@@ -1022,6 +1024,72 @@ class TestHttpApi:
             http_server.shutdown()
             http_server.server_close()
             server_thread.join(timeout=5)
+
+
+class TestServerStartupErrors:
+    def test_run_server_reports_clear_error_when_http_port_is_in_use(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen()
+            http_port = occupied.getsockname()[1]
+            config = ServerConfig(
+                monorepo_root=tmp_path,
+                workspace_root=tmp_path,
+                roots=None,
+                verbose=False,
+                full_workspace=False,
+                http_host="127.0.0.1",
+                http_port=http_port,
+                lsp_host="127.0.0.1",
+                lsp_port=0,
+            )
+
+            with pytest.raises(click.ClickException) as exc_info:
+                from mlody.cli.server import run_server
+
+                run_server(config)
+
+        assert (
+            exc_info.value.message
+            == "Could not start HTTP API listener on 127.0.0.1:"
+            f"{http_port}: address already in use. "
+            "Stop the existing process or choose a different --server-port."
+        )
+
+    def test_run_server_reports_clear_error_when_lsp_port_is_in_use(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen()
+            lsp_port = occupied.getsockname()[1]
+            config = ServerConfig(
+                monorepo_root=tmp_path,
+                workspace_root=tmp_path,
+                roots=None,
+                verbose=False,
+                full_workspace=False,
+                http_host="127.0.0.1",
+                http_port=0,
+                lsp_host="127.0.0.1",
+                lsp_port=lsp_port,
+            )
+
+            with pytest.raises(click.ClickException) as exc_info:
+                from mlody.cli.server import run_server
+
+                run_server(config)
+
+        assert (
+            exc_info.value.message
+            == "Could not start LSP listener on 127.0.0.1:"
+            f"{lsp_port}: address already in use. "
+            "Stop the existing process or choose a different --lsp-port."
+        )
 
     def test_non_api_route_falls_back_to_stage_index_html(
         self,

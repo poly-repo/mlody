@@ -293,6 +293,31 @@ class TestServerFlag:
         assert config.lsp_host == "0.0.0.0"
         assert config.lsp_port == 9901
 
+    def test_server_flag_surfaces_startup_errors_cleanly(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "MODULE.bazel").touch()
+        (tmp_path / "mlody").mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        with patch(
+            "mlody.cli.server.run_server",
+            side_effect=click.ClickException(
+                "Could not start HTTP API listener on 127.0.0.1:8765: "
+                "address already in use. Stop the existing process or choose "
+                "a different --server-port."
+            ),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["--server"])
+
+        assert result.exit_code == 1
+        assert (
+            "Error: Could not start HTTP API listener on 127.0.0.1:8765: "
+            "address already in use."
+        ) in result.output
+        assert "Traceback" not in result.output
+
 
 # ---------------------------------------------------------------------------
 # Logging configuration
