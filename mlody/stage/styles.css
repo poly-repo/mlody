@@ -246,7 +246,8 @@ textarea {
   align-items: center;
 }
 
-.ExecutionBlock-copyButton {
+.ExecutionBlock-copyButton,
+.ExecutionBlock-toggleButton {
   display: inline-flex;
   height: 28px;
   width: 28px;
@@ -267,7 +268,8 @@ textarea {
     box-shadow 160ms ease;
 }
 
-.ExecutionBlock-copyButton:hover {
+.ExecutionBlock-copyButton:hover,
+.ExecutionBlock-toggleButton:hover {
   transform: translateY(-1px);
   border-color: rgba(128, 157, 255, 0.36);
   background: rgba(244, 247, 255, 0.96);
@@ -277,12 +279,14 @@ textarea {
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
-.ExecutionBlock-copyButton:focus-visible {
+.ExecutionBlock-copyButton:focus-visible,
+.ExecutionBlock-toggleButton:focus-visible {
   outline: 2px solid rgba(82, 115, 212, 0.38);
   outline-offset: 2px;
 }
 
-.ExecutionBlock-copyButton svg {
+.ExecutionBlock-copyButton svg,
+.ExecutionBlock-toggleButton svg {
   height: 15px;
   width: 15px;
 }

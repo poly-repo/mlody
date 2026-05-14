@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
+import { Code2, Eye } from "lucide-react";
 import { LuCheck, LuCopy } from "react-icons/lu";
 import type { ExecutionRecord } from "../types.js";
-import { StageResultBlock } from "./StageResultBlock.js";
+import {
+  hasSpecializedStageRenderer,
+  StageResultBlock,
+  type StageResultViewMode,
+} from "./StageResultBlock.js";
 
 interface ExecutionBlockProps {
   record: ExecutionRecord;
@@ -88,13 +93,23 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
     "idle",
   );
+  const [stageResultViewMode, setStageResultViewMode] =
+    useState<StageResultViewMode>("rendered");
   const copyCommand = buildCopyCommand(record);
+  const hasSpecializedStageOutput = record.output.some(
+    (chunk) =>
+      chunk.kind === "stage-json" && hasSpecializedStageRenderer(chunk.value),
+  );
   const copyButtonLabel =
     copyState === "copied"
       ? "Copied full bazel run command"
       : copyState === "error"
       ? "Copy full bazel run command failed"
       : "Copy full bazel run command";
+  const stageViewButtonLabel =
+    stageResultViewMode === "rendered"
+      ? "Show raw JSON representation"
+      : "Show specialized renderer";
 
   useEffect(() => {
     if (copyState === "idle") {
@@ -109,6 +124,12 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
       window.clearTimeout(timeoutId);
     };
   }, [copyState]);
+
+  useEffect(() => {
+    if (!hasSpecializedStageOutput && stageResultViewMode !== "rendered") {
+      setStageResultViewMode("rendered");
+    }
+  }, [hasSpecializedStageOutput, stageResultViewMode]);
 
   async function handleCopyClick() {
     try {
@@ -128,6 +149,25 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
         <span className="ExecutionBlock-command" title={record.command}>
           {record.command}
         </span>
+        {hasSpecializedStageOutput ? (
+          <button
+            type="button"
+            className="ExecutionBlock-toggleButton"
+            aria-label={stageViewButtonLabel}
+            title={stageViewButtonLabel}
+            onClick={() => {
+              setStageResultViewMode((currentMode) =>
+                currentMode === "rendered" ? "json" : "rendered",
+              );
+            }}
+          >
+            {stageResultViewMode === "rendered" ? (
+              <Code2 aria-hidden="true" />
+            ) : (
+              <Eye aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
         <button
           type="button"
           className={`ExecutionBlock-copyButton ExecutionBlock-copyButton--${copyState}`}
@@ -156,7 +196,10 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
               key={idx}
               className="ExecutionBlock-line ExecutionBlock-line--stageJson"
             >
-              <StageResultBlock payload={chunk.value} />
+              <StageResultBlock
+                payload={chunk.value}
+                mode={stageResultViewMode}
+              />
             </div>
           ) : (
             <span

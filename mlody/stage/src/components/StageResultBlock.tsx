@@ -7,7 +7,10 @@ import { StageTableBlock } from "./StageTableBlock.js";
 
 interface StageResultBlockProps {
   payload: StageResultPayload;
+  mode?: StageResultViewMode;
 }
+
+export type StageResultViewMode = "rendered" | "json";
 
 type StageDagPayload = StageResultPayload & {
   view: {
@@ -97,6 +100,14 @@ function isLineagePayload(
   return payload.view.type === "lineage" && isLineageRowArray(payload.data);
 }
 
+export function hasSpecializedStageRenderer(payload: StageResultPayload): boolean {
+  return (
+    isTablePayload(payload) ||
+    isLineagePayload(payload) ||
+    isDagPayload(payload)
+  );
+}
+
 class DagRenderBoundary extends Component<
   DagRenderBoundaryProps,
   DagRenderBoundaryState
@@ -134,7 +145,13 @@ class DagRenderBoundary extends Component<
   }
 }
 
-export function StageResultBlock({ payload }: StageResultBlockProps) {
+export function StageResultBlock({
+  payload,
+  mode = "rendered",
+}: StageResultBlockProps) {
+  if (mode === "json") {
+    return <JsonSyntaxBlock value={payload} />;
+  }
   if (isTablePayload(payload)) {
     return <StageTableBlock payload={payload} />;
   }
