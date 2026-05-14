@@ -2731,6 +2731,12 @@ def _lookup_entity(
             if matching:
                 candidates = matching
 
+    supported_candidates = [
+        candidate for candidate in candidates if candidate[0] in TRAVERSAL_STRATEGIES
+    ]
+    if supported_candidates:
+        candidates = supported_candidates
+
     return candidates[0]
 
 

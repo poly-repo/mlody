@@ -8,6 +8,8 @@
     "@codemirror/search": "6.5.11",
     "@codemirror/state": "6.5.2",
     "@codemirror/view": "6.38.2",
+    "@projectstorm/react-canvas-core": "^7.0.3",
+    "@projectstorm/react-diagrams": "^7.0.4",
     "@tanstack/react-table": "8.21.3",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -26,7 +28,11 @@
     "typescript": "^5.8.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": []
+    "onlyBuiltDependencies": [],
+    "overrides": {
+      "react": "^19.0.0",
+      "react-dom": "^19.0.0"
+    }
   },
   "devDependencies": {
     "@tailwindcss/cli": "4.3.0",

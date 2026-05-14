@@ -1158,6 +1158,86 @@ builtins.register("value", struct(
 """
 
 
+_RECORD_WITH_PARQUET_FIELD_AND_TYPE_TEMPLATE = """\
+builtins.register("type", struct(
+    kind="type",
+    type="record",
+    name="dataset",
+    _root_kind="record",
+    attributes={{}},
+    _allowed_attrs={{}},
+    fields=[
+        struct(
+            kind="field",
+            name="valid",
+            type=struct(
+                kind="type",
+                type="vector",
+                name="vector",
+                _root_kind="vector",
+                attributes={{}},
+                _allowed_attrs={{}},
+            ),
+            representation=struct(
+                kind="representation",
+                type="parquet",
+                name="parquet",
+            ),
+            location=struct(
+                kind="posix",
+                type="parquet",
+                name="loc",
+                path="{parquet_path}",
+            ),
+        ),
+    ],
+))
+
+builtins.register("value", struct(
+    kind="value",
+    name="dataset",
+    type=struct(
+        kind="type",
+        type="record",
+        name="dataset",
+        _root_kind="record",
+        attributes={{}},
+        _allowed_attrs={{}},
+        fields=[
+            struct(
+                kind="field",
+                name="valid",
+                type=struct(
+                    kind="type",
+                    type="vector",
+                    name="vector",
+                    _root_kind="vector",
+                    attributes={{}},
+                    _allowed_attrs={{}},
+                ),
+                representation=struct(
+                    kind="representation",
+                    type="parquet",
+                    name="parquet",
+                ),
+                location=struct(
+                    kind="posix",
+                    type="parquet",
+                    name="loc",
+                    path="{parquet_path}",
+                ),
+            ),
+        ],
+    ),
+    location=None,
+    representation=None,
+    default=None,
+    source=None,
+    _lineage=[],
+))
+"""
+
+
 def _make_record_with_parquet_field_workspace(
     root: Path, parquet_path: Path
 ) -> Workspace:
@@ -1173,6 +1253,29 @@ def _make_record_with_parquet_field_workspace(
     _add_mm_files(root)
 
     content = _RECORD_WITH_PARQUET_FIELD_TEMPLATE.format(parquet_path=str(parquet_path))
+    (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(content)
+
+    ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
+    ws.load()
+    return ws
+
+
+def _make_record_with_parquet_field_and_type_workspace(
+    root: Path, parquet_path: Path
+) -> Workspace:
+    """Workspace with same-name type/value registrations and a parquet-backed field."""
+    (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
+    (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
+    (root / "teams" / "data" / "pkg").mkdir(parents=True, exist_ok=True)
+
+    (root / "mlody" / "core" / "builtins.mlody").write_text(BUILTINS_MLODY)
+    (root / "mlody" / "roots.mlody").write_text(ROOTS_MLODY)
+    (root / "mlody" / "common" / "types.mlody").write_text("")
+    _add_mm_files(root)
+
+    content = _RECORD_WITH_PARQUET_FIELD_AND_TYPE_TEMPLATE.format(
+        parquet_path=str(parquet_path)
+    )
     (root / "teams" / "data" / "pkg" / "dataset.mlody").write_text(content)
 
     ws = Workspace(monorepo_root=root, skipped_mlody_paths=[])
@@ -1217,3 +1320,20 @@ class TestParquetFieldSliceFieldRegression:
         # location is inline with a 3-tuple of bools (rows 1, 2, 3 of the fixture)
         assert getattr(result.struct.location, "type", None) == "inline"  # type: ignore[union-attr]
         assert result.struct.location.data == (False, True, False)  # type: ignore[union-attr]
+
+    def test_same_named_type_and_value_still_resolve_field_sql_against_value(
+        self, tmp_path: Path
+    ) -> None:
+        """A same-name type registration must not steal field-path value resolution."""
+        parquet_file = tmp_path / "valid.parquet"
+        _make_rich_parquet_file(parquet_file)
+        ws = _make_record_with_parquet_field_and_type_workspace(tmp_path, parquet_file)
+
+        label = parse_label("@data//pkg/dataset:dataset.valid[@sql WHERE Bald = true LIMIT 2]")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, _RawAttrValue), f"Expected _RawAttrValue, got {result!r}"
+        rows = result.value
+        assert isinstance(rows, list)
+        assert len(rows) == 2
+        assert all(row["Bald"] is True for row in rows)

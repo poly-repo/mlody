@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import click
+import networkx
 import pyarrow as pa
 
 from common.python.starlarkish.evaluator.evaluator import _runtime_json_data
@@ -34,9 +35,12 @@ from mlody.cli.autocomplete import (
     parse_stage_autocomplete_request,
     stage_autocomplete_payload,
 )
+from mlody.cli.dag_render import build_stage_dag_data
 from mlody.cli.show import (
+    _dag_title_for_value,
     _describe_mlody_value,
     _display_payload,
+    _is_dag_value,
     _parse_inner,
     _selected_show_user,
 )
@@ -742,6 +746,25 @@ def _stage_table_result(
     }
 
 
+def _stage_dag_result(
+    title: str,
+    graph: networkx.MultiDiGraph,
+) -> dict[str, object]:
+    dag_data = build_stage_dag_data(graph)
+    nodes = cast(list[object], dag_data["nodes"])
+    edges = cast(list[object], dag_data["edges"])
+    return {
+        "kind": "result",
+        "view": {
+            "type": "dag",
+            "title": title,
+            "nodeCount": len(nodes),
+            "edgeCount": len(edges),
+        },
+        "data": dag_data,
+    }
+
+
 def _image_mime_type(raw: bytes) -> str | None:
     if raw.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -917,6 +940,12 @@ def _stage_dispatched_result(
     from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
 
     if isinstance(value, MlodyValueValue):
+        if _is_dag_value(value):
+            graph = _display_payload(value)
+            if isinstance(graph, networkx.MultiDiGraph):
+                return _stage_dag_result(_dag_title_for_value(value), graph)
+            return None
+
         display_payload = _display_payload(value)
         render_dispatch_value = value.struct
         if display_payload is not value.struct:

@@ -14,6 +14,7 @@ LOG_ROOT="${O_STAGE_LOG_ROOT:-/tmp/o-stage-${USER}}"
 DEVSERVER_LOG="$LOG_ROOT/devserver.log"
 BACKEND_LOG="$LOG_ROOT/backend.log"
 STAGE_URL="http://${DEV_HOST}:${DEV_PORT}/"
+STAGE_LAUNCH_URL="${STAGE_URL}?v=$(date +%s%N)"
 HEALTH_URL="http://${API_HOST}:${API_PORT}/healthz"
 BROWSER_MODE="vivaldi"
 REPL_WINDOW_CLASS="mlody-repl"
@@ -360,7 +361,7 @@ open_stage_in_chrome() {
   chrome_bin="$(find_chrome_bin)"
 
   if [[ -z "$chrome_bin" ]]; then
-    echo "Could not find a Chrome-compatible browser to open ${STAGE_URL}" >&2
+    echo "Could not find a Chrome-compatible browser to open ${STAGE_LAUNCH_URL}" >&2
     return 0
   fi
 
@@ -375,7 +376,7 @@ open_stage_in_chrome() {
   fi
 
   before_ids="$(list_browser_window_ids '(^google-chrome\\.|^chromium\\.)' || true)"
-  "$chrome_bin" --class="$REPL_WINDOW_CLASS" --app="$STAGE_URL" >/dev/null 2>&1 &
+  "$chrome_bin" --class="$REPL_WINDOW_CLASS" --app="$STAGE_LAUNCH_URL" >/dev/null 2>&1 &
 
   if new_window_id="$(find_new_window_id "$before_ids" "(^${REPL_WINDOW_CLASS}\\.|\\.${REPL_WINDOW_CLASS}$|^google-chrome\\.|^chromium\\.)")"; then
     apply_window_geometry "$new_window_id" "$restore_x" "$restore_y" "$restore_width" "$restore_height"
@@ -408,7 +409,7 @@ open_stage_in_vivaldi() {
   vivaldi_bin="$(find_vivaldi_bin)"
 
   if [[ -z "$vivaldi_bin" ]]; then
-    echo "Could not find Vivaldi to open ${STAGE_URL}" >&2
+    echo "Could not find Vivaldi to open ${STAGE_LAUNCH_URL}" >&2
     return 0
   fi
 
@@ -423,7 +424,7 @@ open_stage_in_vivaldi() {
   fi
 
   before_ids="$(list_browser_window_ids '(^vivaldi\\.|^vivaldi-stable\\.|^vivaldi-snapshot\\.|^Vivaldi-stable\\.)' || true)"
-  "$vivaldi_bin" --class="$REPL_WINDOW_CLASS" --app="$STAGE_URL" >/dev/null 2>&1 &
+  "$vivaldi_bin" --class="$REPL_WINDOW_CLASS" --app="$STAGE_LAUNCH_URL" >/dev/null 2>&1 &
 
   if new_window_id="$(find_new_window_id "$before_ids" "(^${REPL_WINDOW_CLASS}\\.|\\.${REPL_WINDOW_CLASS}$|^vivaldi\\.|^vivaldi-stable\\.|^vivaldi-snapshot\\.|^Vivaldi-stable\\.)")"; then
     apply_window_geometry "$new_window_id" "$restore_x" "$restore_y" "$restore_width" "$restore_height"
@@ -475,16 +476,17 @@ echo "Starting mlody stage devserver..."
 wait_for_http "$STAGE_URL" "mlody stage devserver" "$DEVSERVER_LOG"
 
 if [[ "$BROWSER_MODE" == "chrome" ]]; then
-  echo "Opening ${STAGE_URL} in Chrome..."
+  echo "Opening ${STAGE_LAUNCH_URL} in Chrome..."
   open_stage_in_chrome
 else
-  echo "Opening ${STAGE_URL} in Vivaldi..."
+  echo "Opening ${STAGE_LAUNCH_URL} in Vivaldi..."
   open_stage_in_vivaldi
 fi
 
 echo
 echo "Stage is ready:"
 echo "  stage:   ${STAGE_URL}"
+echo "  launch:  ${STAGE_LAUNCH_URL}"
 echo "  backend: ${HEALTH_URL}"
 echo "  lsp:     tcp://${API_HOST}:${LSP_PORT}"
 echo "  logs:    ${LOG_ROOT}"

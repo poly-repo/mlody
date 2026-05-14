@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import networkx
 import pytest
 
 from common.python.starlarkish.core.struct import Struct
@@ -28,6 +29,8 @@ from mlody.cli.server import (
     parse_command_request,
     parse_verbatim_command_request,
 )
+from mlody.core.dag import Edge, TaskNode, ValueNode
+from mlody.core.dag_value import MlodyDagType
 from mlody.core.workspace_models import RootInfo
 from mlody.resolver import MlodyFolderValue, MlodyValueValue
 from mlody.resolver.label_value import _RawAttrValue
@@ -76,6 +79,7 @@ def _autocomplete_workspace(tmp_path: Path) -> tuple[SimpleNamespace, Path]:
                 (("task", "sandboxes/exp1/projects", "omega"), object()),
                 (("task", "sandboxes/exp1/projects", "orbit"), object()),
                 (("task", "sandboxes/exp1/folders/reports", "sales"), object()),
+                (("type", "mlody/teams/pixelle/datasets", "celebA"), object()),
                 (("task", "mlody/teams/pixelle/datasets", "celebA-dataset"), object()),
                 (("task", "mlody/teams/pixelle/datasets", "imagenet"), object()),
             ]
@@ -323,6 +327,30 @@ class TestStageAutocompleteResponse:
         assert response["completions"] == [
             {"label": "omega", "kind": "entity"},
             {"label": "orbit", "kind": "entity"},
+        ]
+
+    def test_target_completion_omits_type_only_entities(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workspace, workspace_root = _autocomplete_workspace(tmp_path)
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            lambda _config, _workspace_root: workspace,
+        )
+
+        response = execute_stage_autocomplete_response(
+            _server_config(tmp_path),
+            StageAutocompleteRequest(
+                workspace_root=str(workspace_root),
+                breadcrumb=("@pixelle", "//", "datasets:"),
+                prompt="ce",
+            ),
+        )
+
+        assert response["completions"] == [
+            {"label": "celebA-dataset", "kind": "entity"},
         ]
 
     def test_field_completion_resolves_parent_label_and_lists_immediate_fields(
@@ -656,6 +684,162 @@ class TestExecuteStageCommandResponse:
             "name": "a-string",
             "data": ["FOOBAR"],
         }
+
+    def test_serializes_dag_values_as_stage_dag_payload(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        graph = networkx.MultiDiGraph()
+        value_type = SimpleNamespace(
+            name="remote-file",
+            type="remote-file",
+            _root_kind="remote-file",
+            attributes={},
+        )
+        dataset_type = SimpleNamespace(
+            name="dataset",
+            type="dataset",
+            _root_kind="dataset",
+            attributes={},
+        )
+        database_type = SimpleNamespace(
+            name="database",
+            type="database",
+            _root_kind="database",
+            attributes={},
+        )
+
+        graph.add_node(
+            "value/test:raw-employees-local",
+            value=ValueNode(
+                node_id="value/test:raw-employees-local",
+                name="raw-employees-local",
+                value=SimpleNamespace(name="raw-employees-local", type=value_type),
+            ),
+        )
+        graph.add_node(
+            "task/test:cleanup",
+            task=TaskNode(
+                node_id="task/test:cleanup",
+                name="cleanup",
+                task=SimpleNamespace(
+                    name="cleanup",
+                    action=SimpleNamespace(name="cleanup-action"),
+                    inputs={
+                        "raw-employees-table": SimpleNamespace(
+                            name="raw-employees-table",
+                            type=dataset_type,
+                        ),
+                    },
+                    outputs={
+                        "employees-table": SimpleNamespace(
+                            name="employees-table",
+                            type=dataset_type,
+                        ),
+                    },
+                    config={
+                        "database": SimpleNamespace(
+                            name="database",
+                            type=database_type,
+                        ),
+                    },
+                ),
+            ),
+        )
+        graph.add_edge(
+            "value/test:raw-employees-local",
+            "task/test:cleanup",
+            edge=Edge(
+                src_port="raw-employees-local",
+                dst_path="raw-employees-table",
+            ),
+        )
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyValueValue(
+                struct=Struct(
+                    kind="value",
+                    name="employees-table",
+                    label="//pipeline:cleanup.outputs.employees-table.dag",
+                    type=MlodyDagType(),
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._display_payload",
+            lambda _value: graph,
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "//pipeline:cleanup.outputs.employees-table.dag",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"] == {
+            "type": "dag",
+            "title": "DAG — ancestors of '//pipeline:cleanup.outputs.employees-table'",
+            "nodeCount": 2,
+            "edgeCount": 1,
+        }
+
+        data = response["data"]
+        assert data["edges"] == [
+            {
+                "id": "edge-0",
+                "sourceNodeId": "value/test:raw-employees-local",
+                "sourcePortId": "out:raw-employees-local",
+                "targetNodeId": "task/test:cleanup",
+                "targetPortId": "in:raw-employees-table",
+                "label": "raw-employees-local → raw-employees-table",
+            }
+        ]
+
+        task_node = next(
+            node for node in data["nodes"] if node["id"] == "task/test:cleanup"
+        )
+        assert task_node["kind"] == "task"
+        assert task_node["title"] == "cleanup"
+        assert task_node["subtitle"] == "cleanup-action"
+        assert task_node["ports"] == [
+            {
+                "id": "in:raw-employees-table",
+                "label": "raw-employees-table",
+                "side": "input",
+                "kind": "input",
+                "typeLabel": "dataset",
+            },
+            {
+                "id": "in:database",
+                "label": "database",
+                "side": "input",
+                "kind": "config",
+                "typeLabel": "database",
+            },
+            {
+                "id": "out:employees-table",
+                "label": "employees-table",
+                "side": "output",
+                "kind": "output",
+                "typeLabel": "dataset",
+            },
+        ]
 
 
 class TestStageJsonData:

@@ -21,6 +21,7 @@ from mlody.resolver.label_value import _RawAttrValue
 
 _IDENTIFIER_EXTRA_CHARS = frozenset({"_", "-"})
 _UNSUPPORTED_FRAGMENT_CHARS = frozenset({"[", "]", "'", "|"})
+_SUPPORTED_TARGET_KINDS = frozenset({"action", "task", "user", "value"})
 
 
 @dataclass(frozen=True)
@@ -338,13 +339,43 @@ def _target_completions(
     prefix: str,
 ) -> list[StageAutocompleteCompletion]:
     package_path = "/".join(package_segments)
-    suggestions: list[StageAutocompleteCompletion] = []
-    for rel_stem, name in _iter_relative_registry_entries(workspace, root=root):
+    suggestions: dict[str, bool] = {}
+    registry_view = getattr(workspace, "registry_view", None)
+    iter_registry_items = getattr(registry_view, "iter_registry_items", None)
+    if not callable(iter_registry_items):
+        return []
+
+    root_prefix = _registry_stem_prefix(workspace, root=root)
+    if root_prefix is None and root is not None:
+        return []
+
+    for key, _value in iter_registry_items():
+        if not isinstance(key, tuple) or len(key) != 3:
+            continue
+        raw_kind, raw_stem, raw_name = key
+        if (
+            not isinstance(raw_kind, str)
+            or not isinstance(raw_stem, str)
+            or not isinstance(raw_name, str)
+        ):
+            continue
+        rel_stem = _stem_relative_to_prefix(raw_stem, root_prefix)
+        if rel_stem is None:
+            continue
+        name = raw_name
         if rel_stem != package_path:
             continue
         if name.startswith(prefix):
-            suggestions.append(StageAutocompleteCompletion(label=name, kind="entity"))
-    return _sorted_unique_completions(suggestions)
+            suggestions[name] = (
+                suggestions.get(name, False)
+                or raw_kind in _SUPPORTED_TARGET_KINDS
+            )
+
+    return _sorted_unique_completions(
+        StageAutocompleteCompletion(label=name, kind="entity")
+        for name, is_supported in suggestions.items()
+        if is_supported
+    )
 
 
 def _field_completions(

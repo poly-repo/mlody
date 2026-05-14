@@ -5,6 +5,41 @@ export interface StageViewColumn {
   display?: "image" | "badge-list";
 }
 
+export interface StageDagPort {
+  id: string;
+  label: string;
+  side: "input" | "output";
+  kind: "input" | "config" | "output" | "value";
+  typeLabel?: string;
+}
+
+export interface StageDagNode {
+  id: string;
+  kind: "task" | "value";
+  title: string;
+  subtitle?: string | null;
+  address?: string;
+  position: {
+    x: number;
+    y: number;
+  };
+  ports: StageDagPort[];
+}
+
+export interface StageDagEdge {
+  id: string;
+  sourceNodeId: string;
+  sourcePortId: string;
+  targetNodeId: string;
+  targetPortId: string;
+  label?: string;
+}
+
+export interface StageDagData {
+  nodes: StageDagNode[];
+  edges: StageDagEdge[];
+}
+
 export interface StageEncodedImageCell {
   kind: "encoded-image";
   mimeType: string;
@@ -21,6 +56,8 @@ export interface StageResultPayload {
     columns?: StageViewColumn[];
     rowCount?: number;
     truncated?: boolean;
+    nodeCount?: number;
+    edgeCount?: number;
   };
   data: unknown;
 }

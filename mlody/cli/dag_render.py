@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import networkx
 from rich.console import Console
@@ -21,6 +22,11 @@ class DagSelectionResult:
     graph: networkx.MultiDiGraph
     resolved_label: str
     suggestion_text: str | None = None
+
+
+_STAGE_DAG_LAYER_SEP = 360.0
+_STAGE_DAG_NODE_SEP = 220.0
+_STAGE_DAG_PADDING = 96.0
 
 
 def short_type_name(value: object) -> str:
@@ -116,6 +122,55 @@ def render_dag_table(
 ) -> None:
     """Render the shared DAG table to the provided console."""
     console.print(build_dag_table(display_graph, title))
+
+
+def build_stage_dag_data(display_graph: networkx.MultiDiGraph) -> dict[str, object]:
+    """Serialize a DAG into a stage-friendly node/edge payload."""
+    positions = _stage_dag_positions(display_graph)
+    nodes: list[dict[str, object]] = []
+
+    for node_id in networkx.topological_sort(display_graph):
+        position = positions[node_id]
+        node_data = display_graph.nodes[node_id]
+        if "task" in node_data:
+            nodes.append(
+                _stage_task_node(
+                    display_graph,
+                    node_id,
+                    cast(TaskNode, node_data["task"]),
+                    position,
+                )
+            )
+            continue
+        nodes.append(
+            _stage_value_node(
+                display_graph,
+                node_id,
+                cast(ValueNode, node_data["value"]),
+                position,
+            )
+        )
+
+    edges: list[dict[str, object]] = []
+    for index, (src_id, dst_id, data) in enumerate(display_graph.edges(data=True)):
+        edge = cast(Edge, data["edge"])
+        edges.append(
+            {
+                "id": f"edge-{index}",
+                "sourceNodeId": src_id,
+                "sourcePortId": _output_port_id(edge.src_port),
+                "targetNodeId": dst_id,
+                "targetPortId": _input_port_id(edge.dst_path),
+                "label": edge.src_port
+                if edge.src_port == edge.dst_path
+                else f"{edge.src_port} → {edge.dst_path}",
+            }
+        )
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+    }
 
 
 def resolve_dag_selection(
@@ -235,3 +290,170 @@ def _label_base(address: TargetAddress) -> str:
         root_prefix = f"@{address.root}//" if address.root else "//"
         return f"{root_prefix}{address.package_path}:{address.target_name}"
     return f":{address.target_name}"
+
+
+def _stage_dag_positions(
+    display_graph: networkx.MultiDiGraph,
+) -> dict[str, dict[str, float]]:
+    ordered_layers = [sorted(layer) for layer in networkx.topological_generations(display_graph)]
+
+    for _ in range(4):
+        for layer_index in range(1, len(ordered_layers)):
+            previous_rank = {
+                node_id: rank
+                for rank, node_id in enumerate(ordered_layers[layer_index - 1])
+            }
+            ordered_layers[layer_index].sort(
+                key=lambda node_id: (
+                    sum(previous_rank.get(parent, 0) for parent in display_graph.predecessors(node_id))
+                    / max(1, sum(1 for _ in display_graph.predecessors(node_id)))
+                )
+            )
+
+    raw_positions: dict[str, tuple[float, float]] = {}
+    for layer_index, layer in enumerate(ordered_layers):
+        x = layer_index * _STAGE_DAG_LAYER_SEP
+        layer_height = len(layer)
+        for row_index, node_id in enumerate(layer):
+            y = (row_index - (layer_height - 1) / 2.0) * _STAGE_DAG_NODE_SEP
+            raw_positions[node_id] = (x, y)
+
+    if not raw_positions:
+        return {}
+
+    min_x = min(position[0] for position in raw_positions.values())
+    min_y = min(position[1] for position in raw_positions.values())
+    return {
+        node_id: {
+            "x": float(round(x - min_x + _STAGE_DAG_PADDING, 3)),
+            "y": float(round(y - min_y + _STAGE_DAG_PADDING, 3)),
+        }
+        for node_id, (x, y) in raw_positions.items()
+    }
+
+
+def _stage_task_node(
+    display_graph: networkx.MultiDiGraph,
+    node_id: str,
+    task_node: TaskNode,
+    position: dict[str, float],
+) -> dict[str, object]:
+    task_struct = task_node.task
+    inputs = _declared_port_entries(getattr(task_struct, "inputs", None), kind="input")
+    config = _declared_port_entries(getattr(task_struct, "config", None), kind="config")
+    outputs = _declared_port_entries(getattr(task_struct, "outputs", None), kind="output")
+
+    input_names = {entry["label"] for entry in inputs}
+    config_names = {entry["label"] for entry in config}
+    output_names = {entry["label"] for entry in outputs}
+
+    for _, _, data in display_graph.in_edges(node_id, data=True):
+        edge = cast(Edge, data["edge"])
+        if edge.dst_path in input_names or edge.dst_path in config_names:
+            continue
+        kind = "config" if edge.dst_path.split(".", 1)[0] in config_names else "input"
+        if kind == "config":
+            config.append(_port_entry(edge.dst_path, side="input", kind="config"))
+        else:
+            inputs.append(_port_entry(edge.dst_path, side="input", kind="input"))
+
+    for _, _, data in display_graph.out_edges(node_id, data=True):
+        edge = cast(Edge, data["edge"])
+        if edge.src_port in output_names:
+            continue
+        outputs.append(_port_entry(edge.src_port, side="output", kind="output"))
+
+    return {
+        "id": node_id,
+        "kind": "task",
+        "title": task_node.name,
+        "subtitle": getattr(getattr(task_struct, "action", None), "name", None),
+        "address": node_id,
+        "position": position,
+        "ports": inputs + config + outputs,
+    }
+
+
+def _stage_value_node(
+    display_graph: networkx.MultiDiGraph,
+    node_id: str,
+    value_node: ValueNode,
+    position: dict[str, float],
+) -> dict[str, object]:
+    incoming = sorted(
+        {
+            cast(Edge, data["edge"]).dst_path
+            for _, _, data in display_graph.in_edges(node_id, data=True)
+        }
+    )
+    outgoing = sorted(
+        {
+            cast(Edge, data["edge"]).src_port
+            for _, _, data in display_graph.out_edges(node_id, data=True)
+        }
+    )
+
+    ports = [_port_entry(name, side="input", kind="value") for name in incoming]
+    ports.extend(
+        _port_entry(
+            name,
+            side="output",
+            kind="value",
+            type_label=short_type_name(value_node.value),
+        )
+        for name in (outgoing or [value_node.name])
+    )
+
+    return {
+        "id": node_id,
+        "kind": "value",
+        "title": value_node.name,
+        "subtitle": short_type_name(value_node.value),
+        "address": node_id,
+        "position": position,
+        "ports": ports,
+    }
+
+
+def _declared_port_entries(
+    container: object,
+    *,
+    kind: str,
+) -> list[dict[str, object]]:
+    side = "output" if kind == "output" else "input"
+    return [
+        _port_entry(
+            getattr(value, "name", str(value)),
+            side=side,
+            kind=kind,
+            type_label=short_type_name(value),
+        )
+        for value in iter_port_values(container)
+    ]
+
+
+def _port_entry(
+    label: str,
+    *,
+    side: str,
+    kind: str,
+    type_label: str | None = None,
+) -> dict[str, object]:
+    port_id = _output_port_id(label) if side == "output" else _input_port_id(label)
+    entry: dict[str, object] = {
+        "id": port_id,
+        "label": label,
+        "side": side,
+        "kind": kind,
+    }
+    if type_label is not None:
+        entry["typeLabel"] = type_label
+    return entry
+
+
+def _input_port_id(label: str) -> str:
+    return f"in:{label}"
+
+
+def _output_port_id(label: str) -> str:
+    return f"out:{label}"
