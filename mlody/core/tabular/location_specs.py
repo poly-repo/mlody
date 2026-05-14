@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Iterable
 
 from mlody.common.struct import Struct
+from mlody.core.lineage import build_lineage_event, record_lineage
 from mlody.core.tabular.interfaces import QuerySpec, TabularSource
 
 
@@ -91,6 +92,57 @@ def _representation_string(value_struct: object, attr_name: str, default: str) -
     if isinstance(attrs, dict) and isinstance(attrs.get(attr_name), str):
         return str(attrs[attr_name])
     return default
+
+
+def _location_lineage_payload(location: object) -> dict[str, object]:
+    payload: dict[str, object] = {}
+
+    kind = getattr(location, "kind", None)
+    if kind is not None:
+        payload["kind"] = str(kind)
+
+    location_type = getattr(location, "type", None)
+    if location_type is not None:
+        payload["type"] = str(location_type)
+
+    path = getattr(location, "path", None)
+    if path is not None:
+        payload["path"] = (
+            [str(segment) for segment in path]
+            if isinstance(path, (list, tuple))
+            else str(path)
+        )
+
+    attributes = getattr(location, "attributes", None)
+    if isinstance(attributes, dict):
+        payload["attributes"] = dict(attributes)
+
+    return payload
+
+
+def _record_remote_download_lineage(
+    value_struct: object,
+    *,
+    remote_spec: "RemoteLocationSpec",
+    staged_path: Path,
+    content_hash: str | None,
+) -> None:
+    event = build_lineage_event(
+        accessor=".location",
+        new_value=Struct(kind="location", data=remote_spec.uri),
+        source="downloaded from",
+        reason=None,
+        timestamp=None,
+        mode="inplace",
+        details={
+            "kind": "remote-download",
+            "uri": remote_spec.uri,
+            "staged_path": str(staged_path),
+            "content_hash": content_hash,
+            "location": _location_lineage_payload(getattr(value_struct, "location", None)),
+        },
+    )
+    record_lineage(value_struct, event)
 
 
 def _expand_pattern(path_pattern: str) -> tuple[str, ...]:
@@ -393,6 +445,7 @@ def _source_backed_local_source_from_value(
         source_label=str(source_label) if source_label is not None else None,
         separator=_representation_string(value_struct, "separator", ","),
         header_required=_representation_bool(value_struct, "header_required", True),
+        lineage_owner=value_struct,
     )
 
 
@@ -412,6 +465,12 @@ def _remote_tabular_source(
         return None
 
     staged = stage_remote_file(remote_spec.uri)
+    _record_remote_download_lineage(
+        value_struct,
+        remote_spec=remote_spec,
+        staged_path=staged.path,
+        content_hash=staged.content_hash,
+    )
     staged_path = (str(staged.path),)
     if representation_name == "csv":
         return _csv_source_from_paths(

@@ -18,6 +18,7 @@ o_py_library(
         ":parquet_source_lib",
         ":remote_staging_lib",
         "//mlody/common:common_lib",
+        "//mlody/core:lineage",
         "//mlody/core/sql:sql_query_lib",
     ],
 )
@@ -58,6 +59,8 @@ o_py_library(
         ":csv_source_lib",
         ":interfaces_lib",
         ":parquet_source_lib",
+        "//mlody/common:common_lib",
+        "//mlody/core:lineage",
     ],
 )
 

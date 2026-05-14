@@ -246,6 +246,7 @@ def test_source_from_value_returns_remote_csv_source_for_remote_csv_value() -> N
     value_struct = Struct(
         kind="value",
         name="employees",
+        _lineage=[],
         location=Struct(
             kind="location",
             type="remote",
@@ -278,6 +279,20 @@ def test_source_from_value_returns_remote_csv_source_for_remote_csv_value() -> N
     assert source.separator == "|"
     assert source.header_required is False
     assert source.content_hash == "abc123"
+    assert len(value_struct._lineage) == 1
+    assert value_struct._lineage[0].source == "downloaded from"
+    assert value_struct._lineage[0].new_value.data == "https://example.com/data.csv"
+    assert value_struct._lineage[0].details == {
+        "kind": "remote-download",
+        "uri": "https://example.com/data.csv",
+        "staged_path": "/tmp/staged.csv",
+        "content_hash": "abc123",
+        "location": {
+            "kind": "location",
+            "type": "remote",
+            "attributes": {"uri": "https://example.com/data.csv"},
+        },
+    }
 
 
 def test_source_from_value_returns_remote_parquet_source_for_remote_parquet_value() -> None:
@@ -419,6 +434,7 @@ def test_source_backed_local_source_expands_home_and_reuses_cache(
     value_struct = Struct(
         kind="value",
         name="employees_local",
+        _lineage=[],
         location=Struct(
             kind="location",
             type="posix",
@@ -428,6 +444,7 @@ def test_source_backed_local_source_expands_home_and_reuses_cache(
         _source_value=Struct(
             kind="value",
             name="employees",
+            _lineage=[],
             location=Struct(
                 kind="location",
                 type="remote",
@@ -477,6 +494,111 @@ def test_source_backed_local_source_expands_home_and_reuses_cache(
     assert second == first
     assert first.read_text() == staged_path.read_text()
     assert mock_stage.call_count == 1
+    assert [event.source for event in value_struct._lineage] == [
+        "downloaded from",
+        "copied from",
+    ]
+    assert value_struct._lineage[0].new_value.data == "https://example.com/employees.csv"
+    assert value_struct._lineage[0].details == {
+        "kind": "remote-download",
+        "uri": "https://example.com/employees.csv",
+        "staged_path": str(staged_path),
+        "content_hash": "abc123",
+        "location": {
+            "kind": "location",
+            "type": "remote",
+            "attributes": {"uri": "https://example.com/employees.csv"},
+        },
+    }
+    assert value_struct._lineage[1].new_value.data == ":employees"
+    assert value_struct._lineage[1].details == {
+        "kind": "local-copy",
+        "source_label": ":employees",
+        "source_path": str(staged_path),
+        "destination_path": str(first),
+    }
+    source_lineage = value_struct._source_value._lineage
+    assert len(source_lineage) == 1
+    assert source_lineage[0].source == "downloaded from"
+    assert source_lineage[0].new_value.data == "https://example.com/employees.csv"
+
+
+def test_source_backed_local_source_cache_hit_reconstructs_upstream_lineage(
+    tmp_path: Path,
+) -> None:
+    destination_path = tmp_path / "cache" / "employees.csv"
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    destination_path.write_text("name,salary\nAlice,120000\nBob,90000\n")
+    value_struct = Struct(
+        kind="value",
+        name="employees_local",
+        _lineage=[],
+        location=Struct(kind="location", type="posix", path=str(destination_path)),
+        source=":employees",
+        _source_value=Struct(
+            kind="value",
+            name="employees",
+            _lineage=[],
+            location=Struct(
+                kind="location",
+                type="remote",
+                attributes={"uri": "https://example.com/employees.csv"},
+            ),
+            representation=Struct(
+                kind="representation",
+                name="csv",
+                separator=",",
+                header_required=True,
+                multifile=False,
+                attributes={
+                    "separator": ",",
+                    "header_required": True,
+                    "multifile": False,
+                },
+            ),
+        ),
+        representation=Struct(
+            kind="representation",
+            name="csv",
+            separator=",",
+            header_required=True,
+            multifile=False,
+            attributes={
+                "separator": ",",
+                "header_required": True,
+                "multifile": False,
+            },
+        ),
+    )
+
+    with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+        source = source_from_value(value_struct)
+
+        assert isinstance(source, MaterializedLocalSource)
+        materialized = source.materialize()
+
+    assert materialized == destination_path
+    assert mock_stage.call_count == 0
+    assert [event.source for event in value_struct._lineage] == [
+        "downloaded from",
+        "copied from",
+    ]
+    assert value_struct._lineage[0].new_value.data == "https://example.com/employees.csv"
+    assert value_struct._lineage[0].details == {
+        "kind": "remote-download",
+        "uri": "https://example.com/employees.csv",
+        "location": {
+            "kind": "location",
+            "type": "remote",
+            "attributes": {"uri": "https://example.com/employees.csv"},
+        },
+    }
+    assert value_struct._lineage[1].details == {
+        "kind": "local-copy",
+        "source_label": ":employees",
+        "source_path": None,
+        "destination_path": str(destination_path),
+    }
 
 
 def test_source_backed_local_source_raises_for_non_tabular_source() -> None:

@@ -1126,6 +1126,52 @@ class TestShowCommandLineageRendering:
         assert [cell.plain for cell in table.columns[0]._cells] == ["default", "user"]
         assert [cell.plain for cell in table.columns[1]._cells] == ["foo", "bar"]
 
+    def test_lineage_renders_transfer_details_under_value(self) -> None:
+        lineage_type = _make_type_struct(
+            "vector",
+            root_kind="vector",
+            attributes={
+                "element_type": _make_type_struct(
+                    "mlody-lineage-event",
+                    root_kind="record",
+                )
+            },
+        )
+        lineage_value = MlodyValueValue(
+            struct=Struct(
+                kind="value",
+                name="lineage",
+                type=lineage_type,
+            ),
+        )
+        lineage_events = [
+            Struct(
+                kind="lineage_event",
+                source="downloaded from",
+                new_value=Struct(kind="location", data="https://example.com/employees.csv"),
+                details={
+                    "kind": "remote-download",
+                    "staged_path": "/tmp/mlody-remote-abc.csv",
+                    "content_hash": "abc123",
+                },
+            )
+        ]
+
+        with patch("mlody.cli.show.force", return_value=lineage_events):
+            node = mlody.cli.show._render_mlody_value(lineage_value)
+
+        renderable = node.render(SimpleNamespace(console=Console(file=StringIO())))
+
+        table = renderable.renderable
+        assert [cell.plain for cell in table.columns[0]._cells] == ["downloaded from"]
+        assert (
+            table.columns[1]._cells[0].plain
+            == "content of /tmp/mlody-remote-abc.csv\n"
+            "kind: remote-download\n"
+            "staged_path: /tmp/mlody-remote-abc.csv\n"
+            "content_hash: abc123"
+        )
+
     def test_source_range_uses_syntax_highlighted_source_panel(
         self,
         tmp_path: Path,

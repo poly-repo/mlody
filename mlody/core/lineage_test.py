@@ -5,7 +5,12 @@ from __future__ import annotations
 from common.python.starlarkish.core.struct import Struct
 
 from mlody.common.value import RegisteredValue
-from mlody.core.lineage import LineageEvent, append_lineage, build_lineage_event
+from mlody.core.lineage import (
+    LineageEvent,
+    append_lineage,
+    build_lineage_event,
+    record_lineage,
+)
 
 
 class TestLineageHelpers:
@@ -30,6 +35,20 @@ class TestLineageHelpers:
         assert event.reason == "update"
         assert event.timestamp == "2026-04-20T00:00:00Z"
         assert event.mode == "copy"
+        assert event.details is None
+
+    def test_build_lineage_event_preserves_optional_details_payload(self) -> None:
+        event = build_lineage_event(
+            accessor=".location",
+            new_value="source.csv",
+            source="downloaded from",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+            details={"uri": "https://example.com/source.csv"},
+        )
+
+        assert event.details == {"uri": "https://example.com/source.csv"}
 
     def test_append_lineage_rebuilds_struct_with_appended_event(self) -> None:
         """Task 5.2: append_lineage preserves old lineage and appends one event."""
@@ -73,3 +92,37 @@ class TestLineageHelpers:
         assert isinstance(updated, RegisteredValue)
         assert updated._lineage == ["old", event]
         assert updated.name == "artifact"
+
+    def test_record_lineage_mutates_existing_lineage_list_in_place(self) -> None:
+        event = build_lineage_event(
+            accessor=".location",
+            new_value="upstream",
+            source="copied from",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+        )
+        value = Struct(name="artifact", _lineage=[])
+
+        recorded = record_lineage(value, event)
+
+        assert recorded is True
+        assert value._lineage == [event]
+
+    def test_record_lineage_dedupes_equal_events(self) -> None:
+        event = build_lineage_event(
+            accessor=".location",
+            new_value="upstream",
+            source="copied from",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+        )
+        value = Struct(name="artifact", _lineage=[])
+
+        first = record_lineage(value, event)
+        second = record_lineage(value, event)
+
+        assert first is True
+        assert second is False
+        assert value._lineage == [event]

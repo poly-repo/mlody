@@ -905,6 +905,7 @@ def _stage_lineage_result(
             {
                 "source": getattr(row, "source"),
                 "value": _stage_json_data(getattr(row, "value")),
+                "details": _stage_json_data(getattr(row, "details")),
                 "active": bool(getattr(row, "active")),
             }
             for row in rows

@@ -125,6 +125,22 @@ def _synthetic_raw_attribute() -> Struct:
 
 def _synthetic_lineage_attribute(lineage_type: object | None = None) -> Struct:
     def _lineage_materializer(owner: object) -> object:
+        if getattr(owner, "kind", None) == "value":
+            try:
+                from mlody.core.tabular.location_specs import source_from_value  # noqa: PLC0415
+
+                tabular_source = source_from_value(owner)
+            except Exception:
+                tabular_source = None
+
+            if getattr(owner, "source", None) is not None and tabular_source is not None:
+                materialize = getattr(tabular_source, "materialize", None)
+                if callable(materialize):
+                    try:
+                        materialize()
+                    except Exception:
+                        pass
+
         return list(getattr(owner, "_lineage", []))
 
     return Struct(
@@ -309,6 +325,12 @@ def lookup_runtime_attribute(value: object, segment: str) -> object | None:
     if getattr(value, "kind", None) == "value":
         semantic_type = getattr(value, "type", None)
         semantic_field = lookup_declared_attribute(semantic_type, segment)
+        if segment == "lineage" and is_struct_like(value):
+            return _synthetic_lineage_attribute(
+                getattr(semantic_field, "type", None)
+                if semantic_field is not None
+                else None
+            )
         if semantic_field is not None:
             return semantic_field
 

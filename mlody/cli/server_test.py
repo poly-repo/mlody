@@ -828,11 +828,110 @@ class TestExecuteStageCommandResponse:
             {
                 "source": "default",
                 "value": "foo",
+                "details": None,
                 "active": False,
             },
             {
                 "source": "user",
                 "value": "bar",
+                "details": None,
+                "active": True,
+            },
+        ]
+
+    def test_serializes_lineage_details_for_transfer_events(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        lineage_type = Struct(
+            kind="type",
+            name="vector",
+            type="vector",
+            _root_kind="vector",
+            attributes={
+                "element_type": Struct(
+                    kind="type",
+                    name="mlody-lineage-event",
+                    type="mlody-lineage-event",
+                    type_name="mlody-lineage-event",
+                    _root_kind="record",
+                    attributes={},
+                )
+            },
+        )
+        lineage_events = [
+            Struct(
+                kind="lineage_event",
+                source="downloaded from",
+                new_value=Struct(kind="location", data="https://example.com/employees.csv"),
+                details={
+                    "kind": "remote-download",
+                    "staged_path": "/tmp/mlody-remote-abc.csv",
+                },
+            ),
+            Struct(
+                kind="lineage_event",
+                source="copied from",
+                new_value=Struct(kind="location", data=":raw-employees-remote"),
+                details={
+                    "kind": "local-copy",
+                    "destination_path": "/home/mav/.cache/mlody/employees.csv",
+                },
+            ),
+        ]
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyValueValue(
+                struct=Struct(
+                    kind="value",
+                    name="lineage",
+                    type=lineage_type,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._display_payload",
+            lambda _value: lineage_events,
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "//pipeline:raw-employees.lineage",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["data"] == [
+            {
+                "source": "downloaded from",
+                "value": "content of /tmp/mlody-remote-abc.csv",
+                "details": {
+                    "kind": "remote-download",
+                    "staged_path": "/tmp/mlody-remote-abc.csv",
+                },
+                "active": False,
+            },
+            {
+                "source": "copied from",
+                "value": "content of /home/mav/.cache/mlody/employees.csv",
+                "details": {
+                    "kind": "local-copy",
+                    "destination_path": "/home/mav/.cache/mlody/employees.csv",
+                },
                 "active": True,
             },
         ]

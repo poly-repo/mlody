@@ -39,6 +39,41 @@ function formatLineageValue(value: unknown): {
   }
 }
 
+function formatLineageDetailLines(details: unknown): string[] {
+  if (details === null || details === undefined) {
+    return [];
+  }
+
+  if (typeof details !== "object" || Array.isArray(details)) {
+    return [String(details)];
+  }
+
+  const lines: string[] = [];
+  collectLineageDetailLines(lines, details as Record<string, unknown>);
+  return lines;
+}
+
+function collectLineageDetailLines(
+  lines: string[],
+  details: Record<string, unknown>,
+  prefix = "",
+) {
+  for (const [key, value] of Object.entries(details)) {
+    const dottedKey = prefix ? `${prefix}.${key}` : key;
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      collectLineageDetailLines(lines, value as Record<string, unknown>, dottedKey);
+      continue;
+    }
+
+    const valueText = Array.isArray(value)
+      ? JSON.stringify(value)
+      : value === null
+        ? "null"
+        : String(value);
+    lines.push(`${dottedKey}: ${valueText}`);
+  }
+}
+
 export function StageLineageBlock({ payload }: StageLineageBlockProps) {
   const rowCount =
     typeof payload.view.rowCount === "number"
@@ -79,6 +114,7 @@ export function StageLineageBlock({ payload }: StageLineageBlockProps) {
             ) : (
               payload.data.map((row, index) => {
                 const formatted = formatLineageValue(row.value);
+                const detailLines = formatLineageDetailLines(row.details);
                 const stateClass = row.active
                   ? "StageLineageBlock-tr--active"
                   : "StageLineageBlock-tr--inactive";
@@ -99,9 +135,20 @@ export function StageLineageBlock({ payload }: StageLineageBlockProps) {
                       <span className="StageLineageBlock-source">{row.source}</span>
                     </td>
                     <td className="StageLineageBlock-td">
-                      <span className={valueClass} title={formatted.title}>
-                        {formatted.text}
-                      </span>
+                      <div className="StageLineageBlock-valueStack">
+                        <span className={valueClass} title={formatted.title}>
+                          {formatted.text}
+                        </span>
+                        {detailLines.map((detailLine, detailIndex) => (
+                          <span
+                            key={`${row.source}-${index}-detail-${detailIndex}`}
+                            className="StageLineageBlock-detail"
+                            title={detailLine}
+                          >
+                            {detailLine}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                   </tr>
                 );

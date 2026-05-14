@@ -565,18 +565,29 @@ class StructTraversalStrategy:
                         f"struct-kind values{parent} (label: {label!r})"
                     ),
                 )
+            if field_name == "lineage":
+                field_decl = lookup_runtime_attribute(obj, field_name)
+                if field_decl is not None:
+                    synthesized = synthesize_runtime_child(obj, field_name)
+                    if synthesized is not None:
+                        obj = synthesized
+                        terminal_field_name = field_name
+                        continue
             try:
                 obj = step_named_child(obj, field_name)
             except (AttributeError, KeyError):
                 field_decl = lookup_runtime_attribute(obj, field_name)
                 if field_decl is not None:
                     raw_value = getattr(obj, field_name, _sentinel)
-                    if raw_value is not _sentinel:
+                    synthesized_first = field_name == "lineage"
+                    if raw_value is not _sentinel and not synthesized_first:
                         obj = raw_value
                     else:
                         synthesized = synthesize_runtime_child(obj, field_name)
                         if synthesized is not None:
                             obj = synthesized
+                        elif raw_value is not _sentinel:
+                            obj = raw_value
                         else:
                             field_decl = None
                 if field_decl is not None:
@@ -1865,7 +1876,8 @@ def _traverse_one_step(
         entity_field = lookup_runtime_attribute(current_struct, effective_name)
         if entity_field is not None:
             raw_entity_value = getattr(current_struct, effective_name, _SENTINEL)
-            if raw_entity_value is not _SENTINEL:
+            synthesized_first = effective_name == "lineage"
+            if raw_entity_value is not _SENTINEL and not synthesized_first:
                 return _RawAttrValue(value=raw_entity_value, label=label)
             synthesized_entity_value = synthesize_runtime_child(
                 current_struct,
@@ -1873,6 +1885,8 @@ def _traverse_one_step(
             )
             if synthesized_entity_value is not None:
                 return MlodyValueValue(struct=synthesized_entity_value)
+            if raw_entity_value is not _SENTINEL:
+                return _RawAttrValue(value=raw_entity_value, label=label)
         if not (
             getattr(current_struct, "kind", None) == "value"
             and (
@@ -2090,18 +2104,29 @@ class ValueTraversalStrategy:
         _vt_sentinel = object()
         for i, segment in enumerate(str_path):
             _vt_parent_obj = obj
+            if segment == "lineage":
+                field_decl = lookup_runtime_attribute(obj, segment)
+                if field_decl is not None:
+                    synthesized = synthesize_runtime_child(obj, segment)
+                    if synthesized is not None:
+                        obj = synthesized
+                        continue
             try:
                 obj = getattr(obj, segment)
             except AttributeError:
                 field_decl = lookup_runtime_attribute(obj, segment)
                 if field_decl is not None:
                     raw_value = getattr(obj, segment, _vt_sentinel)
-                    if raw_value is not _vt_sentinel:
+                    synthesized_first = segment == "lineage"
+                    if raw_value is not _vt_sentinel and not synthesized_first:
                         obj = raw_value
                         continue
                     synthesized = synthesize_runtime_child(obj, segment)
                     if synthesized is not None:
                         obj = synthesized
+                        continue
+                    if raw_value is not _vt_sentinel:
+                        obj = raw_value
                         continue
                 if (
                     segment == "dag"

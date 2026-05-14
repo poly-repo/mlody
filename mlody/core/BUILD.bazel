@@ -383,6 +383,7 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":traversal_runtime",
+        "//mlody/core/tabular:location_specs_lib",
         "//common/python/starlarkish/core:core_lib",
     ],
 )

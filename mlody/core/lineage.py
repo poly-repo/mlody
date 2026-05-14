@@ -23,6 +23,7 @@ class LineageEvent:
     reason: str | None
     timestamp: str | None
     mode: AssignmentMode
+    details: object | None = None
     kind: str = "lineage_event"
 
 
@@ -34,6 +35,7 @@ def build_lineage_event(
     reason: str | None,
     timestamp: str | None,
     mode: AssignmentMode,
+    details: object | None = None,
 ) -> LineageEvent:
     """Build a lineage event for a successful assignment."""
     return LineageEvent(
@@ -43,7 +45,38 @@ def build_lineage_event(
         reason=reason,
         timestamp=timestamp,
         mode=mode,
+        details=details,
     )
+
+
+def record_lineage(
+    value: object,
+    event: LineageEvent,
+) -> bool:
+    """Append *event* in place when *value* exposes a mutable ``_lineage`` list.
+
+    Returns ``True`` when the event was recorded and ``False`` when lineage is
+    unavailable or an equal event was already present.
+    """
+
+    lineage: list[object] | None = None
+    if is_struct_like(value):
+        candidate = struct_like_as_mapping(value).get("_lineage")
+        if isinstance(candidate, list):
+            lineage = candidate
+    elif isinstance(value, dict):
+        candidate = value.get("_lineage")
+        if isinstance(candidate, list):
+            lineage = candidate
+
+    if lineage is None:
+        return False
+
+    if event in lineage:
+        return False
+
+    lineage.append(event)
+    return True
 
 
 def append_lineage(

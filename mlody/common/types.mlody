@@ -540,6 +540,7 @@ typedef(
         field(name = "timestamp", type = string(), mandatory = False),
         field(name = "accessor",  type = string(), mandatory = False),
         field(name = "mode",      type = string(), mandatory = False),
+        field(name = "details",   type = any(),    mandatory = False),
         field(name = "new_value", type = any(),    mandatory = False),
     ]),
 )
