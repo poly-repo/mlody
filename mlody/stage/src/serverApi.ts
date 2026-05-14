@@ -54,15 +54,15 @@ export function resolveServerBaseUrl(): string {
 
 function normalizeAvatarUrl(avatar?: string): string | undefined {
   if (!avatar) return undefined;
-  if (
-    avatar.startsWith("http://") ||
-    avatar.startsWith("https://") ||
-    avatar.startsWith("/")
-  ) {
+  if (avatar.startsWith("http://") || avatar.startsWith("https://")) {
     return avatar;
   }
 
-  return `/${avatar.replace(/^\.?\//, "")}`;
+  const normalizedPath = avatar.startsWith("/")
+    ? avatar
+    : `/${avatar.replace(/^\.?\//, "")}`;
+
+  return new URL(normalizedPath, `${resolveServerBaseUrl()}/`).toString();
 }
 
 function normalizeUser(payload: unknown): WorkspaceUser | null {

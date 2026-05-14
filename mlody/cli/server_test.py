@@ -1009,6 +1009,48 @@ class TestHttpApi:
             http_server.server_close()
             server_thread.join(timeout=5)
 
+    def test_avatar_asset_served_via_runfiles_manifest_lookup(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        stage_root = tmp_path / "stage-static"
+        avatar_root = tmp_path / "avatars"
+        avatar_file = tmp_path / "avatars-2-2.png"
+        stage_root.mkdir()
+        avatar_root.mkdir()
+        avatar_file.write_bytes(b"fake-avatar-bytes")
+        monkeypatch.setattr(
+            "mlody.cli.server._stage_static_roots",
+            lambda: (stage_root, avatar_root),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._runfiles_path",
+            lambda logical_path: avatar_file
+            if logical_path
+            == "_main/mlody/assets/images/avatars/avatars-2-2.png"
+            else None,
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{http_server.server_port}/assets/images/avatars/avatars-2-2.png",
+                timeout=5,
+            ) as response:
+                body = response.read()
+                content_type = response.headers.get("Content-Type")
+
+            assert body == b"fake-avatar-bytes"
+            assert content_type == "image/png"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
     def test_healthz_reports_http_and_lsp_endpoints(self, tmp_path: Path) -> None:
         http_server = create_http_server(_server_config(tmp_path))
         server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)

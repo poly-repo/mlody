@@ -288,7 +288,11 @@ export function InputToolbar({
             onClick={toggleUserPicker}
             onContextMenu={openUserPickerFromContextMenu}
           >
-            <Avatar size="lg" className="CommandToolbar-avatar">
+            <Avatar
+              key={`${currentUser.name}:${currentUser.avatarUrl ?? ""}`}
+              size="lg"
+              className="CommandToolbar-avatar"
+            >
               {currentUser.avatarUrl && (
                 <AvatarImage src={currentUser.avatarUrl} alt={currentUser.name} />
               )}
