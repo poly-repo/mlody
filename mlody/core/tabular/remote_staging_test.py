@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from mlody.core.tabular import stage_remote_file
+from mlody.core.tabular.remote_staging import stage_remote_file
 from mlody.core.tabular.remote_staging import RemoteFetchError, RemoteStagingManager
 
 

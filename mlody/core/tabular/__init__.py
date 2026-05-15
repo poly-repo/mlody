@@ -20,7 +20,6 @@ __all__ = [
     "derived_location_spec_from_value",
     "source_from_location",
     "source_from_value",
-    "stage_remote_file",
     "validate_shape",
 ]
 
@@ -54,10 +53,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "source_from_location",
     ),
     "source_from_value": ("mlody.core.tabular.location_specs", "source_from_value"),
-    "stage_remote_file": (
-        "mlody.core.tabular.remote_staging",
-        "stage_remote_file",
-    ),
     "validate_shape": ("mlody.core.tabular.derived_source", "validate_shape"),
 }
 
@@ -98,4 +93,3 @@ if TYPE_CHECKING:
         source_from_value as source_from_value,
     )
     from mlody.core.tabular.parquet_source import ParquetSource as ParquetSource
-    from mlody.core.tabular.remote_staging import stage_remote_file as stage_remote_file
