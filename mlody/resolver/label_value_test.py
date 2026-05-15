@@ -3127,3 +3127,48 @@ class TestDagVirtualAttribute:
         assert isinstance(result, MlodyValueValue)
         graph = force_virtual_value(result.struct)
         assert isinstance(graph, networkx.MultiDiGraph)
+
+
+class TestParquetTraversalStrategyDerivedLocation:
+    def test_derived_location_materializes_via_tabular_source_resolution(
+        self, tmp_path: Path
+    ) -> None:
+        """Derived parquet traversal should resolve through the tabular source adapter."""
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from mlody.core.traversal_grammar import FieldSegment, SliceSegment
+        from mlody.resolver.label_value import ParquetTraversalStrategy
+
+        parquet_file = tmp_path / "derived-output.parquet"
+        pq.write_table(pa.table({"label": ["cat", "dog", "bird"]}), parquet_file)
+
+        derived_location = _make_struct(
+            kind="location",
+            type="derived",
+            name="derived",
+            _root_kind="derived",
+            attributes={
+                "dialect": "duckdb",
+                "sql_fragment": "SELECT * FROM source_table",
+                "source_paths": [str(tmp_path / "source.parquet")],
+                "output_path": str(parquet_file),
+            },
+        )
+        value = _make_struct(
+            kind="value",
+            name="derived_dataset",
+            type=_make_struct(kind="type", type="parquet", name="parquet"),
+            location=derived_location,
+        )
+
+        result = ParquetTraversalStrategy().traverse(
+            value,
+            (SliceSegment(0, 2, None), FieldSegment("label")),
+            parse_label("@data//pkg/dataset:derived_dataset"),
+        )
+
+        assert isinstance(result, MlodyValueValue), (
+            f"Expected MlodyValueValue, got {result!r}"
+        )
+        assert result.struct.location.data == ("cat", "dog")  # type: ignore[union-attr]
