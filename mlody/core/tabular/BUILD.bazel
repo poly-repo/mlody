@@ -83,32 +83,6 @@ o_py_library(
     ],
 )
 
-o_py_library(
-    name = "tabular_lib",
-    srcs = [
-        "__init__.py",
-        "csv_source.py",
-        "derived_source.py",
-        "interfaces.py",
-        "location_specs.py",
-        "materialized_local_source.py",
-        "parquet_source.py",
-        "remote_staging.py",
-    ],
-    visibility = ["//:__subpackages__"],
-    deps = [
-        ":derived_source_lib",
-        ":interfaces_lib",
-        ":location_specs_lib",
-        ":parquet_source_lib",
-        "//mlody/core:core_lib",
-        "//mlody/core/assets:copied_asset_lib",
-        "//mlody/core/assets:interfaces_lib",
-        "//mlody/core/sql:sql_query_lib",
-        "@pip//pyarrow",
-    ],
-)
-
 o_py_test(
     name = "location_specs_test",
     srcs = ["location_specs_test.py"],
