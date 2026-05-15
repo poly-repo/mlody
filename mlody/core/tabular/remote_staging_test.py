@@ -71,6 +71,25 @@ def test_stage_remote_file_preserves_remote_suffix(http_server: tuple[str, Path]
     assert staged.path.suffix == ".parquet"
 
 
+def test_stage_remote_file_reuses_persistent_cache_across_managers(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+) -> None:
+    base_url, root = http_server
+    source_path = root / "employees.csv"
+    source_path.write_text("name,age\nAlice,30\nBob,40\n")
+    uri = f"{base_url}/employees.csv"
+    cache_root = tmp_path / "assets-cache"
+
+    first = RemoteStagingManager(cache_root=cache_root).stage(uri)
+    source_path.unlink()
+    second = RemoteStagingManager(cache_root=cache_root).stage(uri)
+
+    assert first.path == second.path
+    assert first.content_hash == second.content_hash
+    assert second.path.exists()
+
+
 def test_stage_remote_file_rejects_unsupported_scheme() -> None:
     with pytest.raises(RemoteFetchError, match="http/https"):
         stage_remote_file("file:///tmp/data.csv")
@@ -87,7 +106,7 @@ def test_stage_remote_file_logs_uri_access(
     manager = RemoteStagingManager()
     uri = f"{base_url}/employees.csv"
 
-    with caplog.at_level("INFO", logger="mlody.core.tabular.remote_staging"):
+    with caplog.at_level("INFO", logger="mlody.core.assets.http_asset"):
         manager.stage(uri)
 
     assert any(

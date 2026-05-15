@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+
+from mlody.core.assets.http_asset import HttpAssetError, HttpAssetSource
 
 _logger = logging.getLogger(__name__)
 
@@ -19,7 +17,7 @@ class RemoteFetchError(ValueError):
 
 @dataclass(frozen=True)
 class StagedRemoteFile:
-    """A remote file materialized into the process-local temp directory."""
+    """A remote file materialized into the persistent asset cache."""
 
     uri: str
     path: Path
@@ -27,10 +25,10 @@ class StagedRemoteFile:
 
 
 class RemoteStagingManager:
-    """Download remote files once per process into a private temp directory."""
+    """Cache remote files in a persistent asset cache with per-process memoization."""
 
-    def __init__(self) -> None:
-        self._tmpdir = TemporaryDirectory(prefix="mlody-remote-")
+    def __init__(self, cache_root: Path | None = None) -> None:
+        self._cache_root = cache_root
         self._staged: dict[str, StagedRemoteFile] = {}
 
     def stage(self, uri: str) -> StagedRemoteFile:
@@ -39,44 +37,20 @@ class RemoteStagingManager:
             _logger.debug("Remote staging cache hit for %s", uri)
             return self._staged[uri]
 
-        parsed = urlparse(uri)
-        if parsed.scheme not in {"http", "https"}:
-            raise RemoteFetchError(
-                f"remote(uri=...) only supports http/https in v1, got {parsed.scheme!r}"
-            )
-
-        suffix = Path(parsed.path).suffix
-        name_digest = hashlib.sha256(uri.encode()).hexdigest()[:16]
-        dest = Path(self._tmpdir.name) / f"{name_digest}{suffix}"
-        request = Request(uri, headers={"User-Agent": "mlody/remote"})
-        content_hash = hashlib.sha256()
-        total_bytes = 0
-        _logger.info("Fetching remote URI %s to %s", uri, dest)
         try:
-            with urlopen(request) as response, dest.open("wb") as handle:  # noqa: S310
-                while True:
-                    chunk = response.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    handle.write(chunk)
-                    content_hash.update(chunk)
-                    total_bytes += len(chunk)
+            materialized = HttpAssetSource(uri=uri, cache_root=self._cache_root).materialize()
         except Exception as exc:  # noqa: BLE001
-            _logger.error("Failed to fetch remote URI %s: %s", uri, exc)
-            raise RemoteFetchError(f"Failed to fetch remote URI {uri!r}: {exc}") from exc
+            if isinstance(exc, HttpAssetError):
+                raise RemoteFetchError(str(exc)) from exc
+            _logger.error("Failed to stage remote URI %s: %s", uri, exc)
+            raise RemoteFetchError(f"Failed to stage remote URI {uri!r}: {exc}") from exc
 
         staged = StagedRemoteFile(
             uri=uri,
-            path=dest,
-            content_hash=content_hash.hexdigest(),
+            path=materialized.path,
+            content_hash=materialized.content_hash or "",
         )
         self._staged[uri] = staged
-        _logger.info(
-            "Staged remote URI %s at %s (%d bytes)",
-            uri,
-            dest,
-            total_bytes,
-        )
         return staged
 
 

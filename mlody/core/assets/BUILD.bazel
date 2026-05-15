@@ -7,6 +7,13 @@ o_py_library(
 )
 
 o_py_library(
+    name = "interfaces_lib",
+    srcs = ["interfaces.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [":metadata_lib"],
+)
+
+o_py_library(
     name = "manifest_lib",
     srcs = ["manifest.py"],
     visibility = ["//:__subpackages__"],
@@ -14,10 +21,32 @@ o_py_library(
 )
 
 o_py_library(
+    name = "cache_lib",
+    srcs = ["cache.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_library(
+    name = "http_asset_lib",
+    srcs = ["http_asset.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":cache_lib",
+        ":interfaces_lib",
+        ":manifest_lib",
+        ":metadata_lib",
+        "//common/python:http_info_lib",
+    ],
+)
+
+o_py_library(
     name = "assets",
     srcs = ["__init__.py"],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":cache_lib",
+        ":http_asset_lib",
+        ":interfaces_lib",
         ":manifest_lib",
         ":metadata_lib",
     ],
@@ -29,6 +58,16 @@ o_py_test(
     deps = [
         ":manifest_lib",
         ":metadata_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "http_asset_test",
+    srcs = ["http_asset_test.py"],
+    deps = [
+        ":http_asset_lib",
+        ":manifest_lib",
         "@pip//pytest",
     ],
 )

@@ -1,5 +1,8 @@
-"""Asset metadata and manifest helpers."""
+"""Asset helpers for persistent, typed artifact materialization."""
 
+from mlody.core.assets.cache import cache_dir_for_key, default_http_cache_root, ensure_cache_root
+from mlody.core.assets.http_asset import HttpAssetError, HttpAssetSource
+from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
 from mlody.core.assets.manifest import (
     MANIFEST_SCHEMA_VERSION,
     HttpAssetManifest,
@@ -14,12 +17,19 @@ from mlody.core.assets.metadata import AssetMetadata
 
 __all__ = [
     "AssetMetadata",
+    "AssetSource",
+    "HttpAssetError",
     "HttpAssetManifest",
     "HttpAssetManifestLocal",
     "HttpAssetManifestRemote",
     "HttpAssetManifestRequest",
+    "HttpAssetSource",
     "MANIFEST_SCHEMA_VERSION",
+    "MaterializedAsset",
+    "cache_dir_for_key",
     "cache_key_for_uri",
+    "default_http_cache_root",
+    "ensure_cache_root",
     "load_manifest",
     "write_manifest",
 ]

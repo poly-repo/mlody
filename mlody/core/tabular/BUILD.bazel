@@ -27,6 +27,7 @@ o_py_library(
     name = "remote_staging_lib",
     srcs = ["remote_staging.py"],
     visibility = ["//:__subpackages__"],
+    deps = ["//mlody/core/assets:http_asset_lib"],
 )
 
 o_py_library(
@@ -164,6 +165,7 @@ o_py_test(
     name = "remote_staging_test",
     srcs = ["remote_staging_test.py"],
     deps = [
+        "//mlody/core/assets:http_asset_lib",
         ":tabular",
         "@pip//pytest",
     ],
