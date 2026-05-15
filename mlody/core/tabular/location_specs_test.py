@@ -19,7 +19,6 @@ from mlody.core.tabular import (
     CsvSource,
     DerivedLocationSpec,
     DerivedSource,
-    MaterializedLocalSource,
     ParquetSource,
     PosixLocationSpec,
     RemoteLocationSpec,
@@ -28,6 +27,7 @@ from mlody.core.tabular import (
     source_from_value,
 )
 from mlody.core.tabular.location_specs import query_rows_from_value
+from mlody.core.tabular.materialized_local_source import MaterializedLocalSource
 
 
 @pytest.fixture()

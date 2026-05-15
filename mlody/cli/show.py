@@ -44,11 +44,11 @@ from mlody.core.sql.sql_query import MlodyQueryError
 from mlody.core.tabular import (
     CsvSource,
     DerivedSource,
-    MaterializedLocalSource,
     ParquetSource,
     PreviewResult,
     source_from_value,
 )
+from mlody.core.tabular.materialized_local_source import MaterializedLocalSource
 from mlody.core.workspace import Workspace, WorkspaceLoadError, force
 from mlody.db.evaluations import open_db, write_evaluation
 from mlody.db.local_diff import compute_local_diff_sha, get_repo_root
