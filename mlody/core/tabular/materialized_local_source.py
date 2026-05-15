@@ -8,8 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from mlody.core.assets.copied_asset import CopiedAssetSource
-from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
-from mlody.core.assets.metadata import AssetMetadata
+from mlody.core.assets.interfaces import AssetSource
 from mlody.core.tabular.interfaces import PreviewResult, QueryInput, TabularSource
 
 
@@ -20,7 +19,7 @@ class MaterializedLocalSource:
     value_name: str
     destination_path: str
     representation_name: str
-    upstream_factory: Callable[[], TabularSource] | None = None
+    upstream_factory: Callable[[], AssetSource] | None = None
     source_label: str | None = None
     separator: str = ","
     header_required: bool = True
@@ -64,44 +63,10 @@ class MaterializedLocalSource:
         return self._local_source().query_input()
 
     def _copied_asset(self) -> CopiedAssetSource:
-        upstream_factory = None
-        if self.upstream_factory is not None:
-
-            def _make_upstream() -> AssetSource:
-                upstream = self.upstream_factory()
-                return _TabularAssetSource(upstream)
-
-            upstream_factory = _make_upstream
-
         return CopiedAssetSource(
             value_name=self.value_name,
             destination_path=self.destination_path,
-            upstream_factory=upstream_factory,
+            upstream_factory=self.upstream_factory,
             source_label=self.source_label,
             lineage_owner=self.lineage_owner,
-        )
-
-
-@dataclass(frozen=True)
-class _TabularAssetSource:
-    """Bridge a tabular source into the generic asset-source protocol."""
-
-    tabular_source: TabularSource
-
-    def materialize(self) -> MaterializedAsset:
-        path = self.tabular_source.materialize()
-        return MaterializedAsset(
-            path=path,
-            content_hash=None,
-            metadata=AssetMetadata(
-                uri=None,
-                resolved_url=None,
-                digest=None,
-                digest_type=None,
-                length=None,
-                update_time=None,
-                cache_key=None,
-                transport="posix",
-                extra={"path": str(path)},
-            ),
         )

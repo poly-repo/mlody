@@ -2,60 +2,25 @@
 
 from __future__ import annotations
 
-import glob
 import hashlib
-import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
-from typing import Iterable
 
 from mlody.common.struct import Struct
+from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
+from mlody.core.assets.metadata import AssetMetadata
+from mlody.core.assets.resolution import asset_from_value
 from mlody.core.lineage import build_lineage_event, record_lineage
+from mlody.core.location_specs import (
+    DerivedLocationSpec,
+    PosixLocationSpec,
+    RemoteLocationSpec,
+    _derived_cache_root,
+    _source_value_struct,
+    derived_location_spec_from_value,
+)
 from mlody.core.tabular.interfaces import QuerySpec, TabularSource
-
-
-def _specific_kind(location: object) -> str:
-    """Return the most specific location discriminator available."""
-    return (
-        getattr(location, "_root_kind", None)
-        or getattr(location, "type", None)
-        or getattr(location, "kind", "")
-    )
-
-
-def _coerce_path_tuple(path_value: object) -> tuple[str, ...]:
-    """Convert a location path payload to a tuple of strings."""
-    if path_value is None:
-        return ()
-    if isinstance(path_value, str):
-        return (path_value,)
-    if isinstance(path_value, Path):
-        return (str(path_value),)
-    if isinstance(path_value, (list, tuple)):
-        return tuple(str(path) for path in path_value)
-    return (str(path_value),)
-
-
-def _paths_from_location(location: object) -> tuple[str, ...]:
-    """Extract path strings from either direct fields or ``attributes``."""
-    direct = getattr(location, "path", None)
-    if direct is not None:
-        return _coerce_path_tuple(direct)
-    attrs = getattr(location, "attributes", None)
-    if isinstance(attrs, dict):
-        return _coerce_path_tuple(attrs.get("path"))
-    return ()
-
-
-def _source_value_struct(value_struct: object) -> object | None:
-    """Return the embedded source value struct when available."""
-    source_value = getattr(value_struct, "_source_value", None)
-    if source_value is not None:
-        return source_value
-    source_attr = getattr(value_struct, "source", None)
-    if getattr(source_attr, "kind", None) == "value":
-        return source_attr
-    return None
 
 
 def _representation_name(value_struct: object) -> str | None:
@@ -145,224 +110,39 @@ def _record_remote_download_lineage(
     record_lineage(value_struct, event)
 
 
-def _expand_pattern(path_pattern: str) -> tuple[str, ...]:
-    """Expand a filesystem glob pattern, preserving unmatched literals."""
-    expanded_pattern = os.path.expanduser(path_pattern)
-    matches = tuple(sorted(glob.glob(expanded_pattern)))
-    return matches or (path_pattern,)
-
-
-def _dedupe_preserving_order(paths: Iterable[str]) -> tuple[str, ...]:
-    """Return a stable-order tuple with duplicates removed."""
-    seen: set[str] = set()
-    unique: list[str] = []
-    for path in paths:
-        if path in seen:
-            continue
-        seen.add(path)
-        unique.append(path)
-    return tuple(unique)
-
-
-def _derived_cache_root() -> Path:
-    """Return the writable cache root for derived parquet outputs."""
-    test_tmpdir = os.environ.get("TEST_TMPDIR")
-    if test_tmpdir:
-        return Path(test_tmpdir) / "mlody" / "derived"
-    xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
-    if xdg_cache_home:
-        return Path(xdg_cache_home) / "mlody" / "derived"
-    return Path.home() / ".cache" / "mlody" / "derived"
-
-
-def _derived_cache_path(source_paths: tuple[str, ...], query: QuerySpec) -> Path:
-    """Return the deterministic cache path used for composed derived values."""
-    raw_key = ":".join(sorted(source_paths)) + ":" + query.dialect + ":" + query.sql
-    digest = hashlib.sha256(raw_key.encode()).hexdigest()[:40]
-    return _derived_cache_root() / f"{digest}.parquet"
-
-
 @dataclass(frozen=True)
-class PosixLocationSpec:
-    """Typed view of a path-backed location used by the runtime."""
+class _StagedRemoteAssetSource:
+    """Asset adapter that preserves the remote staging seam for copied locals."""
 
-    paths: tuple[str, ...]
-    name: str = ""
-    kind: str = "posix"
+    remote_spec: RemoteLocationSpec
+    lineage_owner: object | None = None
 
-    @classmethod
-    def from_location(cls, location: object) -> PosixLocationSpec | None:
-        """Parse a runtime location object into a typed posix spec."""
-        if location is None or _specific_kind(location) == "derived":
-            return None
-        paths = _paths_from_location(location)
-        if not paths:
-            return None
-        kind = _specific_kind(location) or "posix"
-        return cls(paths=paths, name=str(getattr(location, "name", "")), kind=kind)
+    def materialize(self) -> MaterializedAsset:
+        from mlody.core.tabular.remote_staging import stage_remote_file
 
-    def compose(
-        self,
-        field_spec: PosixLocationSpec | None,
-        field_name: str,
-    ) -> PosixLocationSpec:
-        """Compose this parent path set with a field path set or field name."""
-        field_paths = field_spec.paths if field_spec is not None else (field_name,)
-        if not field_paths:
-            field_paths = (field_name,)
-
-        composed_patterns = tuple(
-            os.path.join(parent_path, field_path)
-            for parent_path in (self.paths or ("",))
-            for field_path in field_paths
+        staged = stage_remote_file(self.remote_spec.uri)
+        if self.lineage_owner is not None:
+            _record_remote_download_lineage(
+                self.lineage_owner,
+                remote_spec=self.remote_spec,
+                staged_path=staged.path,
+                content_hash=staged.content_hash,
+            )
+        return MaterializedAsset(
+            path=staged.path,
+            content_hash=staged.content_hash,
+            metadata=AssetMetadata(
+                uri=self.remote_spec.uri,
+                resolved_url=self.remote_spec.uri,
+                digest=None,
+                digest_type=None,
+                length=None,
+                update_time=None,
+                cache_key=None,
+                transport="http",
+                extra={"staged_path": str(staged.path)},
+            ),
         )
-        expanded_paths = _dedupe_preserving_order(
-            expanded
-            for pattern in composed_patterns
-            for expanded in _expand_pattern(pattern)
-        )
-        return PosixLocationSpec(
-            paths=expanded_paths or composed_patterns,
-            name=self.name,
-            kind="posix",
-        )
-
-    def to_struct(self) -> Struct:
-        """Serialize the typed spec back into the runtime Struct shape."""
-        return Struct(
-            kind="location",
-            type="posix",
-            name=self.name,
-            path=list(self.paths),
-        )
-
-
-@dataclass(frozen=True)
-class RemoteLocationSpec:
-    """Typed view of a transport-only remote location."""
-
-    uri: str
-    name: str = "remote"
-
-    @classmethod
-    def from_location(cls, location: object) -> RemoteLocationSpec | None:
-        """Parse a runtime location object into a typed remote spec."""
-        if location is None or _specific_kind(location) != "remote":
-            return None
-        uri = getattr(location, "uri", None)
-        if uri is None:
-            attrs = getattr(location, "attributes", None)
-            if isinstance(attrs, dict):
-                uri = attrs.get("uri")
-        if not isinstance(uri, str) or uri == "":
-            return None
-        return cls(uri=uri, name=str(getattr(location, "name", "remote") or "remote"))
-
-
-@dataclass(frozen=True)
-class DerivedLocationSpec:
-    """Typed view of a derived location backed by a SQL query over parquet."""
-
-    source_ref: str
-    source_paths: tuple[str, ...]
-    query: QuerySpec
-    output_path: Path
-    name: str = "derived"
-
-    @classmethod
-    def from_location(cls, location: object) -> DerivedLocationSpec | None:
-        """Parse a derived runtime location object into a typed spec."""
-        if location is None or _specific_kind(location) != "derived":
-            return None
-        attrs = getattr(location, "attributes", {}) or {}
-        if not isinstance(attrs, dict):
-            attrs = {}
-        query = QuerySpec(
-            sql=str(attrs.get("sql_fragment") or ""),
-            dialect=str(attrs.get("dialect") or "duckdb"),
-        )
-        output_value = attrs.get("output_path")
-        source_paths = _coerce_path_tuple(attrs.get("source_paths"))
-        output_path = Path(str(output_value)) if output_value else _derived_cache_path(
-            source_paths,
-            query,
-        )
-        return cls(
-            source_ref=str(attrs.get("source_ref") or ""),
-            source_paths=source_paths,
-            query=query,
-            output_path=output_path,
-            name=str(getattr(location, "name", "derived") or "derived"),
-        )
-
-    def with_source_paths(self, source_paths: tuple[str, ...]) -> DerivedLocationSpec:
-        """Return the same derived spec with explicit resolved source paths."""
-        return replace(self, source_paths=source_paths)
-
-    def compose(
-        self,
-        field_spec: PosixLocationSpec | None,
-        field_name: str,
-    ) -> DerivedLocationSpec:
-        """Compose derived source paths with a nested field path selection."""
-        field_paths = field_spec.paths if field_spec is not None else (field_name,)
-        if not field_paths:
-            field_paths = (field_name,)
-
-        composed_patterns = tuple(
-            os.path.join(os.path.expanduser(parent_path), field_path)
-            for parent_path in (self.source_paths or ("",))
-            for field_path in field_paths
-        )
-        expanded_paths = _dedupe_preserving_order(
-            expanded
-            for pattern in composed_patterns
-            for expanded in _expand_pattern(pattern)
-        )
-        new_paths = expanded_paths or composed_patterns
-        return replace(
-            self,
-            source_paths=new_paths,
-            output_path=_derived_cache_path(new_paths, self.query),
-        )
-
-    def to_struct(self) -> Struct:
-        """Serialize the typed derived spec back into the runtime Struct shape."""
-        return Struct(
-            kind="location",
-            type="derived",
-            name=self.name,
-            abstract=False,
-            _root_kind="derived",
-            attributes={
-                "source_ref": self.source_ref,
-                "source_paths": list(self.source_paths),
-                "sql_fragment": self.query.sql,
-                "dialect": self.query.dialect,
-                "output_path": str(self.output_path),
-            },
-        )
-
-
-def derived_location_spec_from_value(value_struct: object) -> DerivedLocationSpec | None:
-    """Resolve a derived spec from a value struct, filling source-path fallbacks."""
-    location = getattr(value_struct, "location", None)
-    spec = DerivedLocationSpec.from_location(location)
-    if spec is None:
-        return None
-    if spec.source_paths:
-        return spec
-
-    source_struct = getattr(value_struct, "_source_value", None)
-    if source_struct is None:
-        source_struct = getattr(value_struct, "source", None)
-    source_location = getattr(source_struct, "location", None) if source_struct else None
-    source_spec = PosixLocationSpec.from_location(source_location)
-    if source_spec is not None:
-        return spec.with_source_paths(source_spec.paths)
-    if isinstance(source_struct, str) and spec.source_ref:
-        return spec.with_source_paths((spec.source_ref,))
-    return spec
 
 
 def _remote_derived_output_path(content_hash: str, query: QuerySpec) -> Path:
@@ -389,11 +169,56 @@ def _csv_source_from_paths(
     )
 
 
+def _tabular_source_from_asset(
+    value_struct: object,
+    asset: AssetSource,
+    *,
+    default_to_parquet: bool = False,
+) -> TabularSource | None:
+    """Materialize a generic asset and wrap it in the matching tabular adapter."""
+    from mlody.core.tabular.parquet_source import ParquetSource
+
+    if _representation_bool(value_struct, "multifile", False):
+        return None
+
+    representation_name = _representation_name(value_struct)
+    if representation_name not in {"csv", "parquet"}:
+        if not (default_to_parquet and representation_name is None):
+            return None
+        representation_name = "parquet"
+
+    if representation_name not in {"csv", "parquet"}:
+        return None
+
+    materialized = asset.materialize()
+    location = getattr(value_struct, "location", None)
+    remote_spec = RemoteLocationSpec.from_location(location)
+    if remote_spec is not None:
+        _record_remote_download_lineage(
+            value_struct,
+            remote_spec=remote_spec,
+            staged_path=materialized.path,
+            content_hash=materialized.content_hash,
+        )
+
+    materialized_paths = (str(materialized.path),)
+    if representation_name == "csv":
+        return _csv_source_from_paths(
+            materialized_paths,
+            value_struct=value_struct,
+            content_hash=materialized.content_hash,
+        )
+    return ParquetSource(
+        paths=materialized_paths,
+        content_hash=materialized.content_hash,
+    )
+
+
 def _source_backed_local_source_from_value(
     value_struct: object,
     posix_spec: PosixLocationSpec,
 ) -> TabularSource:
-    """Construct a lazy local source backed by another tabular source."""
+    """Construct a lazy local source backed by another asset source."""
     from mlody.core.tabular.materialized_local_source import MaterializedLocalSource
 
     value_name = str(getattr(value_struct, "name", "<unknown>"))
@@ -426,8 +251,15 @@ def _source_backed_local_source_from_value(
             source_struct: object = source_value,
             source_name: str = source_name,
             value_name: str = value_name,
-        ) -> TabularSource:
-            upstream = source_from_value(source_struct)
+        ) -> AssetSource:
+            source_location = getattr(source_struct, "location", None)
+            remote_spec = RemoteLocationSpec.from_location(source_location)
+            if remote_spec is not None:
+                return _StagedRemoteAssetSource(
+                    remote_spec=remote_spec,
+                    lineage_owner=source_struct,
+                )
+            upstream = asset_from_value(source_struct)
             if upstream is None:
                 raise ValueError(
                     f"Source-backed local value {value_name!r} depends on non-tabular "
@@ -536,8 +368,6 @@ def source_from_location(location: object) -> TabularSource | None:
 
 def source_from_value(value_struct: object) -> TabularSource | None:
     """Construct the best tabular source view for a runtime value struct."""
-    from mlody.core.tabular.parquet_source import ParquetSource
-
     derived_spec = derived_location_spec_from_value(value_struct)
     if derived_spec is not None:
         return _derived_source_from_value(value_struct, derived_spec)
@@ -554,6 +384,8 @@ def source_from_value(value_struct: object) -> TabularSource | None:
         representation_name = _representation_name(value_struct)
         if representation_name == "csv":
             return _csv_source_from_paths(posix_spec.paths, value_struct=value_struct)
+        from mlody.core.tabular.parquet_source import ParquetSource
+
         return ParquetSource(paths=posix_spec.paths)
 
     return None

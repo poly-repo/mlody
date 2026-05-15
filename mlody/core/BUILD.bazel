@@ -278,6 +278,16 @@ o_py_library(
     ],
 )
 
+o_py_library(
+    name = "location_specs_lib",
+    srcs = ["location_specs.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//mlody/common:common_lib",
+        "//mlody/core/tabular:interfaces_lib",
+    ],
+)
+
 o_py_test(
     name = "derived_test",
     srcs = ["derived_test.py"],
@@ -427,6 +437,7 @@ o_py_library(
         "dag_value.py",
         "derived.py",
         "lineage.py",
+        "location_specs.py",
         "location_composition.py",
         "multimethod.py",
         "optimiser.py",

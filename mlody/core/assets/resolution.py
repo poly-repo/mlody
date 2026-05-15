@@ -9,9 +9,10 @@ from mlody.core.assets.copied_asset import CopiedAssetSource
 from mlody.core.assets.http_asset import HttpAssetSource
 from mlody.core.assets.interfaces import AssetSource
 from mlody.core.assets.local_asset import LocalPathAssetSource
-from mlody.core.tabular.location_specs import (
+from mlody.core.location_specs import (
     PosixLocationSpec,
     RemoteLocationSpec,
+    _source_value_struct,
     derived_location_spec_from_value,
 )
 
@@ -41,19 +42,6 @@ def asset_from_value(value_struct: object) -> AssetSource | None:
         return _copied_asset_from_value(value_struct, posix_spec, source_value)
 
     return asset_from_location(location)
-
-
-def _source_value_struct(value_struct: object) -> object | None:
-    """Return the embedded source value struct when present."""
-    source_value = getattr(value_struct, "_source_value", None)
-    if source_value is not None:
-        return source_value
-    source_attr = getattr(value_struct, "source", None)
-    if getattr(source_attr, "kind", None) == "value":
-        return source_attr
-    return None
-
-
 def _local_asset_from_spec(spec: PosixLocationSpec) -> LocalPathAssetSource | None:
     if len(spec.paths) != 1:
         return None
