@@ -55,6 +55,20 @@ def test_http_asset_source_downloads_and_writes_manifest(http_server: tuple[str,
     assert manifest.local.payload_relpath == materialized.path.name
 
 
+def test_http_asset_source_preserves_remote_suffix(http_server: tuple[str, Path], tmp_path: Path) -> None:
+    base_url, root = http_server
+    cache_root = tmp_path / "assets-cache"
+    source_path = root / "employees.parquet"
+    source_path.write_text("parquet-bytes")
+
+    materialized = HttpAssetSource(
+        uri=f"{base_url}/employees.parquet",
+        cache_root=cache_root,
+    ).materialize()
+
+    assert materialized.path.suffix == ".parquet"
+
+
 def test_http_asset_source_reuses_cached_payload_across_instances(
     http_server: tuple[str, Path],
     tmp_path: Path,
@@ -133,3 +147,27 @@ def test_http_asset_source_always_revalidates_and_redownloads_when_remote_change
 def test_http_asset_source_rejects_unsupported_scheme(tmp_path: Path) -> None:
     with pytest.raises(HttpAssetError, match="http/https"):
         HttpAssetSource(uri="file:///tmp/data.csv", cache_root=tmp_path / "assets-cache").materialize()
+
+
+def test_http_asset_source_logs_uri_access(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    base_url, root = http_server
+    cache_root = tmp_path / "assets-cache"
+    source_path = root / "employees.csv"
+    source_path.write_text("name,age\nAlice,30\nBob,40\n")
+    uri = f"{base_url}/employees.csv"
+
+    with caplog.at_level("INFO", logger="mlody.core.assets.http_asset"):
+        HttpAssetSource(uri=uri, cache_root=cache_root).materialize()
+
+    assert any(
+        "Fetching remote URI" in record.message and uri in record.message
+        for record in caplog.records
+    )
+    assert any(
+        "Staged remote URI" in record.message and uri in record.message
+        for record in caplog.records
+    )

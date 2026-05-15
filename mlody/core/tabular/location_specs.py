@@ -124,7 +124,9 @@ def _source_backed_local_source_from_value(
     posix_spec: PosixLocationSpec,
 ) -> TabularSource:
     """Construct a lazy local source backed by another asset source."""
-    from mlody.core.tabular.materialized_local_source import MaterializedLocalSource
+    from mlody.core.tabular.copied_asset_tabular_source import (
+        CopiedAssetTabularSource,
+    )
 
     value_name = str(getattr(value_struct, "name", "<unknown>"))
     if len(posix_spec.paths) != 1:
@@ -168,7 +170,7 @@ def _source_backed_local_source_from_value(
 
         upstream_factory = _make_upstream
 
-    return MaterializedLocalSource(
+    return CopiedAssetTabularSource(
         value_name=value_name,
         destination_path=posix_spec.paths[0],
         representation_name=representation_name,

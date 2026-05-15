@@ -16,8 +16,8 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":csv_source_lib",
+        ":copied_asset_tabular_source_lib",
         ":interfaces_lib",
-        ":materialized_local_source_lib",
         ":parquet_source_lib",
         "//mlody/core/assets:interfaces_lib",
         "//mlody/core/assets:resolution_lib",
@@ -25,13 +25,6 @@ o_py_library(
         "//mlody/core:query_spec_lib",
         "//mlody/core/sql:sql_query_lib",
     ],
-)
-
-o_py_library(
-    name = "remote_staging_lib",
-    srcs = ["remote_staging.py"],
-    visibility = ["//:__subpackages__"],
-    deps = ["//mlody/core/assets:http_asset_lib"],
 )
 
 o_py_library(
@@ -57,8 +50,8 @@ o_py_library(
 )
 
 o_py_library(
-    name = "materialized_local_source_lib",
-    srcs = ["materialized_local_source.py"],
+    name = "copied_asset_tabular_source_lib",
+    srcs = ["copied_asset_tabular_source.py"],
     visibility = ["//:__subpackages__"],
     deps = [
         ":csv_source_lib",
@@ -88,9 +81,9 @@ o_py_test(
     srcs = ["location_specs_test.py"],
     deps = [
         ":csv_source_lib",
+        ":copied_asset_tabular_source_lib",
         ":derived_source_lib",
         ":location_specs_lib",
-        ":materialized_local_source_lib",
         ":parquet_source_lib",
         "//mlody/common:common_lib",
         "@pip//pyarrow",
@@ -124,16 +117,6 @@ o_py_test(
         ":location_specs_lib",
         "//mlody/core:query_spec_lib",
         "@pip//pyarrow",
-        "@pip//pytest",
-    ],
-)
-
-o_py_test(
-    name = "remote_staging_test",
-    srcs = ["remote_staging_test.py"],
-    deps = [
-        "//mlody/core/assets:http_asset_lib",
-        ":remote_staging_lib",
         "@pip//pytest",
     ],
 )

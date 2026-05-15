@@ -1,9 +1,4 @@
-"""Compatibility tabular wrapper over ``CopiedAssetSource``.
-
-This module remains because tabular callers still expect a ``TabularSource``
-object with preview/query methods, but the actual copy/refresh semantics now
-live in ``mlody.core.assets``.
-"""
+"""Tabular adapter for source-backed local artifacts materialized via assets."""
 
 from __future__ import annotations
 
@@ -18,8 +13,8 @@ from mlody.core.tabular.interfaces import PreviewResult, QueryInput, TabularSour
 
 
 @dataclass(frozen=True)
-class MaterializedLocalSource:
-    """A local tabular artifact backed by another source via copied asset logic."""
+class CopiedAssetTabularSource:
+    """A local tabular artifact backed by a copied asset source."""
 
     value_name: str
     destination_path: str

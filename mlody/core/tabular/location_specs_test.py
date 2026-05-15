@@ -27,7 +27,7 @@ from mlody.core.tabular.location_specs import (
     source_from_location,
     source_from_value,
 )
-from mlody.core.tabular.materialized_local_source import MaterializedLocalSource
+from mlody.core.tabular.copied_asset_tabular_source import CopiedAssetTabularSource
 from mlody.core.tabular.parquet_source import ParquetSource
 
 
@@ -231,7 +231,7 @@ def test_query_rows_from_value_omits_header_row_for_csv_with_header(
     ]
 
 
-def test_source_from_value_returns_materialized_local_source_for_source_backed_csv_value(
+def test_source_from_value_returns_copied_asset_tabular_source_for_source_backed_csv_value(
     tmp_path: Path,
 ) -> None:
     staged_path = tmp_path / "staged.csv"
@@ -285,7 +285,7 @@ def test_source_from_value_returns_materialized_local_source_for_source_backed_c
         )
         source = source_from_value(value_struct)
 
-        assert isinstance(source, MaterializedLocalSource)
+        assert isinstance(source, CopiedAssetTabularSource)
         materialized = source.materialize()
 
     assert materialized == destination_path
@@ -537,7 +537,7 @@ def test_source_backed_local_source_expands_home_and_reuses_cache(
             )
             source = source_from_value(value_struct)
 
-            assert isinstance(source, MaterializedLocalSource)
+            assert isinstance(source, CopiedAssetTabularSource)
             first = source.materialize()
             second = source.materialize()
 
@@ -625,7 +625,7 @@ def test_source_backed_local_source_cache_hit_reconstructs_upstream_lineage(
     with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
         source = source_from_value(value_struct)
 
-        assert isinstance(source, MaterializedLocalSource)
+        assert isinstance(source, CopiedAssetTabularSource)
         materialized = source.materialize()
 
     assert materialized == destination_path
@@ -704,7 +704,7 @@ def test_source_backed_local_source_revalidates_remote_for_always_freshness(
 
     source = source_from_value(value_struct)
 
-    assert isinstance(source, MaterializedLocalSource)
+    assert isinstance(source, CopiedAssetTabularSource)
     first = source.materialize()
     source_path.write_text("name,salary\nAlice,120000\nBob,90000\n")
     second = source.materialize()
@@ -742,7 +742,7 @@ def test_source_backed_local_source_raises_for_non_tabular_source() -> None:
 
     source = source_from_value(value_struct)
 
-    assert isinstance(source, MaterializedLocalSource)
+    assert isinstance(source, CopiedAssetTabularSource)
     with pytest.raises(ValueError, match="non-tabular source 'meta'"):
         source.materialize()
 

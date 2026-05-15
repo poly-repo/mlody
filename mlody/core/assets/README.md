@@ -47,6 +47,6 @@ What should stay out of this layer:
 
 Those remain in `mlody.core.tabular`, which now acts as an adapter layer on top of assets.
 
-Compatibility note:
-
-`mlody.core.tabular.remote_staging` still exists for older callers and tests, but new code should use `HttpAssetSource` or `asset_from_value(...)` directly.
+For source-backed local CSV/parquet values, `mlody.core.tabular` now uses a
+small `CopiedAssetTabularSource` adapter on top of `CopiedAssetSource` rather
+than owning copy/materialization logic itself.
