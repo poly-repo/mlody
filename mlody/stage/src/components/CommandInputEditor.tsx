@@ -27,6 +27,10 @@ import {
 import { Prec, StateEffect, StateField, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
+import {
+  analyzeStagePromptAutocomplete,
+  type StagePromptAutocompleteOption,
+} from "../promptCommands.js";
 import { fetchStageAutocomplete } from "../serverApi.js";
 import type {
   StageAutocompleteCompletion,
@@ -69,7 +73,10 @@ interface CommandInputSnapshot {
 
 interface AutocompleteAnalysis {
   from: number;
-  kind: "root" | "package" | "target" | "field";
+  source: "stage" | "prompt-command";
+  kind?: "root" | "package" | "target" | "field";
+  options?: StagePromptAutocompleteOption[];
+  validFor?: RegExp;
 }
 
 const AUTOCOMPLETE_VALID_FOR = /^[A-Za-z0-9_-]*$/;
@@ -122,6 +129,18 @@ function analyzeAutocompleteRequest(
   prompt: string,
   promotedSegments: readonly string[],
 ): AutocompleteAnalysis | null {
+  if (promotedSegments.length === 0) {
+    const promptCommandAutocomplete = analyzeStagePromptAutocomplete(prompt);
+    if (promptCommandAutocomplete !== null) {
+      return {
+        from: promptCommandAutocomplete.from,
+        source: "prompt-command",
+        options: promptCommandAutocomplete.options,
+        validFor: promptCommandAutocomplete.validFor,
+      };
+    }
+  }
+
   if (prompt.includes("\n") || prompt.includes("\r")) {
     return null;
   }
@@ -139,6 +158,7 @@ function analyzeAutocompleteRequest(
     return /^@[A-Za-z0-9_-]*$/.test(prompt)
       ? {
           from: 1,
+          source: "stage",
           kind: "root",
         }
       : null;
@@ -152,6 +172,7 @@ function analyzeAutocompleteRequest(
         promotedSegments.some((segment) => segment.endsWith(":"))
       ? {
           from: 1,
+          source: "stage",
           kind: "field",
         }
       : null;
@@ -169,6 +190,7 @@ function analyzeAutocompleteRequest(
   if (typeof lastSegment === "string" && lastSegment.endsWith(":")) {
     return {
       from: 0,
+      source: "stage",
       kind: "target",
     };
   }
@@ -180,11 +202,38 @@ function analyzeAutocompleteRequest(
   if (promotedSegments.includes("//")) {
     return {
       from: 0,
+      source: "stage",
       kind: "package",
     };
   }
 
   return null;
+}
+
+function applyPromptAutocompleteCompletion(
+  view: EditorView,
+  from: number,
+  to: number,
+  completion: StagePromptAutocompleteOption,
+): void {
+  const suffix = completion.applySuffix ?? "";
+  const insertedText = `${completion.label}${suffix}`;
+  view.dispatch({
+    changes: {
+      from,
+      to,
+      insert: insertedText,
+    },
+    selection: {
+      anchor: from + insertedText.length,
+    },
+  });
+
+  if (completion.triggerCompletionAfterApply) {
+    queueMicrotask(() => {
+      startCompletion(view);
+    });
+  }
 }
 
 function autocompleteSuffixForKind(
@@ -544,6 +593,20 @@ function CodeMirrorCommandInput({
       return null;
     }
 
+    if (analysis.source === "prompt-command") {
+      return {
+        from: analysis.from,
+        options: (analysis.options ?? []).map((completion) => ({
+          label: completion.label,
+          detail: completion.detail,
+          apply(view, _completion, from, to) {
+            applyPromptAutocompleteCompletion(view, from, to, completion);
+          },
+        })),
+        validFor: analysis.validFor ?? AUTOCOMPLETE_VALID_FOR,
+      };
+    }
+
     const requestKey = JSON.stringify({
       workspaceRoot,
       breadcrumb,
@@ -686,6 +749,52 @@ function CodeMirrorCommandInput({
                 }
 
                 startCompletion(view);
+                return true;
+              },
+            },
+            {
+              key: ",",
+              run(view) {
+                if (!isCursorAtEnd(view)) {
+                  insertText(view, ",");
+                  return true;
+                }
+
+                if (
+                  getPromotedSegments(view).length !== 0 ||
+                  view.state.doc.length !== 0
+                ) {
+                  insertText(view, ",");
+                  return true;
+                }
+
+                insertText(view, ",");
+                queueMicrotask(() => {
+                  startCompletion(view);
+                });
+                return true;
+              },
+            },
+            {
+              key: "Space",
+              run(view) {
+                if (!isCursorAtEnd(view)) {
+                  insertText(view, " ");
+                  return true;
+                }
+
+                if (
+                  getPromotedSegments(view).length === 0 &&
+                  /^,[^\s]+$/.test(view.state.doc.toString())
+                ) {
+                  insertText(view, " ");
+                  queueMicrotask(() => {
+                    startCompletion(view);
+                  });
+                  return true;
+                }
+
+                insertText(view, " ");
                 return true;
               },
             },

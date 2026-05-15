@@ -34,6 +34,10 @@ export function buildCommandInput(
   const filteredSegments = segments.filter((segment) => segment.trim() !== "");
   const trimmedRemainder = remainder.trim();
 
+  if (filteredSegments.length === 0 && trimmedRemainder.startsWith(",")) {
+    return trimmedRemainder;
+  }
+
   let combinedInput = "";
   filteredSegments.forEach((segment, index) => {
     if (index === 0) {

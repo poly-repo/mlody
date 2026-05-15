@@ -18,6 +18,39 @@ function splitCommandInput(commandLine: string): {
   };
 }
 
+export async function runStageCommand(
+  command: string,
+  input: string,
+  currentUserName: string,
+  workspaceRoot: string | null,
+  onChunk: OutputCallback,
+): Promise<ExecutionResultStatus> {
+  const response = await executeStageCommand(
+    command,
+    input,
+    currentUserName,
+    workspaceRoot,
+  );
+  onChunk({ kind: "stage-json", value: response });
+  return "done";
+}
+
+export async function runStageCommandLine(
+  commandLine: string,
+  currentUserName: string,
+  workspaceRoot: string | null,
+  onChunk: OutputCallback,
+): Promise<ExecutionResultStatus> {
+  const { command, input } = splitCommandInput(commandLine);
+  return await runStageCommand(
+    command,
+    input,
+    currentUserName,
+    workspaceRoot,
+    onChunk,
+  );
+}
+
 export const serverExecutor: Executor = {
   async run(
     commandLine: string,
@@ -25,16 +58,12 @@ export const serverExecutor: Executor = {
     workspaceRoot: string | null,
     onChunk: OutputCallback,
   ): Promise<ExecutionResultStatus> {
-    const { command, input } = splitCommandInput(commandLine);
-    const response = await executeStageCommand(
-      command,
-      input,
+    return await runStageCommandLine(
+      commandLine,
       currentUserName,
       workspaceRoot,
+      onChunk,
     );
-    onChunk({ kind: "stage-json", value: response });
-
-    return "done";
   },
 };
 

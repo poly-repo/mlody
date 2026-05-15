@@ -215,6 +215,7 @@ export interface ExecutionRecord {
   command: string;
   commandName: string;
   commandInput: string;
+  copyCommand?: string | null;
   runAs: string;
   workspaceRoot: string | null;
   /** ISO timestamp when the command was submitted */

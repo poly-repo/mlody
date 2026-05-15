@@ -95,17 +95,20 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
   );
   const [stageResultViewMode, setStageResultViewMode] =
     useState<StageResultViewMode>("rendered");
-  const copyCommand = buildCopyCommand(record);
+  const copyCommand =
+    record.copyCommand === undefined ? buildCopyCommand(record) : record.copyCommand;
+  const copyButtonSubject =
+    record.copyCommand === undefined ? "full bazel run command" : "command";
   const hasSpecializedStageOutput = record.output.some(
     (chunk) =>
       chunk.kind === "stage-json" && hasSpecializedStageRenderer(chunk.value),
   );
   const copyButtonLabel =
     copyState === "copied"
-      ? "Copied full bazel run command"
+      ? `Copied ${copyButtonSubject}`
       : copyState === "error"
-      ? "Copy full bazel run command failed"
-      : "Copy full bazel run command";
+      ? `Copy ${copyButtonSubject} failed`
+      : `Copy ${copyButtonSubject}`;
   const stageViewButtonLabel =
     stageResultViewMode === "rendered"
       ? "Show raw JSON representation"
@@ -132,6 +135,10 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
   }, [hasSpecializedStageOutput, stageResultViewMode]);
 
   async function handleCopyClick() {
+    if (copyCommand === null) {
+      return;
+    }
+
     try {
       await navigator.clipboard.writeText(copyCommand);
       setCopyState("copied");
@@ -168,21 +175,23 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
             )}
           </button>
         ) : null}
-        <button
-          type="button"
-          className={`ExecutionBlock-copyButton ExecutionBlock-copyButton--${copyState}`}
-          aria-label={copyButtonLabel}
-          title={copyCommand}
-          onClick={() => {
-            void handleCopyClick();
-          }}
-        >
-          {copyState === "copied" ? (
-            <LuCheck aria-hidden="true" />
-          ) : (
-            <LuCopy aria-hidden="true" />
-          )}
-        </button>
+        {copyCommand !== null ? (
+          <button
+            type="button"
+            className={`ExecutionBlock-copyButton ExecutionBlock-copyButton--${copyState}`}
+            aria-label={copyButtonLabel}
+            title={copyCommand}
+            onClick={() => {
+              void handleCopyClick();
+            }}
+          >
+            {copyState === "copied" ? (
+              <LuCheck aria-hidden="true" />
+            ) : (
+              <LuCopy aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
         <span className="ExecutionBlock-status">
           {record.status === "running" && <SpinnerIcon />}
           {record.status === "done" && <CheckIcon />}
