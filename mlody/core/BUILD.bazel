@@ -274,7 +274,8 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":optimiser",
-        "//mlody/core/tabular:tabular_lib",
+        ":location_specs_lib",
+        "//mlody/core/tabular:derived_source_lib",
     ],
 )
 
@@ -363,7 +364,7 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         "//mlody/common:common_lib",
-        "//mlody/core/tabular:tabular_lib",
+        ":location_specs_lib",
     ],
 )
 
