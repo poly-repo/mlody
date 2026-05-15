@@ -566,6 +566,7 @@ class TestExecuteStageCommandResponse:
         assert captured["target"] == "@pixelle//datasets:celebA-dataset.train[@sql limit 2]"
         assert captured["workspace_root"] == tmp_path
         assert captured["user"] == "agarcia"
+        assert response["requestId"] == request.request_id
         assert response["kind"] == "result"
         assert response["view"]["type"] == "json"
         assert response["data"]["kind"] == "folder"
@@ -1659,22 +1660,33 @@ class TestServerStartupErrors:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(
-            "mlody.cli.server.execute_stage_command_response",
-            lambda _config, _request: {
-                "kind": "result",
-                "view": {
-                    "type": "table",
-                    "title": "Employees",
-                    "columns": [
-                        {"key": "name", "label": "Name"},
-                        {"key": "salary", "label": "Salary", "format": "currency"},
+            "mlody.cli.server._collect_stage_command_response",
+            lambda _config, request, *, event_source=None: (
+                {
+                    "kind": "result",
+                    "requestId": request.request_id,
+                    "view": {
+                        "type": "table",
+                        "title": "Employees",
+                        "columns": [
+                            {"key": "name", "label": "Name"},
+                            {"key": "salary", "label": "Salary", "format": "currency"},
+                        ],
+                    },
+                    "data": [
+                        {"name": "Ada", "salary": 120000},
+                        {"name": "Grace", "salary": 135000},
                     ],
                 },
-                "data": [
-                    {"name": "Ada", "salary": 120000},
-                    {"name": "Grace", "salary": 135000},
+                [
+                    {
+                        "kind": "result",
+                        "requestId": request.request_id,
+                        "command": "show",
+                        "label": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                    }
                 ],
-            },
+            ),
         )
 
         http_server = create_http_server(_server_config(tmp_path))
@@ -1697,8 +1709,88 @@ class TestServerStartupErrors:
                 payload = json.loads(response.read().decode("utf-8"))
 
             assert payload["kind"] == "result"
+            assert payload["requestId"]
             assert payload["view"]["type"] == "table"
             assert payload["data"][0]["name"] == "Ada"
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_stage_execute_logs_endpoint_returns_structured_events(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            "mlody.cli.server._collect_stage_command_response",
+            lambda _config, request, *, event_source=None: (
+                {
+                    "kind": "result",
+                    "requestId": request.request_id,
+                    "view": {"type": "json", "title": "Stub"},
+                    "data": {"ok": True},
+                },
+                [
+                    {
+                        "kind": "chunk",
+                        "requestId": request.request_id,
+                        "channel": "stdout",
+                        "text": "Resolving label...",
+                    },
+                    {
+                        "kind": "result",
+                        "requestId": request.request_id,
+                        "command": "show",
+                        "label": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                        "stageResult": {"kind": "result"},
+                        "value": {"kind": "table"},
+                    },
+                ],
+            ),
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            execute_request = Request(
+                f"http://127.0.0.1:{http_server.server_port}/api/execute/stage",
+                data=json.dumps(
+                    {
+                        "command": "show",
+                        "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(execute_request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            logs_url = (
+                f"http://127.0.0.1:{http_server.server_port}"
+                f"/api/execute/stage/logs/{payload['requestId']}"
+            )
+            with urlopen(logs_url, timeout=5) as response:
+                logs_payload = json.loads(response.read().decode("utf-8"))
+
+            assert logs_payload["requestId"] == payload["requestId"]
+            assert logs_payload["events"] == [
+                {
+                    "kind": "chunk",
+                    "requestId": payload["requestId"],
+                    "channel": "stdout",
+                    "text": "Resolving label...",
+                },
+                {
+                    "kind": "result",
+                    "requestId": payload["requestId"],
+                    "command": "show",
+                    "label": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
+                },
+            ]
         finally:
             http_server.shutdown()
             http_server.server_close()
@@ -1811,12 +1903,23 @@ class TestServerStartupErrors:
             or fake_workspace,
         )
         monkeypatch.setattr(
-            "mlody.cli.server.execute_stage_command_response",
-            lambda _config, _request: {
-                "kind": "result",
-                "view": {"type": "json", "title": "Stub"},
-                "data": {"ok": True},
-            },
+            "mlody.cli.server._collect_stage_command_response",
+            lambda _config, request, *, event_source=None: (
+                {
+                    "kind": "result",
+                    "requestId": request.request_id,
+                    "view": {"type": "json", "title": "Stub"},
+                    "data": {"ok": True},
+                },
+                [
+                    {
+                        "kind": "result",
+                        "requestId": request.request_id,
+                        "command": "show",
+                        "label": "@pixelle//datasets:celebA-dataset.train",
+                    }
+                ],
+            ),
         )
 
         http_server = create_http_server(_server_config(tmp_path))

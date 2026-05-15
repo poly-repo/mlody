@@ -63,6 +63,18 @@ export interface StageSourceCodeData {
   code: string;
 }
 
+export interface StageCommandLogEvent {
+  event: string;
+  requestId?: string;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
+export interface StageCommandLogsPayload {
+  requestId: string;
+  events: StageCommandLogEvent[];
+}
+
 export interface StageValueType {
   kind?: string;
   name?: string;
@@ -74,6 +86,7 @@ export interface StageValueType {
 
 export interface StageResultPayload {
   kind: string;
+  requestId?: string;
   view: {
     type: string;
     title?: string;

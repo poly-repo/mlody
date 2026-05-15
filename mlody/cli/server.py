@@ -12,6 +12,7 @@ frontend can consume incremental state updates for long-running commands.
 from __future__ import annotations
 
 import base64
+from collections import OrderedDict
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -91,6 +92,7 @@ _STATIC_TEXT_CONTENT_TYPES = {
     ".js": "text/javascript; charset=utf-8",
 }
 _RUNFILES_MANIFEST: dict[str, Path] | None = None
+_MAX_STAGE_REQUEST_LOGS = 200
 
 
 @dataclass(frozen=True)
@@ -1154,6 +1156,37 @@ def _attach_stage_value_type(
     }
 
 
+def _attach_stage_request_id(
+    result: dict[str, object],
+    *,
+    request_id: str,
+) -> dict[str, object]:
+    return {
+        **result,
+        "requestId": request_id,
+    }
+
+
+def _stage_result_for_resolved_value(
+    workspace: object,
+    value: MlodyValue,
+    *,
+    title: str,
+) -> dict[str, object]:
+    stage_result = _stage_dispatched_result(
+        workspace,
+        value,
+        title=title,
+    )
+    if stage_result is None:
+        stage_result = _stage_result_for_mlody_value(value, title=title)
+    return _attach_stage_value_type(
+        stage_result,
+        workspace=workspace,
+        value=value,
+    )
+
+
 def _stage_dispatched_result(
     workspace: object,
     value: MlodyValue,
@@ -1344,6 +1377,10 @@ def _execute_show_command(
     config: ServerConfig,
     request: ServerCommandRequest,
 ) -> Iterator[CommandEvent]:
+    request_config = _config_for_workspace_root(
+        config,
+        _workspace_root_from_request(config, request),
+    )
     config_overrides = _read_string_list_option(request.options, "config", "with")
     run_as = _request_run_as(request)
 
@@ -1359,13 +1396,13 @@ def _execute_show_command(
         try:
             workspace, resolved_sha = resolve_workspace(
                 target,
-                monorepo_root=config.monorepo_root,
-                workspace_root=config.workspace_root,
+                monorepo_root=request_config.monorepo_root,
+                workspace_root=request_config.workspace_root,
                 config=config_overrides,
                 user=run_as,
-                roots_file=config.roots,
-                full_workspace=config.full_workspace,
-                verbose=config.verbose,
+                roots_file=request_config.roots,
+                full_workspace=request_config.full_workspace,
+                verbose=request_config.verbose,
             )
             selected_user = _selected_show_user(workspace, run_as)
             committoid, inner_label = _parse_inner(target)
@@ -1394,6 +1431,11 @@ def _execute_show_command(
                     user=selected_user,
                     resolvedSha=resolved_sha,
                     value=_serialize_mlody_value(mlody_value),
+                    stageResult=_stage_result_for_resolved_value(
+                        workspace,
+                        mlody_value,
+                        title=full_label,
+                    ),
                 )
         except (
             WorkspaceLoadError,
@@ -1529,58 +1571,71 @@ def execute_verbatim_command_response(
     }
 
 
+def _collect_stage_command_response(
+    config: ServerConfig,
+    request: ServerCommandRequest,
+    *,
+    event_source: CommandEventSource = iter_command_events,
+) -> tuple[dict[str, object], list[CommandEvent]]:
+    command_response = collect_command_response(
+        config,
+        request,
+        event_source=event_source,
+    )
+    events = cast(list[CommandEvent], command_response["events"])
+    error_events = cast(
+        list[Mapping[str, object]],
+        command_response.get("errors", []),
+    )
+    if error_events:
+        first_error = error_events[0]
+        message = first_error.get("message")
+        raise ServerRequestError(
+            str(message) if isinstance(message, str) else "Show command failed."
+        )
+
+    stage_results: list[dict[str, object]] = []
+    for event in cast(list[Mapping[str, object]], command_response.get("results", [])):
+        stage_result = event.get("stageResult")
+        if not isinstance(stage_result, Mapping):
+            raise ServerRequestError("Show command produced no stage result payload.")
+        stage_results.append(dict(stage_result))
+
+    if not stage_results:
+        raise ServerRequestError("Show command produced no results.")
+
+    if len(stage_results) == 1:
+        return (
+            _attach_stage_request_id(stage_results[0], request_id=request.request_id),
+            events,
+        )
+
+    return (
+        _attach_stage_request_id(
+            _stage_json_result(request.arguments[0], stage_results),
+            request_id=request.request_id,
+        ),
+        events,
+    )
+
+
 def execute_stage_command_response(
     config: ServerConfig,
     request: ServerCommandRequest,
+    *,
+    event_source: CommandEventSource = iter_command_events,
 ) -> dict[str, object]:
     """Resolve a raw show request into the stage JSON payload."""
 
     if request.command != "show":
         raise ServerRequestError(f"Unsupported command: {request.command}")
 
-    config_overrides = _read_string_list_option(request.options, "config", "with")
-    run_as = _request_run_as(request)
-    target = request.arguments[0]
-    workspace_root = _workspace_root_from_request(config, request)
-
-    workspace, _resolved_sha = resolve_workspace(
-        target,
-        monorepo_root=config.monorepo_root,
-        workspace_root=workspace_root,
-        config=config_overrides,
-        user=run_as,
-        roots_file=config.roots,
-        full_workspace=config.full_workspace,
-        verbose=config.verbose,
+    response, _events = _collect_stage_command_response(
+        config,
+        request,
+        event_source=event_source,
     )
-    committoid, inner_label = _parse_inner(target)
-
-    stage_results: list[dict[str, object]] = []
-    for expanded_inner in workspace.expand_wildcard_label(inner_label):
-        full_label = f"{committoid}|{expanded_inner}" if committoid else expanded_inner
-        concrete_label = _concrete_show_label(committoid, expanded_inner)
-        mlody_value = resolve_label_to_value(concrete_label, workspace)
-        if isinstance(mlody_value, MlodyUnresolvedValue):
-            raise ServerRequestError(mlody_value.reason)
-        stage_result = _stage_dispatched_result(
-            workspace,
-            mlody_value,
-            title=full_label,
-        )
-        if stage_result is None:
-            stage_result = _stage_result_for_mlody_value(mlody_value, title=full_label)
-        stage_results.append(
-            _attach_stage_value_type(
-                stage_result,
-                workspace=workspace,
-                value=mlody_value,
-            )
-        )
-
-    if len(stage_results) == 1:
-        return stage_results[0]
-
-    return _stage_json_result(target, stage_results)
+    return response
 
 
 def execute_stage_autocomplete_response(
@@ -1619,7 +1674,35 @@ class MlodyApiServer(ThreadingHTTPServer):
     ) -> None:
         self.server_config = config
         self.event_source = event_source
+        self._stage_request_logs: OrderedDict[str, list[CommandEvent]] = OrderedDict()
+        self._stage_request_logs_lock = threading.Lock()
         super().__init__(server_address, MlodyApiRequestHandler)
+
+    def store_stage_request_logs(
+        self,
+        request_id: str,
+        events: Sequence[Mapping[str, object]],
+    ) -> None:
+        sanitized_events = [
+            {
+                key: value
+                for key, value in event.items()
+                if key not in {"stageResult", "value"}
+            }
+            for event in events
+        ]
+        with self._stage_request_logs_lock:
+            self._stage_request_logs[request_id] = sanitized_events
+            self._stage_request_logs.move_to_end(request_id)
+            while len(self._stage_request_logs) > _MAX_STAGE_REQUEST_LOGS:
+                self._stage_request_logs.popitem(last=False)
+
+    def get_stage_request_logs(self, request_id: str) -> list[CommandEvent] | None:
+        with self._stage_request_logs_lock:
+            events = self._stage_request_logs.get(request_id)
+            if events is None:
+                return None
+            return [dict(event) for event in events]
 
 
 class MlodyApiRequestHandler(BaseHTTPRequestHandler):
@@ -1745,6 +1828,32 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                 )
             return
 
+        if path.startswith("/api/execute/stage/logs/"):
+            request_id = unquote(path.removeprefix("/api/execute/stage/logs/")).strip()
+            if request_id == "":
+                self._write_json_response(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "Stage log request id must not be empty."},
+                )
+                return
+
+            events = self.server.get_stage_request_logs(request_id)
+            if events is None:
+                self._write_json_response(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": f"No stage logs found for request id '{request_id}'."},
+                )
+                return
+
+            self._write_json_response(
+                HTTPStatus.OK,
+                {
+                    "requestId": request_id,
+                    "events": events,
+                },
+            )
+            return
+
         if path == "/" or not path.startswith("/api"):
             static_asset = _resolve_stage_static_asset(path)
             if static_asset is not None:
@@ -1788,10 +1897,12 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
             try:
                 request = parse_verbatim_command_request(payload)
                 _record_history_entry(self.server.server_config, request)
-                response = execute_stage_command_response(
+                response, events = _collect_stage_command_response(
                     self.server.server_config,
                     request,
+                    event_source=self.server.event_source,
                 )
+                self.server.store_stage_request_logs(request.request_id, events)
                 self._write_json_response(HTTPStatus.OK, response)
             except ServerRequestError as exc:
                 self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})

@@ -1,6 +1,7 @@
 import type { CommandHistoryEntry } from "./commandHistory.js";
 import type {
   StageAutocompletePayload,
+  StageCommandLogsPayload,
   ServerHealthStatus,
   StageResultPayload,
   WorkspaceSummary,
@@ -88,7 +89,7 @@ function normalizeUser(payload: unknown): WorkspaceUser | null {
   };
 }
 
-async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
+async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${resolveServerBaseUrl()}${path}`, {
     headers: {
       Accept: "application/json",
@@ -220,6 +221,16 @@ export async function fetchStageAutocomplete(
       breadcrumb,
       prompt,
     },
+    signal,
+  );
+}
+
+export async function fetchStageCommandLogs(
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<StageCommandLogsPayload> {
+  return await fetchJson<StageCommandLogsPayload>(
+    `/api/execute/stage/logs/${encodeURIComponent(requestId)}`,
     signal,
   );
 }

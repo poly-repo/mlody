@@ -1,12 +1,19 @@
-import { useEffect, useState } from "react";
-import { Code2, Eye } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Code2, Eye, ScrollText } from "lucide-react";
 import { LuCheck, LuCopy } from "react-icons/lu";
-import type { ExecutionRecord } from "../types.js";
+import { fetchStageCommandLogs } from "../serverApi.js";
+import type {
+  ExecutionRecord,
+  OutputChunk,
+  StageCommandLogEvent,
+  StageResultPayload,
+} from "../types.js";
 import {
   hasSpecializedStageRenderer,
   StageResultBlock,
   type StageResultViewMode,
 } from "./StageResultBlock.js";
+import { StageLogsBlock } from "./StageLogsBlock.js";
 
 interface ExecutionBlockProps {
   record: ExecutionRecord;
@@ -14,6 +21,22 @@ interface ExecutionBlockProps {
 
 const COPY_RESET_MS = 1800;
 const COPY_COMMAND_PREFIX = "bazel run --config=silent //mlody/cli:mlody --";
+
+type ExecutionViewMode = "result" | "json" | "logs";
+
+type StageJsonOutputChunk = Extract<OutputChunk, { kind: "stage-json" }>;
+
+interface StageLogsLoadState {
+  status: "loading" | "loaded" | "error";
+  events: StageCommandLogEvent[];
+  error?: string;
+}
+
+interface ExecutionViewOption {
+  mode: ExecutionViewMode;
+  label: string;
+  icon: typeof Eye;
+}
 
 function formatTimestamp(isoString: string): string {
   const date = new Date(isoString);
@@ -89,30 +112,76 @@ function ErrorIcon() {
   );
 }
 
+function isStageJsonChunk(chunk: OutputChunk): chunk is StageJsonOutputChunk {
+  return chunk.kind === "stage-json";
+}
+
+function hasStageRequestId(
+  payload: StageResultPayload,
+): payload is StageResultPayload & { requestId: string } {
+  return typeof payload.requestId === "string" && payload.requestId.trim() !== "";
+}
+
 export function ExecutionBlock({ record }: ExecutionBlockProps) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
     "idle",
   );
-  const [stageResultViewMode, setStageResultViewMode] =
-    useState<StageResultViewMode>("rendered");
+  const [selectedView, setSelectedView] = useState<ExecutionViewMode>("result");
+  const [logStates, setLogStates] = useState<Record<string, StageLogsLoadState>>(
+    {},
+  );
   const copyCommand =
     record.copyCommand === undefined ? buildCopyCommand(record) : record.copyCommand;
   const copyButtonSubject =
     record.copyCommand === undefined ? "full bazel run command" : "command";
-  const hasSpecializedStageOutput = record.output.some(
-    (chunk) =>
-      chunk.kind === "stage-json" && hasSpecializedStageRenderer(chunk.value),
+  const stageJsonChunks = record.output.filter(isStageJsonChunk);
+  const hasSpecializedStageOutput = stageJsonChunks.some((chunk) =>
+    hasSpecializedStageRenderer(chunk.value),
   );
+  const stageLogRequests = stageJsonChunks.flatMap((chunk) =>
+    hasStageRequestId(chunk.value)
+      ? [
+          {
+            requestId: chunk.value.requestId,
+            title: chunk.value.view.title,
+          },
+        ]
+      : [],
+  );
+  const stageLogRequestIds = Array.from(
+    new Set(stageLogRequests.map((request) => request.requestId)),
+  );
+  const stageLogRequestKey = stageLogRequestIds.join("\u0000");
+  const availableViews = useMemo<ExecutionViewOption[]>(() => {
+    const views: ExecutionViewOption[] = [
+      {
+        mode: "result",
+        label: "Result",
+        icon: Eye,
+      },
+    ];
+    if (hasSpecializedStageOutput) {
+      views.push({
+        mode: "json",
+        label: "JSON",
+        icon: Code2,
+      });
+    }
+    if (stageLogRequestIds.length > 0) {
+      views.push({
+        mode: "logs",
+        label: "Logs",
+        icon: ScrollText,
+      });
+    }
+    return views;
+  }, [hasSpecializedStageOutput, stageLogRequestIds.length]);
   const copyButtonLabel =
     copyState === "copied"
       ? `Copied ${copyButtonSubject}`
       : copyState === "error"
       ? `Copy ${copyButtonSubject} failed`
       : `Copy ${copyButtonSubject}`;
-  const stageViewButtonLabel =
-    stageResultViewMode === "rendered"
-      ? "Show raw JSON representation"
-      : "Show specialized renderer";
 
   useEffect(() => {
     if (copyState === "idle") {
@@ -129,10 +198,73 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
   }, [copyState]);
 
   useEffect(() => {
-    if (!hasSpecializedStageOutput && stageResultViewMode !== "rendered") {
-      setStageResultViewMode("rendered");
+    if (!availableViews.some((view) => view.mode === selectedView)) {
+      setSelectedView("result");
     }
-  }, [hasSpecializedStageOutput, stageResultViewMode]);
+  }, [availableViews, selectedView]);
+
+  useEffect(() => {
+    if (selectedView !== "logs" || stageLogRequestIds.length === 0) {
+      return;
+    }
+
+    const pendingRequestIds = stageLogRequestIds.filter((requestId) => {
+      const state = logStates[requestId];
+      return state === undefined;
+    });
+    if (pendingRequestIds.length === 0) {
+      return;
+    }
+
+    const controllers = pendingRequestIds.map(() => new AbortController());
+
+    setLogStates((currentStates) => {
+      const nextStates = { ...currentStates };
+      for (const requestId of pendingRequestIds) {
+        if (nextStates[requestId] === undefined) {
+          nextStates[requestId] = {
+            status: "loading",
+            events: [],
+          };
+        }
+      }
+      return nextStates;
+    });
+
+    pendingRequestIds.forEach((requestId, index) => {
+      const controller = controllers[index];
+      void fetchStageCommandLogs(requestId, controller.signal)
+        .then((payload) => {
+          setLogStates((currentStates) => ({
+            ...currentStates,
+            [requestId]: {
+              status: "loaded",
+              events: payload.events,
+            },
+          }));
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          setLogStates((currentStates) => ({
+            ...currentStates,
+            [requestId]: {
+              status: "error",
+              events: [],
+              error:
+                error instanceof Error ? error.message : "Failed to load stage logs.",
+            },
+          }));
+        });
+    });
+
+    return () => {
+      for (const controller of controllers) {
+        controller.abort();
+      }
+    };
+  }, [selectedView, stageLogRequestKey]);
 
   async function handleCopyClick() {
     if (copyCommand === null) {
@@ -147,6 +279,9 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
     }
   }
 
+  const stageResultViewMode: StageResultViewMode =
+    selectedView === "json" ? "json" : "rendered";
+
   return (
     <div className={`ExecutionBlock ExecutionBlock--${record.status}`}>
       <div className="ExecutionBlock-header">
@@ -156,24 +291,27 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
         <span className="ExecutionBlock-command" title={record.command}>
           {record.command}
         </span>
-        {hasSpecializedStageOutput ? (
-          <button
-            type="button"
-            className="ExecutionBlock-toggleButton"
-            aria-label={stageViewButtonLabel}
-            title={stageViewButtonLabel}
-            onClick={() => {
-              setStageResultViewMode((currentMode) =>
-                currentMode === "rendered" ? "json" : "rendered",
+        {stageJsonChunks.length > 0 && availableViews.length > 1 ? (
+          <div className="ExecutionBlock-viewSwitch" aria-label="Execution views">
+            {availableViews.map((view) => {
+              const Icon = view.icon;
+              const isActive = selectedView === view.mode;
+              return (
+                <button
+                  key={view.mode}
+                  type="button"
+                  className={`ExecutionBlock-viewButton${isActive ? " ExecutionBlock-viewButton--active" : ""}`}
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    setSelectedView(view.mode);
+                  }}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>{view.label}</span>
+                </button>
               );
-            }}
-          >
-            {stageResultViewMode === "rendered" ? (
-              <Code2 aria-hidden="true" />
-            ) : (
-              <Eye aria-hidden="true" />
-            )}
-          </button>
+            })}
+          </div>
         ) : null}
         {copyCommand !== null ? (
           <button
@@ -199,26 +337,57 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
         </span>
       </div>
       <div className="ExecutionBlock-body">
-        {record.output.map((chunk, idx) => (
-          chunk.kind === "stage-json" ? (
+        {record.output.map((chunk, idx) => {
+          if (chunk.kind !== "stage-json") {
+            return (
+              <span
+                key={idx}
+                className={`ExecutionBlock-line ExecutionBlock-line--${chunk.kind}`}
+              >
+                {chunk.text}
+              </span>
+            );
+          }
+
+          if (selectedView === "logs") {
+            if (!hasStageRequestId(chunk.value)) {
+              return (
+                <div
+                  key={idx}
+                  className="ExecutionBlock-line ExecutionBlock-line--stageJson"
+                >
+                  <div className="ExecutionBlock-logUnavailable">
+                    Logs are unavailable for this result.
+                  </div>
+                </div>
+              );
+            }
+            const logState = logStates[chunk.value.requestId];
+            return (
+              <div
+                key={idx}
+                className="ExecutionBlock-line ExecutionBlock-line--stageJson"
+              >
+                <StageLogsBlock
+                  title={chunk.value.view.title}
+                  requestId={chunk.value.requestId}
+                  status={logState?.status ?? "loading"}
+                  events={logState?.events}
+                  error={logState?.error}
+                />
+              </div>
+            );
+          }
+
+          return (
             <div
               key={idx}
               className="ExecutionBlock-line ExecutionBlock-line--stageJson"
             >
-              <StageResultBlock
-                payload={chunk.value}
-                mode={stageResultViewMode}
-              />
+              <StageResultBlock payload={chunk.value} mode={stageResultViewMode} />
             </div>
-          ) : (
-            <span
-              key={idx}
-              className={`ExecutionBlock-line ExecutionBlock-line--${chunk.kind}`}
-            >
-              {chunk.text}
-            </span>
-          )
-        ))}
+          );
+        })}
       </div>
     </div>
   );

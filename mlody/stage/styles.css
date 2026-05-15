@@ -246,6 +246,62 @@ textarea {
   align-items: center;
 }
 
+.ExecutionBlock-viewSwitch {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(128, 157, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+}
+
+.ExecutionBlock-viewButton {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0 10px;
+  color: var(--stage-ink-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.ExecutionBlock-viewButton:hover {
+  transform: translateY(-1px);
+  color: var(--stage-primary);
+}
+
+.ExecutionBlock-viewButton:focus-visible {
+  outline: 2px solid rgba(82, 115, 212, 0.38);
+  outline-offset: 2px;
+}
+
+.ExecutionBlock-viewButton svg {
+  height: 14px;
+  width: 14px;
+}
+
+.ExecutionBlock-viewButton--active {
+  background: rgba(244, 247, 255, 0.96);
+  color: var(--stage-primary);
+  box-shadow:
+    0 10px 24px rgba(53, 86, 173, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
 .ExecutionBlock-copyButton,
 .ExecutionBlock-toggleButton {
   display: inline-flex;
@@ -339,6 +395,12 @@ textarea {
   background:
     linear-gradient(180deg, rgba(244, 247, 255, 0.94), rgba(236, 241, 251, 0.92)),
     radial-gradient(circle at top right, rgba(113, 139, 227, 0.1), transparent 42%);
+}
+
+.ExecutionBlock-logUnavailable {
+  padding: 16px 18px;
+  color: var(--stage-ink-soft);
+  font-size: 0.9rem;
 }
 
 .StageTableBlock {
@@ -663,6 +725,150 @@ textarea {
 
 .StageLineageBlock-tr--empty .StageLineageBlock-value {
   text-decoration: none;
+}
+
+.StageLogsBlock {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.StageLogsBlock-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 18px 20px 14px;
+}
+
+.StageLogsBlock-headingGroup {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.StageLogsBlock-label {
+  color: rgba(98, 116, 160, 0.96);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.StageLogsBlock-title {
+  margin: 0;
+  color: rgba(35, 48, 80, 0.98);
+  font-size: 0.96rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.StageLogsBlock-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.StageLogsBlock-requestId,
+.StageLogsBlock-count {
+  color: rgba(103, 118, 153, 0.94);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.StageLogsBlock-requestId {
+  max-width: 18rem;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.StageLogsBlock-empty {
+  padding: 0 20px 18px;
+  color: var(--stage-ink-soft);
+}
+
+.StageLogsBlock-empty--error {
+  color: var(--stage-error);
+}
+
+.StageLogsBlock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.StageLogsBlock-event {
+  border: 1px solid rgba(128, 157, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 14px 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.StageLogsBlock-eventHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.StageLogsBlock-eventName {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(82, 115, 212, 0.12);
+  padding: 4px 10px;
+  color: var(--stage-primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.StageLogsBlock-eventTimestamp {
+  color: var(--stage-ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.StageLogsBlock-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.StageLogsBlock-field {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 10px;
+}
+
+.StageLogsBlock-field--json {
+  align-items: start;
+}
+
+.StageLogsBlock-fieldKey {
+  color: var(--stage-ink-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.StageLogsBlock-fieldValue {
+  min-width: 0;
+  margin: 0;
+}
+
+.StageLogsBlock-fieldText {
+  color: var(--stage-ink);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .StageScalarBlock {
@@ -2674,5 +2880,21 @@ textarea {
 
   .ExecutionBlock-header {
     flex-wrap: wrap;
+  }
+
+  .ExecutionBlock-viewSwitch {
+    order: 3;
+  }
+
+  .StageLogsBlock-header {
+    flex-direction: column;
+  }
+
+  .StageLogsBlock-meta {
+    align-items: flex-start;
+  }
+
+  .StageLogsBlock-field {
+    grid-template-columns: 1fr;
   }
 }
