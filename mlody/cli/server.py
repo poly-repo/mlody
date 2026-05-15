@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import errno
+import itertools
 import json
 import logging
 import mimetypes
@@ -279,6 +280,77 @@ def _event(
     }
     event_payload.update(payload)
     return event_payload
+
+
+def _log_event_timestamp(record: logging.LogRecord) -> str:
+    return datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat()
+
+
+def _json_log_value(value: object) -> object:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(key): _json_log_value(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        return [_json_log_value(item) for item in value]
+    try:
+        return _runtime_json_data(value)
+    except Exception:  # noqa: BLE001
+        return str(value)
+
+
+def _structured_log_payload(record: logging.LogRecord) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "event": "log",
+        "timestamp": _log_event_timestamp(record),
+        "level": record.levelname,
+        "logger": record.name,
+        "message": record.getMessage(),
+    }
+    if isinstance(record.msg, str):
+        payload["template"] = record.msg
+    if record.args:
+        if isinstance(record.args, Mapping):
+            payload["values"] = {
+                str(key): _json_log_value(value)
+                for key, value in record.args.items()
+            }
+        elif isinstance(record.args, tuple):
+            payload["values"] = [_json_log_value(value) for value in record.args]
+        else:
+            payload["values"] = _json_log_value(record.args)
+    if record.exc_info:
+        exception_text = logging.Formatter().formatException(record.exc_info)
+        payload["exception"] = exception_text
+        payload["message"] = f"{payload['message']}\n{exception_text}"
+    return payload
+
+
+class _ThreadScopedStructuredLogHandler(logging.Handler):
+    """Collect logger output emitted on the current thread as structured events."""
+
+    def __init__(
+        self,
+        *,
+        request_id: str,
+        next_sequence: Callable[[], int],
+        sink: list[CommandEvent],
+    ) -> None:
+        super().__init__(level=logging.NOTSET)
+        self._request_id = request_id
+        self._next_sequence = next_sequence
+        self._sink = sink
+        self._thread_id = threading.get_ident()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if threading.get_ident() != self._thread_id:
+            return
+        payload = _structured_log_payload(record)
+        payload["requestId"] = self._request_id
+        payload["sequence"] = self._next_sequence()
+        self._sink.append(cast(CommandEvent, payload))
 
 
 def _completion_status(*, result_count: int, error_count: int) -> str:
@@ -1577,16 +1649,31 @@ def _collect_stage_command_response(
     *,
     event_source: CommandEventSource = iter_command_events,
 ) -> tuple[dict[str, object], list[CommandEvent]]:
-    command_response = collect_command_response(
-        config,
-        request,
-        event_source=event_source,
+    sequencer = itertools.count()
+    log_events: list[CommandEvent] = []
+    log_handler = _ThreadScopedStructuredLogHandler(
+        request_id=request.request_id,
+        next_sequence=lambda: next(sequencer),
+        sink=log_events,
     )
-    events = cast(list[CommandEvent], command_response["events"])
-    error_events = cast(
-        list[Mapping[str, object]],
-        command_response.get("errors", []),
+    root_logger = logging.getLogger()
+    root_logger.addHandler(log_handler)
+    try:
+        command_events: list[CommandEvent] = []
+        for event in event_source(config, request):
+            event_payload = dict(event)
+            event_payload["sequence"] = next(sequencer)
+            command_events.append(cast(CommandEvent, event_payload))
+    finally:
+        root_logger.removeHandler(log_handler)
+
+    events = sorted(
+        [*command_events, *log_events],
+        key=lambda event: cast(int, event["sequence"]),
     )
+    error_events = [
+        event for event in command_events if event.get("event") == "error"
+    ]
     if error_events:
         first_error = error_events[0]
         message = first_error.get("message")
@@ -1595,7 +1682,9 @@ def _collect_stage_command_response(
         )
 
     stage_results: list[dict[str, object]] = []
-    for event in cast(list[Mapping[str, object]], command_response.get("results", [])):
+    for event in [
+        event for event in command_events if event.get("event") == "result"
+    ]:
         stage_result = event.get("stageResult")
         if not isinstance(stage_result, Mapping):
             raise ServerRequestError("Show command produced no stage result payload.")
@@ -1687,7 +1776,7 @@ class MlodyApiServer(ThreadingHTTPServer):
             {
                 key: value
                 for key, value in event.items()
-                if key not in {"stageResult", "value"}
+                if key not in {"stageResult", "value", "sequence"}
             }
             for event in events
         ]

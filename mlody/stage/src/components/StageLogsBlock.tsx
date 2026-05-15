@@ -9,7 +9,21 @@ interface StageLogsBlockProps {
   error?: string;
 }
 
-const HIDDEN_LOG_KEYS = new Set(["event", "requestId", "timestamp"]);
+type StageLogTone =
+  | "debug"
+  | "info"
+  | "warning"
+  | "error"
+  | "critical"
+  | "neutral";
+
+const HIDDEN_LOG_KEYS = new Set([
+  "event",
+  "requestId",
+  "timestamp",
+  "message",
+  "sequence",
+]);
 
 function formatLogValue(value: string | number | boolean | null): string {
   if (value === null) {
@@ -34,6 +48,81 @@ function statusLabel(
   return `${eventCount} event${eventCount === 1 ? "" : "s"}`;
 }
 
+function eventBadgeLabel(event: StageCommandLogEvent): string {
+  if (event.event === "log" && typeof event.level === "string") {
+    return event.level;
+  }
+  return event.event;
+}
+
+function eventTone(event: StageCommandLogEvent): StageLogTone {
+  if (event.event === "error") {
+    return "error";
+  }
+  if (event.event !== "log" || typeof event.level !== "string") {
+    return "neutral";
+  }
+
+  switch (event.level.toLowerCase()) {
+    case "debug":
+      return "debug";
+    case "info":
+      return "info";
+    case "warn":
+    case "warning":
+      return "warning";
+    case "error":
+      return "error";
+    case "critical":
+    case "fatal":
+      return "critical";
+    default:
+      return "neutral";
+  }
+}
+
+function eventSummary(event: StageCommandLogEvent): string {
+  if (typeof event.message === "string" && event.message.trim() !== "") {
+    return event.message;
+  }
+  if (event.event === "chunk" && typeof event.text === "string") {
+    return event.text;
+  }
+  if (event.event === "result") {
+    if (typeof event.target === "string") {
+      return event.target;
+    }
+    if (typeof event.label === "string") {
+      return event.label;
+    }
+    if (typeof event.command === "string") {
+      return `${event.command} result`;
+    }
+  }
+  if (event.event === "completed" && typeof event.status === "string") {
+    return `status ${event.status}`;
+  }
+  if (event.event === "started") {
+    const command = typeof event.command === "string" ? event.command : "command";
+    const argumentsText = Array.isArray(event.arguments)
+      ? event.arguments.join(" ")
+      : "";
+    return `${command}${argumentsText ? ` ${argumentsText}` : ""}`;
+  }
+  if (event.event === "error" && typeof event.message === "string") {
+    return event.message;
+  }
+  return "";
+}
+
+function hasJsonDetails(value: unknown): boolean {
+  return value !== null && typeof value === "object";
+}
+
+function isVisibleLogEvent(event: StageCommandLogEvent): boolean {
+  return event.event === "log" || event.event === "error";
+}
+
 export function StageLogsBlock({
   title,
   requestId,
@@ -41,6 +130,7 @@ export function StageLogsBlock({
   events = [],
   error,
 }: StageLogsBlockProps) {
+  const visibleEvents = events.filter(isVisibleLogEvent);
   return (
     <section className="StageLogsBlock">
       <div className="StageLogsBlock-header">
@@ -53,7 +143,7 @@ export function StageLogsBlock({
             {requestId}
           </span>
           <span className="StageLogsBlock-count">
-            {statusLabel(status, events.length)}
+            {statusLabel(status, visibleEvents.length)}
           </span>
         </div>
       </div>
@@ -63,58 +153,77 @@ export function StageLogsBlock({
         <div className="StageLogsBlock-empty StageLogsBlock-empty--error">
           {error ?? "Failed to load logs."}
         </div>
-      ) : events.length === 0 ? (
+      ) : visibleEvents.length === 0 ? (
         <div className="StageLogsBlock-empty">No logs were recorded for this request.</div>
       ) : (
         <div className="StageLogsBlock-list">
-          {events.map((event, index) => {
+          {visibleEvents.map((event, index) => {
             const detailEntries = Object.entries(event).filter(
               ([key]) => !HIDDEN_LOG_KEYS.has(key),
             );
+            const summary = eventSummary(event);
+            const badge = eventBadgeLabel(event);
+            const tone = eventTone(event);
+            const hasDetails = detailEntries.length > 0;
+            const content = (
+              <>
+                <span
+                  className={`StageLogsBlock-eventBadge StageLogsBlock-eventBadge--${tone}`}
+                >
+                  {badge}
+                </span>
+                <span className="StageLogsBlock-eventSummary">{summary}</span>
+                {typeof event.timestamp === "string" ? (
+                  <time
+                    className="StageLogsBlock-eventTimestamp"
+                    dateTime={event.timestamp}
+                  >
+                    {event.timestamp}
+                  </time>
+                ) : null}
+              </>
+            );
+
             return (
               <article
                 key={`${event.event}-${event.timestamp ?? "na"}-${index}`}
-                className="StageLogsBlock-event"
+                className={`StageLogsBlock-event StageLogsBlock-event--${tone}`}
               >
-                <div className="StageLogsBlock-eventHeader">
-                  <span className="StageLogsBlock-eventName">{event.event}</span>
-                  {typeof event.timestamp === "string" ? (
-                    <time
-                      className="StageLogsBlock-eventTimestamp"
-                      dateTime={event.timestamp}
-                    >
-                      {event.timestamp}
-                    </time>
-                  ) : null}
-                </div>
-                {detailEntries.length > 0 ? (
-                  <dl className="StageLogsBlock-fields">
-                    {detailEntries.map(([key, value]) => (
-                      <div
-                        key={key}
-                        className={
-                          value !== null && typeof value === "object"
-                            ? "StageLogsBlock-field StageLogsBlock-field--json"
-                            : "StageLogsBlock-field"
-                        }
-                      >
-                        <dt className="StageLogsBlock-fieldKey">{key}</dt>
-                        <dd className="StageLogsBlock-fieldValue">
-                          {value === null ||
-                          typeof value === "string" ||
-                          typeof value === "number" ||
-                          typeof value === "boolean" ? (
-                            <span className="StageLogsBlock-fieldText">
-                              {formatLogValue(value)}
-                            </span>
-                          ) : (
-                            <JsonSyntaxBlock value={value} />
-                          )}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : null}
+                {hasDetails ? (
+                  <details className="StageLogsBlock-details">
+                    <summary className="StageLogsBlock-summary">{content}</summary>
+                    <dl className="StageLogsBlock-fields">
+                      {detailEntries.map(([key, value]) => (
+                        <div
+                          key={key}
+                          className={
+                            hasJsonDetails(value)
+                              ? "StageLogsBlock-field StageLogsBlock-field--json"
+                              : "StageLogsBlock-field"
+                          }
+                        >
+                          <dt className="StageLogsBlock-fieldKey">{key}</dt>
+                          <dd className="StageLogsBlock-fieldValue">
+                            {value === null ||
+                            typeof value === "string" ||
+                            typeof value === "number" ||
+                            typeof value === "boolean" ? (
+                              <span className="StageLogsBlock-fieldText">
+                                {formatLogValue(value)}
+                              </span>
+                            ) : (
+                              <JsonSyntaxBlock value={value} />
+                            )}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
+                ) : (
+                  <div className="StageLogsBlock-summary StageLogsBlock-summary--static">
+                    {content}
+                  </div>
+                )}
               </article>
             );
           })}
