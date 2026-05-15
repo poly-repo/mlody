@@ -1,6 +1,8 @@
 import type { WorkspaceSummary } from "./types.js";
 
 export const LAUNCH_WORKSPACE_ROOT = "launch-workspace-root" as const;
+const LAUNCH_WORKSPACE_PREFIX = `${LAUNCH_WORKSPACE_ROOT}/`;
+export const AIRFLOW_SIMPLE_ETL_PIPELINE_WORKSPACE = `${LAUNCH_WORKSPACE_PREFIX}mlody/docs/the-score/sandboxes/airflow-examples/simple-etl-pipeline` as const;
 
 export type StageE2eWorkspaceTarget =
   | typeof LAUNCH_WORKSPACE_ROOT
@@ -27,6 +29,21 @@ const STAGE_E2E_TESTS: Record<string, StageE2eScenario> = {
         LAUNCH_WORKSPACE_ROOT,
         "@pixelle//datasets:celebA-dataset.train[@sql select image,Young,Attractive limit 2]",
       ],
+      [
+        "mav",
+        AIRFLOW_SIMPLE_ETL_PIPELINE_WORKSPACE,
+        "//pipeline:raw-employees.lineage",
+      ],
+      [
+        "mav",
+        AIRFLOW_SIMPLE_ETL_PIPELINE_WORKSPACE,
+        "//pipeline:raw-employees-remote._source_range",
+      ],
+      [
+        "mav",
+        AIRFLOW_SIMPLE_ETL_PIPELINE_WORKSPACE,
+        "//pipeline:raw-employees-remote.location.info",
+      ],
     ],
   },
 };
@@ -47,6 +64,14 @@ export function resolveStageE2eWorkspaceRoot(
 ): string | null {
   if (target === LAUNCH_WORKSPACE_ROOT) {
     return workspace?.workspaceRoot ?? null;
+  }
+  if (typeof target === "string" && target.startsWith(LAUNCH_WORKSPACE_PREFIX)) {
+    const launchWorkspaceRoot = workspace?.workspaceRoot;
+    if (!launchWorkspaceRoot) {
+      return null;
+    }
+    const relativePath = target.slice(LAUNCH_WORKSPACE_PREFIX.length);
+    return `${launchWorkspaceRoot.replace(/\/$/, "")}/${relativePath}`;
   }
 
   return target;

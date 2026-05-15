@@ -308,84 +308,140 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     runner: (
       onChunk: (chunk: ExecutionRecord["output"][number]) => void,
     ) => Promise<"done" | "error">,
-  ) {
+  ): Promise<"done" | "error"> {
     appendExecutionRecord(record);
 
-    void Promise.resolve()
+    return Promise.resolve()
       .then(() => runner((chunk) => appendExecutionChunk(record.id, chunk)))
       .then((status) => {
         setExecutionStatus(record.id, status);
+        return status;
       })
       .catch((err: unknown) => {
         const message =
           err instanceof Error ? err.message : "Unknown error occurred";
         setExecutionError(record.id, message);
+        return "error";
       });
   }
 
   async function runNamedE2eScenario(
+    rawCommand: string,
     scenarioName: string,
-    onChunk: (chunk: ExecutionRecord["output"][number]) => void,
-  ): Promise<"done" | "error"> {
+    fallbackUserName: string,
+    fallbackWorkspaceRoot: string | null,
+  ): Promise<void> {
     const trimmedScenarioName = scenarioName.trim();
     if (trimmedScenarioName === "") {
-      throw new Error(
-        `Missing e2e scenario name. Available tests: ${listStageE2eScenarioNames().join(", ")}`,
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",e2e",
+          commandInput: scenarioName,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async () => {
+          throw new Error(
+            `Missing e2e scenario name. Available tests: ${listStageE2eScenarioNames().join(", ")}`,
+          );
+        },
       );
+      return;
     }
 
     const scenario = getStageE2eScenario(trimmedScenarioName);
     if (scenario === null) {
-      throw new Error(
-        `Unknown e2e scenario '${trimmedScenarioName}'. Available tests: ${listStageE2eScenarioNames().join(", ")}`,
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",e2e",
+          commandInput: scenarioName,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async () => {
+          throw new Error(
+            `Unknown e2e scenario '${trimmedScenarioName}'. Available tests: ${listStageE2eScenarioNames().join(", ")}`,
+          );
+        },
       );
+      return;
     }
-
-    onChunk({
-      kind: "meta",
-      text:
-        `Running e2e scenario '${scenario.name}' ` +
-        `(${scenario.commands.length} show command${scenario.commands.length === 1 ? "" : "s"}).`,
-    });
 
     for (const [index, [userName, workspaceTarget, label]] of scenario.commands.entries()) {
       const resolvedWorkspaceRoot = resolveStageE2eWorkspaceRoot(
         workspaceTarget,
         bootstrapWorkspace,
       );
+      const requiresLaunchWorkspace =
+        workspaceTarget === LAUNCH_WORKSPACE_ROOT ||
+        (typeof workspaceTarget === "string" &&
+          workspaceTarget.startsWith(`${LAUNCH_WORKSPACE_ROOT}/`));
 
-      if (
-        workspaceTarget === LAUNCH_WORKSPACE_ROOT &&
-        resolvedWorkspaceRoot === null
-      ) {
-        throw new Error(
-          "The e2e scenario requires the launch workspace root, but stage has not loaded workspace metadata yet.",
+      if (requiresLaunchWorkspace && resolvedWorkspaceRoot === null) {
+        await queueExecution(
+          {
+            id: createExecutionId(),
+            command: `show ${label}`,
+            commandName: "show",
+            commandInput: label,
+            runAs: userName,
+            workspaceRoot: null,
+            submittedAt: new Date().toISOString(),
+            status: "running",
+            output: [],
+          },
+          async () => {
+            throw new Error(
+              "The e2e scenario requires the launch workspace root, but stage has not loaded workspace metadata yet.",
+            );
+          },
         );
+        return;
       }
 
-      const workspaceLabel =
-        resolvedWorkspaceRoot ?? "(default workspace)";
-      onChunk({
-        kind: "meta",
-        text:
-          `[${index + 1}/${scenario.commands.length}] ` +
-          `show ${label} · as ${userName} · workspace ${workspaceLabel}`,
-      });
-
-      await runStageCommand(
-        "show",
-        label,
-        userName,
-        resolvedWorkspaceRoot,
-        onChunk,
+      const status = await queueExecution(
+        {
+          id: createExecutionId(),
+          command: `show ${label}`,
+          commandName: "show",
+          commandInput: label,
+          runAs: userName,
+          workspaceRoot: resolvedWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async (onChunk) => {
+          onChunk({
+            kind: "meta",
+            text: `E2E ${scenario.name} [${index + 1}/${scenario.commands.length}]`,
+          });
+          return await runStageCommand(
+            "show",
+            label,
+            userName,
+            resolvedWorkspaceRoot,
+            onChunk,
+          );
+        },
       );
-    }
 
-    onChunk({
-      kind: "meta",
-      text: `Scenario '${scenario.name}' completed successfully.`,
-    });
-    return "done";
+      if (status === "error") {
+        return;
+      }
+    }
   }
 
   const handleSubmit = ({
@@ -396,7 +452,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
   }: CommandSubmission) => {
     const parsedPromptCommand = parseStagePromptCommand(input);
     if (parsedPromptCommand.kind === "invalid") {
-      queueExecution(
+      void queueExecution(
         {
           id: createExecutionId(),
           command: parsedPromptCommand.raw,
@@ -419,26 +475,16 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     if (parsedPromptCommand.kind === "command") {
       const commandName = parsedPromptCommand.name.trim();
       if (commandName === "e2e") {
-        queueExecution(
-          {
-            id: createExecutionId(),
-            command: parsedPromptCommand.raw,
-            commandName: ",e2e",
-            commandInput: parsedPromptCommand.args,
-            copyCommand: null,
-            runAs: submittedUserName,
-            workspaceRoot: submittedWorkspace?.workspaceRoot ?? null,
-            submittedAt: new Date().toISOString(),
-            status: "running",
-            output: [],
-          },
-          async (onChunk) =>
-            await runNamedE2eScenario(parsedPromptCommand.args, onChunk),
+        void runNamedE2eScenario(
+          parsedPromptCommand.raw,
+          parsedPromptCommand.args,
+          submittedUserName,
+          submittedWorkspace?.workspaceRoot ?? null,
         );
         return;
       }
 
-      queueExecution(
+      void queueExecution(
         {
           id: createExecutionId(),
           command: parsedPromptCommand.raw,
@@ -463,7 +509,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     const combinedCommand = [command, input].filter(Boolean).join(" ").trim();
     if (combinedCommand === "") return;
 
-    queueExecution(
+    void queueExecution(
       {
         id: createExecutionId(),
         command: combinedCommand,
@@ -483,7 +529,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
           onChunk,
         ),
     );
-  };
+  };;
 
   return (
     <Layout>
