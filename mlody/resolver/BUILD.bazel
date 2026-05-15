@@ -65,28 +65,115 @@ o_py_test(
     ],
 )
 
+_LABEL_VALUE_TEST_DATA = [
+    "//mlody/common:attrs.mlody",
+    "//mlody/common:config.mlody",  # keep — read via fs.add_real_file in _make_workspace
+    "//mlody/common:locations.mlody",
+    "//mlody/common:mm.mlody",  # keep — read via fs.add_real_file in _make_workspace
+    "//mlody/common:render.mlody",  # keep — read via fs.add_real_file in _make_workspace
+    "//mlody/core:rule.mlody",  # keep — read via fs.add_real_file in _make_workspace
+]
+
+_LABEL_VALUE_TEST_DEPS = [
+    ":resolver_lib",
+    "//common/python/console:console_lib",
+    "//common/python/starlarkish/core:core_lib",
+    "//mlody/core:core_lib",
+    "@pip//networkx",
+    "@pip//pyarrow",
+    "@pip//pyfakefs",  # keep — pyfakefs provides the `fs` fixture via pytest plugin
+    "@pip//pytest",
+    "@pip//rich",
+]
+
 o_py_test(
-    name = "label_value_test",
+    name = "label_value_entity_kinds_test",
     srcs = ["label_value_test.py"],
-    data = [
-        "//mlody/common:attrs.mlody",
-        "//mlody/common:config.mlody",  # keep — read via fs.add_real_file in _make_workspace
-        "//mlody/common:locations.mlody",
-        "//mlody/common:mm.mlody",  # keep — read via fs.add_real_file in _make_workspace
-        "//mlody/common:render.mlody",  # keep — read via fs.add_real_file in _make_workspace
-        "//mlody/core:rule.mlody",  # keep — read via fs.add_real_file in _make_workspace
+    data = _LABEL_VALUE_TEST_DATA,
+    deps = _LABEL_VALUE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestFolderValue or TestSourceValue or TestTaskValue or TestActionValue or TestUserValue'",
+    },
+)
+
+o_py_test(
+    name = "label_value_valuekind_and_workspace_virtuals_test",
+    srcs = ["label_value_test.py"],
+    data = _LABEL_VALUE_TEST_DATA,
+    deps = _LABEL_VALUE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestValueKind or TestWorkspaceVirtualAttributes'",
+    },
+)
+
+o_py_test(
+    name = "label_value_declared_entity_attributes_test",
+    srcs = ["label_value_test.py"],
+    data = _LABEL_VALUE_TEST_DATA,
+    deps = _LABEL_VALUE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestDeclaredEntityAttributes'",
+    },
+)
+
+o_py_test(
+    name = "label_value_unresolved_entities_test",
+    srcs = ["label_value_test.py"],
+    data = _LABEL_VALUE_TEST_DATA,
+    deps = _LABEL_VALUE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestUnresolvedValue or TestUnresolvedEntityNotInRegistry'",
+    },
+)
+
+test_suite(
+    name = "label_value_entities_test",
+    tests = [
+        ":label_value_entity_kinds_test",
+        ":label_value_valuekind_and_workspace_virtuals_test",
+        ":label_value_declared_entity_attributes_test",
+        ":label_value_unresolved_entities_test",
     ],
-    deps = [
-        ":resolver_lib",
-        "//common/python/console:console_lib",
-        "//common/python/starlarkish/core:core_lib",
-        "//mlody/core:core_lib",
-        "@pip//networkx",
-        "@pip//pyarrow",
-        "@pip//pyfakefs",  # keep — pyfakefs provides the `fs` fixture via pytest plugin
-        "@pip//pytest",
-        "@pip//rich",
-    ],
+)
+
+o_py_test(
+    name = "label_value_traversal_basics_test",
+    srcs = ["label_value_test.py"],
+    data = _LABEL_VALUE_TEST_DATA,
+    deps = _LABEL_VALUE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestAttributePathTraversal or TestAttributePathMissingAttribute or TestEntityFieldPathTraversal or TestWildcardGuard or TestAggregateTypeRendering or TestTraverseOneStep or TestTraversalErrorPolicy or TestMlodyVectorValue'",
+    },
+)
+
+o_py_test(
+    name = "label_value_engine_test",
+    srcs = ["label_value_test.py"],
+    data = _LABEL_VALUE_TEST_DATA,
+    deps = _LABEL_VALUE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestValueTraversalStrategyMultiLevel or TestEngineIndexStep or TestEngineKeyStep or TestEngineWildcardStep or TestEngineRecursiveDescentStep or TestTraverseOneStepExtension or TestValueTraversalStrategyEngine'",
+    },
+)
+
+o_py_test(
+    name = "label_value_extensions_test",
+    srcs = ["label_value_test.py"],
+    data = _LABEL_VALUE_TEST_DATA,
+    deps = _LABEL_VALUE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestExtensibilitySeam or TestResolverAPIExtension or TestQueryOnlyEntityLabel or TestDagVirtualAttribute or TestParquetTraversalStrategyDerivedLocation'",
+    },
+)
+
+o_py_test(
+    name = "label_value_scalar_promotion_test",
+    srcs = ["label_value_test.py"],
+    data = _LABEL_VALUE_TEST_DATA,
+    deps = _LABEL_VALUE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestArrowTypeMapping or TestPromoteScalarLeaf or TestJsonBackedScalarPromotion or TestStructScalarPromotion or TestStructListPromotion'",
+    },
 )
 
 o_py_test(
@@ -104,5 +191,16 @@ o_py_test(
         "//mlody/core:core_lib",
         "@pip//pyarrow",  # keep — tests write real Parquet files via pyarrow
         "@pip//pytest",
+    ],
+)
+
+test_suite(
+    name = "label_value_test",
+    tests = [
+        ":label_value_entities_test",
+        ":label_value_traversal_basics_test",
+        ":label_value_engine_test",
+        ":label_value_extensions_test",
+        ":label_value_scalar_promotion_test",
     ],
 )

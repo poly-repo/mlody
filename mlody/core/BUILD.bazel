@@ -415,23 +415,99 @@ o_py_test(
     ],
 )
 
+_WORKSPACE_TEST_DATA = [
+    "rule.mlody",  # keep — read at runtime via fs.add_real_file in the project fixture
+    "//mlody/common:config.mlody",  # keep — read at runtime via fs.add_real_file
+    "//mlody/common:mm.mlody",  # keep — read at runtime via fs.add_real_file in the project fixture
+    "//mlody/common:render.mlody",  # keep — read at runtime via fs.add_real_file
+]
+
+_WORKSPACE_TEST_DEPS = [
+    ":core_lib",
+    "//common/python/starlarkish/core:core_lib",
+    "//mlody/common:context_lib",  # keep
+    "//mlody/resolver:resolver_lib",  # keep — tests import MlodyUnresolvedValue
+    "@pip//pyfakefs",
+    "@pip//pytest",
+    "@pip//rich",
+]
+
 o_py_test(
-    name = "workspace_test",
+    name = "workspace_core_test",
     srcs = ["workspace_test.py"],
-    data = [
-        "rule.mlody",  # keep — read at runtime via fs.add_real_file in the project fixture
-        "//mlody/common:config.mlody",  # keep — read at runtime via fs.add_real_file
-        "//mlody/common:mm.mlody",  # keep — read at runtime via fs.add_real_file in the project fixture
-        "//mlody/common:render.mlody",  # keep — read at runtime via fs.add_real_file
+    data = _WORKSPACE_TEST_DATA,
+    deps = _WORKSPACE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestRootInfo or TestWorkspaceConstructor or TestWorkspaceForkRequest'",
+    },
+)
+
+o_py_test(
+    name = "workspace_two_phase_loading_test",
+    srcs = ["workspace_test.py"],
+    data = _WORKSPACE_TEST_DATA,
+    deps = _WORKSPACE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestTwoPhaseLoading'",
+    },
+)
+
+o_py_test(
+    name = "workspace_resolution_api_test",
+    srcs = ["workspace_test.py"],
+    data = _WORKSPACE_TEST_DATA,
+    deps = _WORKSPACE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestResolve or TestResolveLabelAnchor'",
+    },
+)
+
+o_py_test(
+    name = "workspace_builtins_and_wildcard_test",
+    srcs = ["workspace_test.py"],
+    data = _WORKSPACE_TEST_DATA,
+    deps = _WORKSPACE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestMlodyBuiltins or TestExpandWildcardLabel'",
+    },
+)
+
+test_suite(
+    name = "workspace_loading_and_resolution_test",
+    tests = [
+        ":workspace_two_phase_loading_test",
+        ":workspace_resolution_api_test",
+        ":workspace_builtins_and_wildcard_test",
     ],
-    deps = [
-        ":core_lib",
-        "//common/python/starlarkish/core:core_lib",
-        "//mlody/common:context_lib",  # keep
-        "//mlody/resolver:resolver_lib",  # keep — tests import MlodyUnresolvedValue
-        "@pip//pyfakefs",
-        "@pip//pytest",
-        "@pip//rich",
+)
+
+o_py_test(
+    name = "workspace_runtime_surface_test",
+    srcs = ["workspace_test.py"],
+    data = _WORKSPACE_TEST_DATA,
+    deps = _WORKSPACE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestWorkspaceStepResolvedObject or TestPrintFn or TestWorkspaceLoadError or TestStdoutSafety or TestPortConversion'",
+    },
+)
+
+o_py_test(
+    name = "workspace_record_traversal_test",
+    srcs = ["workspace_test.py"],
+    data = _WORKSPACE_TEST_DATA,
+    deps = _WORKSPACE_TEST_DEPS,
+    env = {
+        "PYTEST_ADDOPTS": "-k 'TestRecordAwareFieldTraversal or TestRecordFieldTraversalErrorPropagation or TestMultiLevelRecordTraversalViaWorkspace'",
+    },
+)
+
+test_suite(
+    name = "workspace_test",
+    tests = [
+        ":workspace_core_test",
+        ":workspace_loading_and_resolution_test",
+        ":workspace_runtime_surface_test",
+        ":workspace_record_traversal_test",
     ],
 )
 
