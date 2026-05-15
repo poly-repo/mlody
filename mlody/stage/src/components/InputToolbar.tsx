@@ -161,6 +161,7 @@ export function InputToolbar({
   const currentCommandOption =
     commandOptions.find((option) => option.value === currentCommand) ?? null;
   const [userPickerOpen, setUserPickerOpen] = useState(false);
+  const [userPopupSuppressed, setUserPopupSuppressed] = useState(false);
   const userPickerRef = useRef<HTMLDivElement>(null);
   const userPickerButtonRef = useRef<HTMLButtonElement>(null);
   const userTeamRows = useMemo(
@@ -207,19 +208,38 @@ export function InputToolbar({
     };
   }, [userPickerOpen]);
 
+  function clearUserPopupSuppression() {
+    if (userPickerOpen) {
+      return;
+    }
+    setUserPopupSuppressed(false);
+  }
+
+  function openUserPicker() {
+    setUserPopupSuppressed(true);
+    setUserPickerOpen(true);
+  }
+
   function toggleUserPicker() {
-    setUserPickerOpen((open) => !open);
+    setUserPickerOpen((open) => {
+      const nextOpen = !open;
+      if (nextOpen) {
+        setUserPopupSuppressed(true);
+      }
+      return nextOpen;
+    });
   }
 
   function openUserPickerFromContextMenu(
     event: React.MouseEvent<HTMLButtonElement>,
   ) {
     event.preventDefault();
-    setUserPickerOpen(true);
+    openUserPicker();
   }
 
   function handleUserSelect(name: string) {
     onCurrentUserChange(name);
+    setUserPopupSuppressed(true);
     setUserPickerOpen(false);
     userPickerButtonRef.current?.focus();
   }
@@ -277,6 +297,7 @@ export function InputToolbar({
           ref={userPickerRef}
           className="CommandToolbar-userMenu"
           data-picker-open={userPickerOpen ? "true" : undefined}
+          data-popup-suppressed={userPopupSuppressed ? "true" : undefined}
         >
           <button
             ref={userPickerButtonRef}
@@ -285,6 +306,7 @@ export function InputToolbar({
             aria-label="Choose current user"
             aria-haspopup="dialog"
             aria-expanded={userPickerOpen}
+            onPointerEnter={clearUserPopupSuppression}
             onClick={toggleUserPicker}
             onContextMenu={openUserPickerFromContextMenu}
           >

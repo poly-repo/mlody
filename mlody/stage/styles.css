@@ -2228,7 +2228,8 @@ textarea {
   transform: translateY(0);
 }
 
-.CommandToolbar-userMenu[data-picker-open="true"] .CommandToolbar-userPopup {
+.CommandToolbar-userMenu[data-picker-open="true"] .CommandToolbar-userPopup,
+.CommandToolbar-userMenu[data-popup-suppressed="true"] .CommandToolbar-userPopup {
   opacity: 0;
   transform: translateY(4px);
 }
