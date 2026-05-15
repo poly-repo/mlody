@@ -1,4 +1,9 @@
-"""Lazy tabular adapter for source-backed local copied assets."""
+"""Compatibility tabular wrapper over ``CopiedAssetSource``.
+
+This module remains because tabular callers still expect a ``TabularSource``
+object with preview/query methods, but the actual copy/refresh semantics now
+live in ``mlody.core.assets``.
+"""
 
 from __future__ import annotations
 

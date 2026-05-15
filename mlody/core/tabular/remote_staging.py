@@ -1,4 +1,10 @@
-"""Per-process staging of remote files for tabular consumers."""
+"""Compatibility shim for older tabular callers.
+
+New code should prefer ``mlody.core.assets.HttpAssetSource`` or
+``mlody.core.assets.asset_from_value(...)`` directly. This module remains as a
+small adapter for older call sites and tests that still expect the historical
+``stage_remote_file(...)`` surface.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +31,7 @@ class StagedRemoteFile:
 
 
 class RemoteStagingManager:
-    """Cache remote files in a persistent asset cache with per-process memoization."""
+    """Stage remote files via the asset cache with per-process memoization."""
 
     def __init__(self, cache_root: Path | None = None) -> None:
         self._cache_root = cache_root
@@ -58,5 +64,5 @@ _REMOTE_STAGING_MANAGER = RemoteStagingManager()
 
 
 def stage_remote_file(uri: str) -> StagedRemoteFile:
-    """Stage *uri* via the process-global remote staging manager."""
+    """Stage *uri* through the compatibility manager."""
     return _REMOTE_STAGING_MANAGER.stage(uri)

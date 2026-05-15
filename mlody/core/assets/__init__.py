@@ -1,4 +1,14 @@
-"""Asset helpers for persistent, typed artifact materialization."""
+"""Asset-layer entry points for artifact materialization.
+
+New code should usually start with:
+
+- ``asset_from_value(...)`` for runtime values
+- ``asset_from_location(...)`` for bare locations
+
+The tabular layer now adapts CSV/parquet behavior on top of these asset
+sources, while remote caching, local copy refresh, and transfer lineage live
+here.
+"""
 
 from mlody.core.assets.cache import cache_dir_for_key, default_http_cache_root, ensure_cache_root
 from mlody.core.assets.copied_asset import CopiedAssetSource

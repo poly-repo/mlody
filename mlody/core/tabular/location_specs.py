@@ -234,7 +234,12 @@ def source_from_location(location: object) -> TabularSource | None:
 
 
 def source_from_value(value_struct: object) -> TabularSource | None:
-    """Construct the best tabular source view for a runtime value struct."""
+    """Construct the best tabular adapter for a runtime value struct.
+
+    Asset resolution is handled first in ``mlody.core.assets``; this function
+    only decides whether and how the resolved artifact should be interpreted as
+    CSV/parquet/derived tabular data.
+    """
     derived_spec = derived_location_spec_from_value(value_struct)
     if derived_spec is not None:
         return _derived_source_from_value(value_struct, derived_spec)
