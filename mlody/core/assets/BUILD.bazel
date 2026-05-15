@@ -50,10 +50,23 @@ o_py_library(
 )
 
 o_py_library(
+    name = "copied_asset_lib",
+    srcs = ["copied_asset.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":interfaces_lib",
+        ":metadata_lib",
+        "//mlody/common:common_lib",
+        "//mlody/core:lineage",
+    ],
+)
+
+o_py_library(
     name = "resolution_lib",
     srcs = ["resolution.py"],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":copied_asset_lib",
         ":http_asset_lib",
         ":interfaces_lib",
         ":local_asset_lib",
@@ -67,6 +80,7 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":cache_lib",
+        ":copied_asset_lib",
         ":http_asset_lib",
         ":interfaces_lib",
         ":local_asset_lib",
@@ -100,9 +114,21 @@ o_py_test(
     name = "asset_resolution_test",
     srcs = ["asset_resolution_test.py"],
     deps = [
+        ":copied_asset_lib",
         ":http_asset_lib",
         ":local_asset_lib",
         ":resolution_lib",
+        "//mlody/common:common_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "copied_asset_test",
+    srcs = ["copied_asset_test.py"],
+    deps = [
+        ":copied_asset_lib",
+        ":local_asset_lib",
         "//mlody/common:common_lib",
         "@pip//pytest",
     ],

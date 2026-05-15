@@ -60,8 +60,9 @@ o_py_library(
         ":csv_source_lib",
         ":interfaces_lib",
         ":parquet_source_lib",
-        "//mlody/common:common_lib",
-        "//mlody/core:lineage",
+        "//mlody/core/assets:copied_asset_lib",
+        "//mlody/core/assets:interfaces_lib",
+        "//mlody/core/assets:metadata_lib",
     ],
 )
 
@@ -112,8 +113,10 @@ o_py_library(
         ":interfaces_lib",
         ":location_specs_lib",
         ":parquet_source_lib",
-        "//mlody/common:common_lib",
         "//mlody/core:core_lib",
+        "//mlody/core/assets:copied_asset_lib",
+        "//mlody/core/assets:interfaces_lib",
+        "//mlody/core/assets:metadata_lib",
         "//mlody/core/sql:sql_query_lib",
         "@pip//pyarrow",
     ],

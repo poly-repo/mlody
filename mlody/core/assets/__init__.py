@@ -1,6 +1,7 @@
 """Asset helpers for persistent, typed artifact materialization."""
 
 from mlody.core.assets.cache import cache_dir_for_key, default_http_cache_root, ensure_cache_root
+from mlody.core.assets.copied_asset import CopiedAssetSource
 from mlody.core.assets.http_asset import HttpAssetError, HttpAssetSource
 from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
 from mlody.core.assets.local_asset import LocalAssetError, LocalPathAssetSource
@@ -20,6 +21,7 @@ from mlody.core.assets.resolution import asset_from_location, asset_from_value
 __all__ = [
     "AssetMetadata",
     "AssetSource",
+    "CopiedAssetSource",
     "HttpAssetError",
     "HttpAssetManifest",
     "HttpAssetManifestLocal",

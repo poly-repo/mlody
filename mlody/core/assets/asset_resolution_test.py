@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from mlody.common.struct import Struct
+from mlody.core.assets.copied_asset import CopiedAssetSource
 from mlody.core.assets.http_asset import HttpAssetSource
 from mlody.core.assets.local_asset import LocalAssetError, LocalPathAssetSource
 from mlody.core.assets.resolution import asset_from_location, asset_from_value
@@ -73,18 +74,25 @@ def test_asset_from_value_returns_local_asset_for_plain_local_value(tmp_path: Pa
     assert materialized.metadata.extra["path"] == str(path)
 
 
-def test_asset_from_value_returns_none_for_source_backed_local_value(tmp_path: Path) -> None:
+def test_asset_from_value_returns_copied_asset_for_source_backed_local_value(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.csv"
+    source_path.write_text("name,age\nAlice,30\n")
     destination_path = tmp_path / "cached.csv"
     value_struct = Struct(
         kind="value",
         location=Struct(kind="location", type="posix", path=str(destination_path)),
         _source_value=Struct(
             kind="value",
-            location=Struct(kind="location", type="remote", uri="https://example.com/employees.csv"),
+            location=Struct(kind="location", type="posix", path=str(source_path)),
         ),
     )
 
-    assert asset_from_value(value_struct) is None
+    asset = asset_from_value(value_struct)
+
+    assert isinstance(asset, CopiedAssetSource)
+    materialized = asset.materialize()
+    assert materialized.path == destination_path
+    assert destination_path.read_text() == source_path.read_text()
 
 
 def test_asset_from_value_returns_none_for_derived_value() -> None:
@@ -111,4 +119,3 @@ def test_local_path_asset_source_raises_for_missing_path(tmp_path: Path) -> None
 
     with pytest.raises(LocalAssetError, match="does not exist"):
         LocalPathAssetSource(path=missing).materialize()
-
