@@ -11,7 +11,7 @@ from mlody.core.assets.resolution import asset_from_value
 from mlody.core.location_specs import (
     DerivedLocationSpec,
     PosixLocationSpec,
-    RemoteLocationSpec,  # keep — re-exported via mlody.core.tabular
+    RemoteLocationSpec,
     _derived_cache_root,
     _source_value_struct,
     derived_location_spec_from_value,
