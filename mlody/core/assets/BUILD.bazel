@@ -1,0 +1,34 @@
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
+
+o_py_library(
+    name = "metadata_lib",
+    srcs = ["metadata.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_library(
+    name = "manifest_lib",
+    srcs = ["manifest.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [":metadata_lib"],
+)
+
+o_py_library(
+    name = "assets",
+    srcs = ["__init__.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":manifest_lib",
+        ":metadata_lib",
+    ],
+)
+
+o_py_test(
+    name = "manifest_test",
+    srcs = ["manifest_test.py"],
+    deps = [
+        ":manifest_lib",
+        ":metadata_lib",
+        "@pip//pytest",
+    ],
+)

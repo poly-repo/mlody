@@ -24,32 +24,6 @@ _BASE_FILES: dict[str, str] = {
     "mlody/common/locations.mlody": _LOCATIONS_MLODY,
 }
 
-
-class _FakeUrlResponse:
-    def __init__(
-        self,
-        *,
-        url: str,
-        headers: dict[str, str] | None = None,
-        body: bytes = b"",
-    ) -> None:
-        self._url = url
-        self.headers = headers or {}
-        self._body = body
-
-    def geturl(self) -> str:
-        return self._url
-
-    def read(self) -> bytes:
-        return self._body
-
-    def __enter__(self) -> _FakeUrlResponse:
-        return self
-
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-        return False
-
-
 def _eval(extra_mlody: str) -> Evaluator:
     script = 'load("//mlody/common/locations.mlody")\n' + dedent(extra_mlody)
     files = dict(_BASE_FILES)
@@ -253,15 +227,14 @@ def test_remote_location_info_method_returns_http_metadata_struct() -> None:
 
     with patch.object(
         evaluator_module,
-        "urlopen",
-        return_value=_FakeUrlResponse(
-            url="https://example.com/data.csv",
-            headers={
-                "Content-Length": "17",
-                "ETag": '"csv-etag"',
-                "Last-Modified": "Mon, 11 May 2026 14:32:11 GMT",
-            },
-        ),
+        "fetch_http_info",
+        return_value={
+            "url": "https://example.com/data.csv",
+            "digest": "csv-etag",
+            "digest_type": "etag",
+            "length": 17,
+            "update_time": "2026-05-11T14:32:11Z",
+        },
     ):
         info = result.methods.info(result)
 

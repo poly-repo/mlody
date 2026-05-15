@@ -182,8 +182,11 @@ class TestLineageVirtualAttribute:
             lineage = lineage_attr.materializer(value_struct)
 
         assert destination_path.read_text() == staged_path.read_text()
-        assert len(lineage) == 1
-        assert lineage[0].source == "copied from"
-        assert lineage[0].details["destination_path"] == str(destination_path)
+        assert [event.source for event in lineage] == [
+            "downloaded from",
+            "copied from",
+        ]
+        assert lineage[0].new_value.data == "https://example.com/employees.csv"
+        assert lineage[1].details["destination_path"] == str(destination_path)
         assert len(value_struct._source_value._lineage) == 1
         assert value_struct._source_value._lineage[0].source == "downloaded from"

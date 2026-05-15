@@ -288,32 +288,6 @@ builtins.register("value", struct(
 ))
 """
 
-
-class _FakeUrlResponse:
-    def __init__(
-        self,
-        *,
-        url: str,
-        headers: dict[str, str] | None = None,
-        body: bytes = b"",
-    ) -> None:
-        self._url = url
-        self.headers = headers or {}
-        self._body = body
-
-    def geturl(self) -> str:
-        return self._url
-
-    def read(self) -> bytes:
-        return self._body
-
-    def __enter__(self) -> _FakeUrlResponse:
-        return self
-
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -670,15 +644,14 @@ class TestValueKind:
 
         with patch.object(
             evaluator_module,
-            "urlopen",
-            return_value=_FakeUrlResponse(
-                url="https://example.com/data.csv",
-                headers={
-                    "Content-Length": "17",
-                    "ETag": '"csv-etag"',
-                    "Last-Modified": "Mon, 11 May 2026 14:32:11 GMT",
-                },
-            ),
+            "fetch_http_info",
+            return_value={
+                "url": "https://example.com/data.csv",
+                "digest": "csv-etag",
+                "digest_type": "etag",
+                "length": 17,
+                "update_time": "2026-05-11T14:32:11Z",
+            },
         ):
             label = parse_label("@myroot//pkg/foo:my_value.location.info.digest_type")
             result = resolve_label_to_value(label, ws)

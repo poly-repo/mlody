@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -8,34 +7,9 @@ import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 
 from common.python.starlarkish.evaluator import evaluator as evaluator_module
+from common.python.starlarkish.core.struct import Struct
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
-from common.python.starlarkish.core.struct import Struct
-
-
-class _FakeUrlResponse:
-    def __init__(
-        self,
-        *,
-        url: str,
-        headers: dict[str, str] | None = None,
-        body: bytes = b"",
-    ) -> None:
-        self._url = url
-        self.headers = headers or {}
-        self._body = body
-
-    def geturl(self) -> str:
-        return self._url
-
-    def read(self) -> bytes:
-        return self._body
-
-    def __enter__(self) -> _FakeUrlResponse:
-        return self
-
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-        return False
 
 
 @pytest.fixture
@@ -696,23 +670,8 @@ def test_format_quantity_string_returns_quantity_repr() -> None:
     assert "m" in result
 
 
-def test_http_info_uses_head_metadata_for_generic_urls() -> None:
-    response = _FakeUrlResponse(
-        url="https://example.com/data.csv",
-        headers={
-            "Content-Length": "17",
-            "ETag": '"abc123"',
-            "Last-Modified": "Mon, 11 May 2026 14:32:11 GMT",
-        },
-    )
-
-    with patch.object(evaluator_module, "urlopen", return_value=response) as mocked_urlopen:
-        result = evaluator_module._http_info("https://example.com/data.csv")
-
-    request = mocked_urlopen.call_args.args[0]
-    assert request.get_method() == "HEAD"
-    assert request.full_url == "https://example.com/data.csv"
-    assert result == {
+def test_http_info_delegates_to_shared_helper() -> None:
+    expected = {
         "url": "https://example.com/data.csv",
         "digest": "abc123",
         "digest_type": "etag",
@@ -720,72 +679,11 @@ def test_http_info_uses_head_metadata_for_generic_urls() -> None:
         "update_time": "2026-05-11T14:32:11Z",
     }
 
+    with patch.object(evaluator_module, "fetch_http_info", return_value=expected) as mocked_fetch:
+        result = evaluator_module._http_info("https://example.com/data.csv")
 
-def test_http_info_uses_github_api_for_raw_github_urls() -> None:
-    contents = _FakeUrlResponse(
-        url=(
-            "https://api.github.com/repos/apache/airflow/contents/"
-            "airflow-core/docs/tutorial/pipeline_example.csv?ref=main"
-        ),
-        body=json.dumps(
-            {
-                "download_url": (
-                    "https://raw.githubusercontent.com/apache/airflow/main/"
-                    "airflow-core/docs/tutorial/pipeline_example.csv"
-                ),
-                "sha": "deadbeefcafebabe",
-                "size": 321,
-            }
-        ).encode("utf-8"),
-    )
-    commits = _FakeUrlResponse(
-        url=(
-            "https://api.github.com/repos/apache/airflow/commits?"
-            "path=airflow-core%2Fdocs%2Ftutorial%2Fpipeline_example.csv&sha=main&per_page=1"
-        ),
-        body=json.dumps(
-            [
-                {
-                    "commit": {
-                        "committer": {
-                            "date": "2026-05-11T15:45:12Z",
-                        }
-                    }
-                }
-            ]
-        ).encode("utf-8"),
-    )
-
-    with patch.object(
-        evaluator_module,
-        "urlopen",
-        side_effect=[contents, commits],
-    ) as mocked_urlopen:
-        result = evaluator_module._http_info(
-            "https://raw.githubusercontent.com/apache/airflow/main/"
-            "airflow-core/docs/tutorial/pipeline_example.csv"
-        )
-
-    first_request = mocked_urlopen.call_args_list[0].args[0]
-    second_request = mocked_urlopen.call_args_list[1].args[0]
-    assert first_request.full_url == (
-        "https://api.github.com/repos/apache/airflow/contents/"
-        "airflow-core/docs/tutorial/pipeline_example.csv?ref=main"
-    )
-    assert second_request.full_url == (
-        "https://api.github.com/repos/apache/airflow/commits?"
-        "path=airflow-core%2Fdocs%2Ftutorial%2Fpipeline_example.csv&sha=main&per_page=1"
-    )
-    assert result == {
-        "url": (
-            "https://raw.githubusercontent.com/apache/airflow/main/"
-            "airflow-core/docs/tutorial/pipeline_example.csv"
-        ),
-        "digest": "deadbeefcafebabe",
-        "digest_type": "git_blob_sha1",
-        "length": 321,
-        "update_time": "2026-05-11T15:45:12Z",
-    }
+    assert result == expected
+    mocked_fetch.assert_called_once_with("https://example.com/data.csv")
 
 
 def test_fork_rebinds_loaded_module_functions(project_root: Path, fs: FakeFilesystem) -> None:

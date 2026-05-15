@@ -46,7 +46,7 @@ def test_stage_remote_file_downloads_once_per_uri(http_server: tuple[str, Path])
     assert staged_one.path == staged_two.path
     assert staged_one.content_hash == staged_two.content_hash
     assert staged_one.path.exists()
-    assert "mlody-remote-" in str(staged_one.path.parent)
+    assert staged_one.path.suffix == ".csv"
 
 
 def test_stage_remote_file_content_hash_is_stable(http_server: tuple[str, Path]) -> None:
@@ -59,6 +59,16 @@ def test_stage_remote_file_content_hash_is_stable(http_server: tuple[str, Path])
 
     assert staged_one.content_hash == staged_two.content_hash
     assert staged_one.path.exists()
+
+
+def test_stage_remote_file_preserves_remote_suffix(http_server: tuple[str, Path]) -> None:
+    base_url, root = http_server
+    source_path = root / "employees.parquet"
+    source_path.write_text("parquet-bytes")
+
+    staged = stage_remote_file(f"{base_url}/employees.parquet")
+
+    assert staged.path.suffix == ".parquet"
 
 
 def test_stage_remote_file_rejects_unsupported_scheme() -> None:

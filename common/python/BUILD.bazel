@@ -1,7 +1,22 @@
-load("//build/bzl:python.bzl", "o_py_library")
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
     name = "python_pkg",
     srcs = ["__init__.py"],
     visibility = ["//:__subpackages__"],
+)
+
+o_py_library(
+    name = "http_info_lib",
+    srcs = ["http_info.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_test(
+    name = "http_info_test",
+    srcs = ["http_info_test.py"],
+    deps = [
+        ":http_info_lib",
+        "@pip//pytest",
+    ],
 )
