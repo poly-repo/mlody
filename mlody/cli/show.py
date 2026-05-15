@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-from functools import singledispatch
 import json
 import logging
 import math
@@ -41,12 +40,9 @@ from mlody.cli.main import cli
 from mlody.core.dag import build_dag
 from mlody.core.derived import DerivedValueShapeError
 from mlody.core.sql.sql_query import MlodyQueryError
-from mlody.core.tabular.csv_source import CsvSource
 from mlody.core.tabular.derived_source import DerivedSource
-from mlody.core.tabular.interfaces import PreviewResult
+from mlody.core.tabular.interfaces import PreviewResult, TabularSource
 from mlody.core.tabular.location_specs import source_from_value
-from mlody.core.tabular.materialized_local_source import MaterializedLocalSource
-from mlody.core.tabular.parquet_source import ParquetSource
 from mlody.core.workspace import Workspace, WorkspaceLoadError, force
 from mlody.db.evaluations import open_db, write_evaluation
 from mlody.db.local_diff import compute_local_diff_sha, get_repo_root
@@ -919,85 +915,44 @@ def _emit_tabular_preview(preview: PreviewResult) -> None:
     )
 
 
-@singledispatch
 def _print_tabular_source(
     source: object,
     *,
     _has_error: list[bool] | None = None,
 ) -> bool:
     """Render a tabular source when supported; return True on handled output."""
+    if isinstance(source, DerivedSource):
+        try:
+            _emit_tabular_preview(source.preview(50))
+        except DerivedValueShapeError as exc:
+            click.echo(
+                click.style(
+                    f"Error: derived query produced a scalar result — {exc}",
+                    fg="red",
+                ),
+                err=True,
+            )
+            if _has_error is not None:
+                _has_error.append(True)
+        except MlodyQueryError as exc:
+            click.echo(
+                click.style(f"Error: {exc}", fg="red"),
+                err=True,
+            )
+            if _has_error is not None:
+                _has_error.append(True)
+        return True
+
+    if isinstance(source, TabularSource):
+        _ = _has_error
+        try:
+            _emit_tabular_preview(source.preview(50))
+            return True
+        except Exception:
+            return False
+
     _ = _has_error
     return False
-
-
-@_print_tabular_source.register
-def _(
-    source: DerivedSource,
-    *,
-    _has_error: list[bool] | None = None,
-) -> bool:
-    try:
-        _emit_tabular_preview(source.preview(50))
-    except DerivedValueShapeError as exc:
-        click.echo(
-            click.style(
-                f"Error: derived query produced a scalar result — {exc}",
-                fg="red",
-            ),
-            err=True,
-        )
-        if _has_error is not None:
-            _has_error.append(True)
-    except MlodyQueryError as exc:
-        click.echo(
-            click.style(f"Error: {exc}", fg="red"),
-            err=True,
-        )
-        if _has_error is not None:
-            _has_error.append(True)
-    return True
-
-
-@_print_tabular_source.register
-def _(
-    source: ParquetSource,
-    *,
-    _has_error: list[bool] | None = None,
-) -> bool:
-    _ = _has_error
-    try:
-        _emit_tabular_preview(source.preview(50))
-        return True
-    except Exception:
-        return False
-
-
-@_print_tabular_source.register
-def _(
-    source: CsvSource,
-    *,
-    _has_error: list[bool] | None = None,
-) -> bool:
-    _ = _has_error
-    try:
-        _emit_tabular_preview(source.preview(50))
-        return True
-    except Exception:
-        return False
-
-
-@_print_tabular_source.register
-def _(
-    source: MaterializedLocalSource,
-    *,
-    _has_error: list[bool] | None = None,
-) -> bool:
-    _ = _has_error
-    try:
-        _emit_tabular_preview(source.preview(50))
-        return True
-    except Exception:
-        return False
 
 
 def _render_spec_to_dom(spec: object) -> RichDomNode:

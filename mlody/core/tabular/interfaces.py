@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import pyarrow as pa
 
@@ -22,6 +22,7 @@ class PreviewResult:
 QueryInput = str | Path | list[str | Path] | pa.Table
 
 
+@runtime_checkable
 class TabularSource(Protocol):
     """Protocol shared by concrete queryable tabular sources."""
 
