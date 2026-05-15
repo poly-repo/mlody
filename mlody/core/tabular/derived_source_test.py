@@ -9,9 +9,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from mlody.core.location_specs import DerivedLocationSpec
 from mlody.core.tabular.derived_source import DerivedSource, DerivedValueShapeError
 from mlody.core.tabular.interfaces import QuerySpec
-from mlody.core.tabular.location_specs import DerivedLocationSpec
 
 
 def _spec(tmp_path: Path, *, sql: str = "WHERE x > 0") -> DerivedLocationSpec:

@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from mlody.core.parquet import ParquetDeserializer, read_file_as_rows
     from mlody.core.label.label import Label
     from mlody.core.sql.sql_query import MlodyQueryError, mlody_query
-    from mlody.core.tabular.location_specs import DerivedLocationSpec
+    from mlody.core.location_specs import DerivedLocationSpec
     from mlody.core.workspace import Workspace
 
 from mlody.core.type_display import format_type_label
@@ -857,7 +857,7 @@ def _tabular_value_struct(value: object) -> object | None:
 
 def _is_explicit_tabular_value_struct(value_struct: object) -> bool:
     """Return whether *value_struct* is declared in a tabular-capable shape."""
-    from mlody.core.tabular.location_specs import PosixLocationSpec  # noqa: PLC0415
+    from mlody.core.location_specs import PosixLocationSpec  # noqa: PLC0415
 
     location = getattr(value_struct, "location", None)
     location_type = (

@@ -13,9 +13,9 @@ import pyarrow.parquet as pq
 import pytest
 
 from mlody.core.derived import DerivedValueShapeError, materialise_derived
+from mlody.core.location_specs import DerivedLocationSpec
 from mlody.core.optimiser import DerivedStep
 from mlody.core.tabular.interfaces import QuerySpec
-from mlody.core.tabular.location_specs import DerivedLocationSpec
 
 
 def _make_spec(

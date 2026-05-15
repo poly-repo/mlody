@@ -9,10 +9,10 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from mlody.core.location_specs import DerivedLocationSpec
 from mlody.core.optimiser import DerivedStep, QueryOptimiser, SequentialOptimiser
 from mlody.core.sql.sql_query import mlody_query
 from mlody.core.tabular.interfaces import PreviewResult, QueryInput
-from mlody.core.tabular.location_specs import DerivedLocationSpec
 from mlody.core.tabular.parquet_source import ParquetSource
 
 
