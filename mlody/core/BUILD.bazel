@@ -472,7 +472,8 @@ o_py_library(
         "//mlody/common:common_lib",
         "//mlody/common:context_lib",  # keep
         "//mlody/core/label:label_pkg",  # keep
-        "//mlody/core/tabular",
+        "//mlody/core/tabular:derived_source_lib",
+        "//mlody/core/tabular:location_specs_lib",
         "@pip//networkx",  # keep — workspace DAG builder
         "@pip//rich",
         "@pip//tree_sitter",

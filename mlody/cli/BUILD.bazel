@@ -23,7 +23,12 @@ o_py_library(
         "//mlody/core/assets:assets",
         "//mlody/core/label:label_lib",
         "//mlody/core/sql:sql_query_lib",
-        "//mlody/core/tabular",
+        "//mlody/core/tabular:csv_source_lib",
+        "//mlody/core/tabular:derived_source_lib",
+        "//mlody/core/tabular:interfaces_lib",
+        "//mlody/core/tabular:location_specs_lib",
+        "//mlody/core/tabular:materialized_local_source_lib",
+        "//mlody/core/tabular:parquet_source_lib",
         "//mlody/db:db_lib",
         "//mlody/lsp:lsp_lib",
         "//mlody/resolver:resolver_lib",
@@ -53,7 +58,6 @@ o_py_library(
     deps = [
         ":cli_lib",
         "//mlody/core:workspace_lib",
-        "//mlody/core/tabular",
         "//mlody/db:db_lib",  # keep — show.py imports open_db, write_evaluation, compute_local_diff_sha
         "@pip//click",
         "@pip//pyarrow",
