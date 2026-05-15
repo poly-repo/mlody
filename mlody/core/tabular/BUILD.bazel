@@ -84,21 +84,6 @@ o_py_library(
 )
 
 o_py_library(
-    name = "tabular",
-    srcs = ["__init__.py"],
-    visibility = ["//:__subpackages__"],
-    deps = [
-        ":csv_source_lib",
-        ":derived_source_lib",
-        ":interfaces_lib",
-        ":location_specs_lib",
-        ":materialized_local_source_lib",
-        ":parquet_source_lib",
-        ":remote_staging_lib",
-    ],
-)
-
-o_py_library(
     name = "tabular_lib",
     srcs = [
         "__init__.py",
@@ -128,8 +113,11 @@ o_py_test(
     name = "location_specs_test",
     srcs = ["location_specs_test.py"],
     deps = [
+        ":csv_source_lib",
+        ":derived_source_lib",
         ":location_specs_lib",
-        ":tabular",
+        ":materialized_local_source_lib",
+        ":parquet_source_lib",
         "//mlody/common:common_lib",
         "@pip//pyarrow",
         "@pip//pytest",
@@ -149,7 +137,7 @@ o_py_test(
     name = "csv_source_test",
     srcs = ["csv_source_test.py"],
     deps = [
-        ":tabular",
+        ":csv_source_lib",
         "@pip//pytest",
     ],
 )
@@ -171,7 +159,7 @@ o_py_test(
     srcs = ["remote_staging_test.py"],
     deps = [
         "//mlody/core/assets:http_asset_lib",
-        ":tabular",
+        ":remote_staging_lib",
         "@pip//pytest",
     ],
 )

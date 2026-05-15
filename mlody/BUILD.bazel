@@ -1,6 +1,6 @@
 load("//build/bzl:python.bzl", "o_py_library")
 
-# gazelle:resolve py mlody.core.tabular //mlody/core/tabular:tabular
+# gazelle:resolve py mlody.core.tabular //mlody/core/tabular:tabular_lib
 # gazelle:resolve py mlody.core.tabular.derived_source //mlody/core/tabular:derived_source_lib
 # gazelle:resolve py mlody.core.tabular.interfaces //mlody/core/tabular:interfaces_lib
 # gazelle:resolve py mlody.core.tabular.location_specs //mlody/core/tabular:location_specs_lib
