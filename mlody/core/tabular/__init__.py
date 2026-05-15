@@ -11,7 +11,6 @@ __all__ = [
     "DerivedValueShapeError",
     "ParquetSource",
     "PreviewResult",
-    "QuerySpec",
     "TabularSource",
     "source_from_value",
     "validate_shape",
@@ -26,7 +25,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "ParquetSource": ("mlody.core.tabular.parquet_source", "ParquetSource"),
     "PreviewResult": ("mlody.core.tabular.interfaces", "PreviewResult"),
-    "QuerySpec": ("mlody.core.query_spec", "QuerySpec"),
     "TabularSource": ("mlody.core.tabular.interfaces", "TabularSource"),
     "source_from_value": ("mlody.core.tabular.location_specs", "source_from_value"),
     "validate_shape": ("mlody.core.tabular.derived_source", "validate_shape"),
@@ -52,7 +50,6 @@ if TYPE_CHECKING:
         DerivedValueShapeError as DerivedValueShapeError,
         validate_shape as validate_shape,
     )
-    from mlody.core.query_spec import QuerySpec as QuerySpec
     from mlody.core.tabular.interfaces import (
         PreviewResult as PreviewResult,
         TabularSource as TabularSource,
