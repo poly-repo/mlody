@@ -276,10 +276,10 @@ def test_source_from_value_returns_materialized_local_source_for_source_backed_c
         ),
     )
 
-    with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-        mock_stage.return_value = Struct(
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+        mock_materialize.return_value = _remote_asset(
+            staged_path,
             uri="https://example.com/employees.csv",
-            path=staged_path,
             content_hash="abc123",
         )
         source = source_from_value(value_struct)
@@ -289,7 +289,7 @@ def test_source_from_value_returns_materialized_local_source_for_source_backed_c
 
     assert materialized == destination_path
     assert materialized.read_text() == staged_path.read_text()
-    assert mock_stage.call_count == 1
+    assert mock_materialize.call_count == 1
 
 
 def test_source_from_value_returns_remote_csv_source_for_remote_csv_value() -> None:
@@ -528,10 +528,10 @@ def test_source_backed_local_source_expands_home_and_reuses_cache(
     )
 
     with patch.dict("os.environ", {"HOME": str(tmp_path)}):
-        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-            mock_stage.return_value = Struct(
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = _remote_asset(
+                staged_path,
                 uri="https://example.com/employees.csv",
-                path=staged_path,
                 content_hash="abc123",
             )
             source = source_from_value(value_struct)
@@ -543,7 +543,7 @@ def test_source_backed_local_source_expands_home_and_reuses_cache(
     assert first == tmp_path / ".cache" / "mlody" / "artifacts" / "employees.csv"
     assert second == first
     assert first.read_text() == staged_path.read_text()
-    assert mock_stage.call_count == 1
+    assert mock_materialize.call_count == 1
     assert [event.source for event in value_struct._lineage] == [
         "downloaded from",
         "copied from",
@@ -621,14 +621,14 @@ def test_source_backed_local_source_cache_hit_reconstructs_upstream_lineage(
         ),
     )
 
-    with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
         source = source_from_value(value_struct)
 
         assert isinstance(source, MaterializedLocalSource)
         materialized = source.materialize()
 
     assert materialized == destination_path
-    assert mock_stage.call_count == 0
+    assert mock_materialize.call_count == 0
     assert [event.source for event in value_struct._lineage] == [
         "downloaded from",
         "copied from",

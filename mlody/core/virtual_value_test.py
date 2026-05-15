@@ -190,10 +190,10 @@ class TestLineageVirtualAttribute:
         lineage_attr = lookup_runtime_attribute(value_struct, "lineage")
 
         assert lineage_attr is not None
-        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-            mock_stage.return_value = Struct(
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = _remote_asset(
+                staged_path,
                 uri="https://example.com/employees.csv",
-                path=staged_path,
                 content_hash="abc123",
             )
 

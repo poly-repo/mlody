@@ -497,10 +497,10 @@ class TestParquetIndexAccess:
             local_path,
         )
 
-        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-            mock_stage.return_value = SimpleNamespace(
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = _remote_asset(
+                csv_path,
                 uri="https://example.com/employees.csv",
-                path=csv_path,
                 content_hash="abc123",
             )
             label = parse_label(
@@ -514,7 +514,7 @@ class TestParquetIndexAccess:
         assert [row["id"] for row in rows] == [1, 2]
         assert local_path.exists()
         assert local_path.read_text() == csv_path.read_text()
-        mock_stage.assert_called_once_with("https://example.com/employees.csv")
+        assert mock_materialize.call_count == 1
 
     def test_source_backed_local_csv_slice_entity_query_returns_rows(
         self, tmp_path: Path
@@ -529,10 +529,10 @@ class TestParquetIndexAccess:
             local_path,
         )
 
-        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-            mock_stage.return_value = SimpleNamespace(
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = _remote_asset(
+                csv_path,
                 uri="https://example.com/employees.csv",
-                path=csv_path,
                 content_hash="abc123",
             )
             label = parse_label("@data//pkg/dataset:local_dataset[:2]")
@@ -545,7 +545,7 @@ class TestParquetIndexAccess:
         assert [row["label"] for row in rows] == ["cat", "dog"]
         assert local_path.exists()
         assert local_path.read_text() == csv_path.read_text()
-        mock_stage.assert_called_once_with("https://example.com/employees.csv")
+        assert mock_materialize.call_count == 1
 
     def test_workspace_resolve_sql_entity_query_returns_filtered_rows(
         self, tmp_path: Path
@@ -633,10 +633,10 @@ class TestParquetChainedAccess:
         label = parse_label("@data//pkg/dataset:local_dataset")
         strategy = ValueTraversalStrategy()
 
-        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-            mock_stage.return_value = SimpleNamespace(
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = _remote_asset(
+                csv_path,
                 uri="https://example.com/employees.csv",
-                path=csv_path,
                 content_hash="abc123",
             )
             result = strategy.traverse(
@@ -650,7 +650,7 @@ class TestParquetChainedAccess:
         assert result.struct.type.attributes["element_type"].name == "string"  # type: ignore[union-attr]
         assert local_path.exists()
         assert local_path.read_text() == csv_path.read_text()
-        mock_stage.assert_called_once_with("https://example.com/employees.csv")
+        assert mock_materialize.call_count == 1
 
     def test_slice_plus_field_via_strategy(
         self, tmp_path: Path

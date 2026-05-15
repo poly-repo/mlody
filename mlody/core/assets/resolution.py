@@ -3,18 +3,51 @@
 from __future__ import annotations
 
 import glob
+from dataclasses import dataclass
 from pathlib import Path
 
+from mlody.common.struct import Struct
 from mlody.core.assets.copied_asset import CopiedAssetSource
 from mlody.core.assets.http_asset import HttpAssetSource
-from mlody.core.assets.interfaces import AssetSource
+from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
 from mlody.core.assets.local_asset import LocalPathAssetSource
+from mlody.core.lineage import build_lineage_event, record_lineage
 from mlody.core.location_specs import (
     PosixLocationSpec,
     RemoteLocationSpec,
     _source_value_struct,
     derived_location_spec_from_value,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _RemoteLineageAssetSource:
+    """Wrap a remote asset so materialization records lineage on its owner."""
+
+    upstream: AssetSource
+    lineage_owner: object
+    remote_spec: RemoteLocationSpec
+    location: object
+
+    def materialize(self) -> MaterializedAsset:
+        materialized = self.upstream.materialize()
+        event = build_lineage_event(
+            accessor=".location",
+            new_value=Struct(kind="location", data=self.remote_spec.uri),
+            source="downloaded from",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+            details={
+                "kind": "remote-download",
+                "uri": self.remote_spec.uri,
+                "staged_path": str(materialized.path),
+                "content_hash": materialized.content_hash,
+                "location": _location_lineage_payload(self.location),
+            },
+        )
+        record_lineage(self.lineage_owner, event)
+        return materialized
 
 
 def asset_from_location(
@@ -59,7 +92,16 @@ def asset_from_value(
             freshness=freshness,
         )
 
-    return asset_from_location(location, freshness=freshness)
+    asset = asset_from_location(location, freshness=freshness)
+    remote_spec = RemoteLocationSpec.from_location(location)
+    if asset is not None and remote_spec is not None:
+        return _RemoteLineageAssetSource(
+            upstream=asset,
+            lineage_owner=value_struct,
+            remote_spec=remote_spec,
+            location=location,
+        )
+    return asset
 
 
 def _local_asset_from_spec(spec: PosixLocationSpec) -> LocalPathAssetSource | None:
@@ -112,3 +154,29 @@ def _copied_asset_from_value(
         lineage_owner=value_struct,
         freshness=freshness,
     )
+
+
+def _location_lineage_payload(location: object) -> dict[str, object]:
+    payload: dict[str, object] = {}
+
+    kind = getattr(location, "kind", None)
+    if kind is not None:
+        payload["kind"] = str(kind)
+
+    location_type = getattr(location, "type", None)
+    if location_type is not None:
+        payload["type"] = str(location_type)
+
+    path = getattr(location, "path", None)
+    if path is not None:
+        payload["path"] = (
+            [str(segment) for segment in path]
+            if isinstance(path, (list, tuple))
+            else str(path)
+        )
+
+    attributes = getattr(location, "attributes", None)
+    if isinstance(attributes, dict):
+        payload["attributes"] = dict(attributes)
+
+    return payload

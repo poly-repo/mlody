@@ -79,6 +79,8 @@ o_py_library(
         ":http_asset_lib",
         ":interfaces_lib",
         ":local_asset_lib",
+        "//mlody/common:common_lib",
+        "//mlody/core:lineage",
         "//mlody/core:location_specs_lib",
     ],
 )

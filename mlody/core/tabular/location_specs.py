@@ -3,21 +3,15 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
 
-from mlody.core.assets.freshness_policy import freshness_policy_from_struct
-from mlody.core.assets.http_asset import HttpAssetSource
-from mlody.common.struct import Struct
-from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
-from mlody.core.assets.metadata import AssetMetadata
+from mlody.core.assets.interfaces import AssetSource
 from mlody.core.assets.resolution import asset_from_value
-from mlody.core.lineage import build_lineage_event, record_lineage
 from mlody.core.location_specs import (
     DerivedLocationSpec,
     PosixLocationSpec,
-    RemoteLocationSpec,
+    RemoteLocationSpec,  # keep — re-exported via mlody.core.tabular
     _derived_cache_root,
     _source_value_struct,
     derived_location_spec_from_value,
@@ -59,108 +53,6 @@ def _representation_string(value_struct: object, attr_name: str, default: str) -
     if isinstance(attrs, dict) and isinstance(attrs.get(attr_name), str):
         return str(attrs[attr_name])
     return default
-
-
-def _location_lineage_payload(location: object) -> dict[str, object]:
-    payload: dict[str, object] = {}
-
-    kind = getattr(location, "kind", None)
-    if kind is not None:
-        payload["kind"] = str(kind)
-
-    location_type = getattr(location, "type", None)
-    if location_type is not None:
-        payload["type"] = str(location_type)
-
-    path = getattr(location, "path", None)
-    if path is not None:
-        payload["path"] = (
-            [str(segment) for segment in path]
-            if isinstance(path, (list, tuple))
-            else str(path)
-        )
-
-    attributes = getattr(location, "attributes", None)
-    if isinstance(attributes, dict):
-        payload["attributes"] = dict(attributes)
-
-    return payload
-
-
-def _record_remote_download_lineage(
-    value_struct: object,
-    *,
-    remote_spec: "RemoteLocationSpec",
-    staged_path: Path,
-    content_hash: str | None,
-) -> None:
-    event = build_lineage_event(
-        accessor=".location",
-        new_value=Struct(kind="location", data=remote_spec.uri),
-        source="downloaded from",
-        reason=None,
-        timestamp=None,
-        mode="inplace",
-        details={
-            "kind": "remote-download",
-            "uri": remote_spec.uri,
-            "staged_path": str(staged_path),
-            "content_hash": content_hash,
-            "location": _location_lineage_payload(getattr(value_struct, "location", None)),
-        },
-    )
-    record_lineage(value_struct, event)
-
-
-@dataclass(frozen=True)
-class _StagedRemoteAssetSource:
-    """Asset adapter that preserves the remote staging seam for copied locals."""
-
-    remote_spec: RemoteLocationSpec
-    lineage_owner: object | None = None
-    freshness: object | None = None
-
-    def materialize(self) -> MaterializedAsset:
-        policy = freshness_policy_from_struct(self.freshness)
-        if policy.kind in {"always", "ttl"}:
-            materialized = HttpAssetSource(
-                uri=self.remote_spec.uri,
-                freshness=self.freshness,
-            ).materialize()
-            if self.lineage_owner is not None:
-                _record_remote_download_lineage(
-                    self.lineage_owner,
-                    remote_spec=self.remote_spec,
-                    staged_path=materialized.path,
-                    content_hash=materialized.content_hash,
-                )
-            return materialized
-
-        from mlody.core.tabular.remote_staging import stage_remote_file
-
-        staged = stage_remote_file(self.remote_spec.uri)
-        if self.lineage_owner is not None:
-            _record_remote_download_lineage(
-                self.lineage_owner,
-                remote_spec=self.remote_spec,
-                staged_path=staged.path,
-                content_hash=staged.content_hash,
-            )
-        return MaterializedAsset(
-            path=staged.path,
-            content_hash=staged.content_hash,
-            metadata=AssetMetadata(
-                uri=self.remote_spec.uri,
-                resolved_url=self.remote_spec.uri,
-                digest=None,
-                digest_type=None,
-                length=None,
-                update_time=None,
-                cache_key=None,
-                transport="http",
-                extra={"staged_path": str(staged.path)},
-            ),
-        )
 
 
 def _remote_derived_output_path(content_hash: str, query: QuerySpec) -> Path:
@@ -211,15 +103,6 @@ def _tabular_source_from_asset(
         materialized_paths = (str(asset.path),)
     else:
         materialized = asset.materialize()
-        location = getattr(value_struct, "location", None)
-        remote_spec = RemoteLocationSpec.from_location(location)
-        if remote_spec is not None:
-            _record_remote_download_lineage(
-                value_struct,
-                remote_spec=remote_spec,
-                staged_path=materialized.path,
-                content_hash=materialized.content_hash,
-            )
         materialized_paths = (str(materialized.path),)
         content_hash = materialized.content_hash
 
@@ -274,14 +157,6 @@ def _source_backed_local_source_from_value(
             source_name: str = source_name,
             value_name: str = value_name,
         ) -> AssetSource:
-            source_location = getattr(source_struct, "location", None)
-            remote_spec = RemoteLocationSpec.from_location(source_location)
-            if remote_spec is not None:
-                return _StagedRemoteAssetSource(
-                    remote_spec=remote_spec,
-                    lineage_owner=source_struct,
-                    freshness=freshness,
-                )
             upstream = asset_from_value(source_struct, freshness_override=freshness)
             if upstream is None:
                 raise ValueError(
@@ -303,38 +178,6 @@ def _source_backed_local_source_from_value(
         lineage_owner=value_struct,
         freshness=freshness,
     )
-
-
-def _remote_tabular_source(
-    value_struct: object,
-    remote_spec: RemoteLocationSpec,
-) -> TabularSource | None:
-    """Construct a staged tabular source for a remote-backed value."""
-    from mlody.core.tabular.parquet_source import ParquetSource
-    from mlody.core.tabular.remote_staging import stage_remote_file
-
-    if _representation_bool(value_struct, "multifile", False):
-        return None
-
-    representation_name = _representation_name(value_struct)
-    if representation_name not in {"csv", "parquet"}:
-        return None
-
-    staged = stage_remote_file(remote_spec.uri)
-    _record_remote_download_lineage(
-        value_struct,
-        remote_spec=remote_spec,
-        staged_path=staged.path,
-        content_hash=staged.content_hash,
-    )
-    staged_path = (str(staged.path),)
-    if representation_name == "csv":
-        return _csv_source_from_paths(
-            staged_path,
-            value_struct=value_struct,
-            content_hash=staged.content_hash,
-        )
-    return ParquetSource(paths=staged_path, content_hash=staged.content_hash)
 
 
 def _derived_source_from_value(

@@ -24,6 +24,8 @@ import mlody.cli.show
 from mlody.cli.dag_render import DagSelectionResult
 from mlody.cli.main import cli
 from mlody.cli.show import show_fn
+from mlody.core.assets.interfaces import MaterializedAsset
+from mlody.core.assets.metadata import AssetMetadata
 from mlody.core.dag_value import make_dag_virtual_value
 from mlody.core.label import parse_label as _parse_label
 from mlody.core.virtual_value import make_virtual_value
@@ -73,6 +75,22 @@ def _make_type_struct(
         _root_kind=root_kind or name,
         attributes=attributes or {},
         _allowed_attrs={},
+    )
+
+
+def _remote_asset(path: Path, *, uri: str, content_hash: str) -> MaterializedAsset:
+    return MaterializedAsset(
+        path=path,
+        content_hash=content_hash,
+        metadata=AssetMetadata(
+            uri=uri,
+            resolved_url=uri,
+            digest=None,
+            digest_type=None,
+            length=None,
+            update_time=None,
+            transport="http",
+        ),
     )
 
 
@@ -1794,10 +1812,10 @@ class TestShowRemoteTabularValue:
             name="raw_employees_local",
         )
 
-        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-            mock_stage.return_value = Struct(
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = _remote_asset(
+                staged_path,
                 uri="https://example.com/employees.csv",
-                path=staged_path,
                 content_hash="abc123",
             )
             first = _make_show_runner(
@@ -1817,7 +1835,7 @@ class TestShowRemoteTabularValue:
         assert "salary" in second.output  # type: ignore[union-attr]
         assert destination_path.exists()
         assert destination_path.read_text() == staged_path.read_text()
-        assert mock_stage.call_count == 1
+        assert mock_materialize.call_count == 1
 
 
 class TestShowDerivedValue:

@@ -6,13 +6,16 @@ import functools
 import http.server
 import threading
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from mlody.common.struct import Struct
 from mlody.core.assets.copied_asset import CopiedAssetSource
+from mlody.core.assets.interfaces import MaterializedAsset
 from mlody.core.assets.http_asset import HttpAssetSource
 from mlody.core.assets.local_asset import LocalAssetError, LocalPathAssetSource
+from mlody.core.assets.metadata import AssetMetadata
 from mlody.core.assets.resolution import asset_from_location, asset_from_value
 
 
@@ -35,6 +38,22 @@ def http_server(tmp_path: Path) -> tuple[str, Path]:
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
+
+
+def _remote_asset(path: Path, *, uri: str, content_hash: str) -> MaterializedAsset:
+    return MaterializedAsset(
+        path=path,
+        content_hash=content_hash,
+        metadata=AssetMetadata(
+            uri=uri,
+            resolved_url=uri,
+            digest=None,
+            digest_type=None,
+            length=None,
+            update_time=None,
+            transport="http",
+        ),
+    )
 
 
 def _manual() -> Struct:
@@ -78,14 +97,25 @@ def test_asset_from_location_returns_none_for_globbed_posix_path() -> None:
 def test_asset_from_value_returns_http_asset_for_remote_non_tabular_value() -> None:
     value_struct = Struct(
         kind="value",
+        _lineage=[],
         location=Struct(kind="location", type="remote", uri="https://example.com/data.bin"),
         representation=Struct(kind="representation", name="json", attributes={}),
     )
 
     asset = asset_from_value(value_struct)
 
-    assert isinstance(asset, HttpAssetSource)
-    assert asset.uri == "https://example.com/data.bin"
+    assert asset is not None
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+        mock_materialize.return_value = _remote_asset(
+            Path("/tmp/data.bin"),
+            uri="https://example.com/data.bin",
+            content_hash="abc123",
+        )
+        materialized = asset.materialize()
+
+    assert materialized.path == Path("/tmp/data.bin")
+    assert value_struct._lineage[0].source == "downloaded from"
+    assert value_struct._lineage[0].details["staged_path"] == "/tmp/data.bin"
 
 
 def test_asset_from_value_returns_local_asset_for_plain_local_value(tmp_path: Path) -> None:
