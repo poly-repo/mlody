@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterable
 
 from mlody.common.struct import Struct
-from mlody.core.tabular.interfaces import QuerySpec
+from mlody.core.query_spec import QuerySpec
 
 
 def _specific_kind(location: object) -> str:

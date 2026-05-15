@@ -16,7 +16,8 @@ from mlody.core.location_specs import (
     _source_value_struct,
     derived_location_spec_from_value,
 )
-from mlody.core.tabular.interfaces import QuerySpec, TabularSource
+from mlody.core.query_spec import QuerySpec
+from mlody.core.tabular.interfaces import TabularSource
 
 
 def _representation_name(value_struct: object) -> str | None:

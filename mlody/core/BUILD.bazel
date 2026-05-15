@@ -284,8 +284,14 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         "//mlody/common:common_lib",
-        "//mlody/core/tabular:interfaces_lib",
+        ":query_spec_lib",
     ],
+)
+
+o_py_library(
+    name = "query_spec_lib",
+    srcs = ["query_spec.py"],
+    visibility = ["//:__subpackages__"],
 )
 
 o_py_test(
@@ -293,8 +299,8 @@ o_py_test(
     srcs = ["derived_test.py"],
     deps = [
         ":core_lib",
+        ":query_spec_lib",
         "//mlody/core/sql:sql_query_lib",
-        "//mlody/core/tabular:interfaces_lib",
         "//mlody/core/tabular:location_specs_lib",
         "@pip//pyarrow",
         "@pip//pytest",
@@ -443,6 +449,7 @@ o_py_library(
         "optimiser.py",
         "place.py",
         "plan.py",
+        "query_spec.py",
         "registry_view.py",
         "setf.py",
         "setf_strategies.py",

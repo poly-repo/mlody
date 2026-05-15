@@ -8,13 +8,7 @@ from typing import Protocol
 
 import pyarrow as pa
 
-
-@dataclass(frozen=True)
-class QuerySpec:
-    """A query fragment plus the dialect used to interpret it."""
-
-    sql: str
-    dialect: str = "duckdb"
+from mlody.core.query_spec import QuerySpec
 
 
 @dataclass(frozen=True)

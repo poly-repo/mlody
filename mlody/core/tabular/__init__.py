@@ -36,7 +36,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ParquetSource": ("mlody.core.tabular.parquet_source", "ParquetSource"),
     "PosixLocationSpec": ("mlody.core.tabular.location_specs", "PosixLocationSpec"),
     "PreviewResult": ("mlody.core.tabular.interfaces", "PreviewResult"),
-    "QuerySpec": ("mlody.core.tabular.interfaces", "QuerySpec"),
+    "QuerySpec": ("mlody.core.query_spec", "QuerySpec"),
     "RemoteLocationSpec": ("mlody.core.tabular.location_specs", "RemoteLocationSpec"),
     "TabularSource": ("mlody.core.tabular.interfaces", "TabularSource"),
     "derived_location_spec_from_value": (
@@ -71,9 +71,9 @@ if TYPE_CHECKING:
         DerivedValueShapeError as DerivedValueShapeError,
         validate_shape as validate_shape,
     )
+    from mlody.core.query_spec import QuerySpec as QuerySpec
     from mlody.core.tabular.interfaces import (
         PreviewResult as PreviewResult,
-        QuerySpec as QuerySpec,
         TabularSource as TabularSource,
     )
     from mlody.core.tabular.location_specs import (

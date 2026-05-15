@@ -4,7 +4,10 @@ o_py_library(
     name = "interfaces_lib",
     srcs = ["interfaces.py"],
     visibility = ["//:__subpackages__"],
-    deps = ["@pip//pyarrow"],
+    deps = [
+        "//mlody/core:query_spec_lib",
+        "@pip//pyarrow",
+    ],
 )
 
 o_py_library(
@@ -19,6 +22,7 @@ o_py_library(
         "//mlody/core/assets:interfaces_lib",
         "//mlody/core/assets:resolution_lib",
         "//mlody/core:location_specs_lib",
+        "//mlody/core:query_spec_lib",
         "//mlody/core/sql:sql_query_lib",
     ],
 )
@@ -155,8 +159,8 @@ o_py_test(
     srcs = ["derived_source_test.py"],
     deps = [
         ":derived_source_lib",
-        ":interfaces_lib",
         ":location_specs_lib",
+        "//mlody/core:query_spec_lib",
         "@pip//pyarrow",
         "@pip//pytest",
     ],
