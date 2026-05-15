@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
 
+from mlody.core.assets.freshness_policy import freshness_policy_from_struct
+from mlody.core.assets.http_asset import HttpAssetSource
 from mlody.common.struct import Struct
 from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
@@ -116,8 +118,24 @@ class _StagedRemoteAssetSource:
 
     remote_spec: RemoteLocationSpec
     lineage_owner: object | None = None
+    freshness: object | None = None
 
     def materialize(self) -> MaterializedAsset:
+        policy = freshness_policy_from_struct(self.freshness)
+        if policy.kind in {"always", "ttl"}:
+            materialized = HttpAssetSource(
+                uri=self.remote_spec.uri,
+                freshness=self.freshness,
+            ).materialize()
+            if self.lineage_owner is not None:
+                _record_remote_download_lineage(
+                    self.lineage_owner,
+                    remote_spec=self.remote_spec,
+                    staged_path=materialized.path,
+                    content_hash=materialized.content_hash,
+                )
+            return materialized
+
         from mlody.core.tabular.remote_staging import stage_remote_file
 
         staged = stage_remote_file(self.remote_spec.uri)
@@ -175,7 +193,8 @@ def _tabular_source_from_asset(
     *,
     default_to_parquet: bool = False,
 ) -> TabularSource | None:
-    """Materialize a generic asset and wrap it in the matching tabular adapter."""
+    """Wrap a generic asset in the matching tabular adapter."""
+    from mlody.core.assets.local_asset import LocalPathAssetSource
     from mlody.core.tabular.parquet_source import ParquetSource
 
     if _representation_bool(value_struct, "multifile", False):
@@ -187,30 +206,32 @@ def _tabular_source_from_asset(
             return None
         representation_name = "parquet"
 
-    if representation_name not in {"csv", "parquet"}:
-        return None
+    content_hash: str | None = None
+    if isinstance(asset, LocalPathAssetSource):
+        materialized_paths = (str(asset.path),)
+    else:
+        materialized = asset.materialize()
+        location = getattr(value_struct, "location", None)
+        remote_spec = RemoteLocationSpec.from_location(location)
+        if remote_spec is not None:
+            _record_remote_download_lineage(
+                value_struct,
+                remote_spec=remote_spec,
+                staged_path=materialized.path,
+                content_hash=materialized.content_hash,
+            )
+        materialized_paths = (str(materialized.path),)
+        content_hash = materialized.content_hash
 
-    materialized = asset.materialize()
-    location = getattr(value_struct, "location", None)
-    remote_spec = RemoteLocationSpec.from_location(location)
-    if remote_spec is not None:
-        _record_remote_download_lineage(
-            value_struct,
-            remote_spec=remote_spec,
-            staged_path=materialized.path,
-            content_hash=materialized.content_hash,
-        )
-
-    materialized_paths = (str(materialized.path),)
     if representation_name == "csv":
         return _csv_source_from_paths(
             materialized_paths,
             value_struct=value_struct,
-            content_hash=materialized.content_hash,
+            content_hash=content_hash,
         )
     return ParquetSource(
         paths=materialized_paths,
-        content_hash=materialized.content_hash,
+        content_hash=content_hash,
     )
 
 
@@ -237,6 +258,7 @@ def _source_backed_local_source_from_value(
 
     source_attr = getattr(value_struct, "source", None)
     source_value = _source_value_struct(value_struct)
+    freshness = getattr(value_struct, "freshness", None)
     source_label = source_attr if isinstance(source_attr, str) else getattr(
         source_attr,
         "name",
@@ -258,8 +280,9 @@ def _source_backed_local_source_from_value(
                 return _StagedRemoteAssetSource(
                     remote_spec=remote_spec,
                     lineage_owner=source_struct,
+                    freshness=freshness,
                 )
-            upstream = asset_from_value(source_struct)
+            upstream = asset_from_value(source_struct, freshness_override=freshness)
             if upstream is None:
                 raise ValueError(
                     f"Source-backed local value {value_name!r} depends on non-tabular "
@@ -278,6 +301,7 @@ def _source_backed_local_source_from_value(
         separator=_representation_string(value_struct, "separator", ","),
         header_required=_representation_bool(value_struct, "header_required", True),
         lineage_owner=value_struct,
+        freshness=freshness,
     )
 
 
@@ -373,14 +397,18 @@ def source_from_value(value_struct: object) -> TabularSource | None:
         return _derived_source_from_value(value_struct, derived_spec)
 
     location = getattr(value_struct, "location", None)
-    remote_spec = RemoteLocationSpec.from_location(location)
-    if remote_spec is not None:
-        return _remote_tabular_source(value_struct, remote_spec)
-
     posix_spec = PosixLocationSpec.from_location(location)
     if posix_spec is not None:
         if getattr(value_struct, "source", None) is not None:
             return _source_backed_local_source_from_value(value_struct, posix_spec)
+
+    asset = asset_from_value(value_struct)
+    if asset is not None:
+        asset_source = _tabular_source_from_asset(value_struct, asset)
+        if asset_source is not None:
+            return asset_source
+
+    if posix_spec is not None:
         representation_name = _representation_name(value_struct)
         if representation_name == "csv":
             return _csv_source_from_paths(posix_spec.paths, value_struct=value_struct)

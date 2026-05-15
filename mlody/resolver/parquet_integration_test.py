@@ -21,6 +21,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from mlody.core.assets.interfaces import MaterializedAsset
+from mlody.core.assets.metadata import AssetMetadata
 from mlody.core.label import parse_label
 from mlody.core.workspace import Workspace
 from mlody.resolver.label_value import (
@@ -35,6 +37,22 @@ _REAL_RULE_MLODY = Path(__file__).parent.parent / "core" / "rule.mlody"
 _REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
 _REAL_RENDER_MLODY = Path(__file__).parent.parent / "common" / "render.mlody"
 _REAL_CONFIG_MLODY = Path(__file__).parent.parent / "common" / "config.mlody"
+
+
+def _remote_asset(path: Path, *, uri: str, content_hash: str) -> MaterializedAsset:
+    return MaterializedAsset(
+        path=path,
+        content_hash=content_hash,
+        metadata=AssetMetadata(
+            uri=uri,
+            resolved_url=uri,
+            digest=None,
+            digest_type=None,
+            length=None,
+            update_time=None,
+            transport="http",
+        ),
+    )
 
 
 def _add_mm_files(root: Path) -> None:
@@ -425,10 +443,10 @@ class TestParquetIndexAccess:
         csv_path.write_text("id,label,score\n0,cat,0.1\n1,dog,0.4\n2,bird,0.6\n")
         ws = _make_remote_csv_workspace(tmp_path, "https://example.com/employees.csv")
 
-        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-            mock_stage.return_value = SimpleNamespace(
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = _remote_asset(
+                csv_path,
                 uri="https://example.com/employees.csv",
-                path=csv_path,
                 content_hash="abc123",
             )
             label = parse_label(
@@ -440,7 +458,7 @@ class TestParquetIndexAccess:
         rows = result.value
         assert isinstance(rows, list)
         assert [row["id"] for row in rows] == [1, 2]
-        mock_stage.assert_called_once_with("https://example.com/employees.csv")
+        mock_materialize.assert_called_once()
 
     def test_remote_csv_slice_entity_query_returns_rows(
         self, tmp_path: Path
@@ -450,10 +468,10 @@ class TestParquetIndexAccess:
         csv_path.write_text("id,label,score\n0,cat,0.1\n1,dog,0.4\n2,bird,0.6\n")
         ws = _make_remote_csv_workspace(tmp_path, "https://example.com/employees.csv")
 
-        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-            mock_stage.return_value = SimpleNamespace(
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = _remote_asset(
+                csv_path,
                 uri="https://example.com/employees.csv",
-                path=csv_path,
                 content_hash="abc123",
             )
             label = parse_label("@data//pkg/dataset:remote_dataset[:2]")
@@ -464,7 +482,7 @@ class TestParquetIndexAccess:
         assert isinstance(rows, list)
         assert [row["id"] for row in rows] == [0, 1]
         assert [row["label"] for row in rows] == ["cat", "dog"]
-        mock_stage.assert_called_once_with("https://example.com/employees.csv")
+        mock_materialize.assert_called_once()
 
     def test_source_backed_local_csv_sql_entity_query_materializes_cache(
         self, tmp_path: Path

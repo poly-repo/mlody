@@ -17,11 +17,15 @@ from mlody.core.location_specs import (
 )
 
 
-def asset_from_location(location: object) -> AssetSource | None:
+def asset_from_location(
+    location: object,
+    *,
+    freshness: object | None = None,
+) -> AssetSource | None:
     """Resolve a runtime location object into a generic asset source."""
     remote_spec = RemoteLocationSpec.from_location(location)
     if remote_spec is not None:
-        return HttpAssetSource(uri=remote_spec.uri)
+        return HttpAssetSource(uri=remote_spec.uri, freshness=freshness)
 
     posix_spec = PosixLocationSpec.from_location(location)
     if posix_spec is not None:
@@ -30,7 +34,11 @@ def asset_from_location(location: object) -> AssetSource | None:
     return None
 
 
-def asset_from_value(value_struct: object) -> AssetSource | None:
+def asset_from_value(
+    value_struct: object,
+    *,
+    freshness_override: object | None = None,
+) -> AssetSource | None:
     """Resolve a runtime value struct into a generic asset source."""
     if derived_location_spec_from_value(value_struct) is not None:
         return None
@@ -38,10 +46,22 @@ def asset_from_value(value_struct: object) -> AssetSource | None:
     location = getattr(value_struct, "location", None)
     posix_spec = PosixLocationSpec.from_location(location)
     source_value = _source_value_struct(value_struct)
+    freshness = (
+        freshness_override
+        if freshness_override is not None
+        else getattr(value_struct, "freshness", None)
+    )
     if posix_spec is not None and source_value is not None:
-        return _copied_asset_from_value(value_struct, posix_spec, source_value)
+        return _copied_asset_from_value(
+            value_struct,
+            posix_spec,
+            source_value,
+            freshness=freshness,
+        )
 
-    return asset_from_location(location)
+    return asset_from_location(location, freshness=freshness)
+
+
 def _local_asset_from_spec(spec: PosixLocationSpec) -> LocalPathAssetSource | None:
     if len(spec.paths) != 1:
         return None
@@ -55,6 +75,8 @@ def _copied_asset_from_value(
     value_struct: object,
     posix_spec: PosixLocationSpec,
     source_value: object,
+    *,
+    freshness: object | None,
 ) -> CopiedAssetSource | None:
     if len(posix_spec.paths) != 1:
         return None
@@ -72,8 +94,9 @@ def _copied_asset_from_value(
         source_struct: object = source_value,
         source_name: str = source_name,
         value_name: str = value_name,
+        freshness: object | None = freshness,
     ) -> AssetSource:
-        upstream = asset_from_value(source_struct)
+        upstream = asset_from_value(source_struct, freshness_override=freshness)
         if upstream is None:
             raise ValueError(
                 f"Source-backed local value {value_name!r} depends on non-materializable "
@@ -87,4 +110,5 @@ def _copied_asset_from_value(
         upstream_factory=_make_upstream,
         source_label=str(source_label) if source_label is not None else None,
         lineage_owner=value_struct,
+        freshness=freshness,
     )

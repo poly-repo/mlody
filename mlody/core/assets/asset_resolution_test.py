@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import functools
+import http.server
+import threading
 from pathlib import Path
 
 import pytest
@@ -11,6 +14,35 @@ from mlody.core.assets.copied_asset import CopiedAssetSource
 from mlody.core.assets.http_asset import HttpAssetSource
 from mlody.core.assets.local_asset import LocalAssetError, LocalPathAssetSource
 from mlody.core.assets.resolution import asset_from_location, asset_from_value
+
+
+@pytest.fixture()
+def http_server(tmp_path: Path) -> tuple[str, Path]:
+    """Serve *tmp_path* over HTTP and return ``(base_url, root)``."""
+
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+            return
+
+    handler = functools.partial(QuietHandler, directory=str(tmp_path))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        yield (f"http://{host}:{port}", tmp_path)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
+def _manual() -> Struct:
+    return Struct(kind="freshness", type="manual", name="manual", attributes={})
+
+
+def _always() -> Struct:
+    return Struct(kind="freshness", type="always", name="always", attributes={})
 
 
 def test_asset_from_location_returns_http_asset_for_remote_location() -> None:
@@ -93,6 +125,41 @@ def test_asset_from_value_returns_copied_asset_for_source_backed_local_value(tmp
     materialized = asset.materialize()
     assert materialized.path == destination_path
     assert destination_path.read_text() == source_path.read_text()
+
+
+def test_asset_from_value_uses_downstream_freshness_for_cached_remote_value(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+) -> None:
+    base_url, root = http_server
+    source_path = root / "source.csv"
+    source_path.write_text("name,age\nAlice,30\n")
+    destination_path = tmp_path / "cached.csv"
+    value_struct = Struct(
+        kind="value",
+        location=Struct(kind="location", type="posix", path=str(destination_path)),
+        freshness=_always(),
+        _source_value=Struct(
+            kind="value",
+            freshness=_manual(),
+            location=Struct(
+                kind="location",
+                type="remote",
+                uri=f"{base_url}/source.csv",
+            ),
+        ),
+    )
+
+    asset = asset_from_value(value_struct)
+
+    assert isinstance(asset, CopiedAssetSource)
+    first = asset.materialize()
+    source_path.write_text("name,age\nAlice,30\nBob,40\n")
+    second = asset.materialize()
+
+    assert first.path == second.path
+    assert destination_path.read_text() == source_path.read_text()
+    assert first.content_hash != second.content_hash
 
 
 def test_asset_from_value_returns_none_for_derived_value() -> None:

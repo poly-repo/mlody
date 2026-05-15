@@ -8,7 +8,25 @@ from unittest.mock import patch
 import pytest
 from common.python.starlarkish.core.struct import Struct
 
+from mlody.core.assets.interfaces import MaterializedAsset
+from mlody.core.assets.metadata import AssetMetadata
 from mlody.core.virtual_value import lookup_runtime_attribute, step_object
+
+
+def _remote_asset(path: Path, *, uri: str, content_hash: str) -> MaterializedAsset:
+    return MaterializedAsset(
+        path=path,
+        content_hash=content_hash,
+        metadata=AssetMetadata(
+            uri=uri,
+            resolved_url=uri,
+            digest=None,
+            digest_type=None,
+            length=None,
+            update_time=None,
+            transport="http",
+        ),
+    )
 
 
 class TestStepObject:
@@ -85,10 +103,10 @@ class TestLineageVirtualAttribute:
         lineage_attr = lookup_runtime_attribute(value_struct, "lineage")
 
         assert lineage_attr is not None
-        with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-            mock_stage.return_value = Struct(
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = _remote_asset(
+                Path("/tmp/staged.csv"),
                 uri="https://example.com/data.csv",
-                path=Path("/tmp/staged.csv"),
                 content_hash="abc123",
             )
 

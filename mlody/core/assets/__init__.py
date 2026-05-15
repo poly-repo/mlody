@@ -2,6 +2,14 @@
 
 from mlody.core.assets.cache import cache_dir_for_key, default_http_cache_root, ensure_cache_root
 from mlody.core.assets.copied_asset import CopiedAssetSource
+from mlody.core.assets.freshness_policy import (
+    FreshnessPolicy,
+    freshness_policy_from_struct,
+    manifest_with_refreshed_remote_metadata,
+    remote_metadata_indicates_change,
+    should_refresh_copied_asset,
+    should_revalidate_http_asset,
+)
 from mlody.core.assets.http_asset import HttpAssetError, HttpAssetSource
 from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
 from mlody.core.assets.local_asset import LocalAssetError, LocalPathAssetSource
@@ -22,6 +30,7 @@ __all__ = [
     "AssetMetadata",
     "AssetSource",
     "CopiedAssetSource",
+    "FreshnessPolicy",
     "HttpAssetError",
     "HttpAssetManifest",
     "HttpAssetManifestLocal",
@@ -38,6 +47,11 @@ __all__ = [
     "ensure_cache_root",
     "asset_from_location",
     "asset_from_value",
+    "freshness_policy_from_struct",
     "load_manifest",
+    "manifest_with_refreshed_remote_metadata",
+    "remote_metadata_indicates_change",
+    "should_refresh_copied_asset",
+    "should_revalidate_http_asset",
     "write_manifest",
 ]

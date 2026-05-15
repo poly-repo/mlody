@@ -6,9 +6,11 @@ import functools
 import http.server
 import threading
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from mlody.common.struct import Struct
 from mlody.core.assets.http_asset import HttpAssetError, HttpAssetSource
 from mlody.core.assets.manifest import load_manifest
 
@@ -70,6 +72,62 @@ def test_http_asset_source_reuses_cached_payload_across_instances(
     assert first.path == second.path
     assert first.content_hash == second.content_hash
     assert second.path.exists()
+
+
+def test_http_asset_source_ttl_reuses_recent_cache_without_revalidation(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+) -> None:
+    base_url, root = http_server
+    cache_root = tmp_path / "assets-cache"
+    source_path = root / "employees.csv"
+    source_path.write_text("name,age\nAlice,30\nBob,40\n")
+    uri = f"{base_url}/employees.csv"
+    freshness = Struct(
+        kind="freshness",
+        type="ttl",
+        name="ttl",
+        attributes={"duration": "P1D"},
+    )
+
+    first = HttpAssetSource(uri=uri, cache_root=cache_root, freshness=freshness).materialize()
+    source_path.unlink()
+
+    with patch("mlody.core.assets.http_asset.fetch_http_info") as mock_http_info:
+        second = HttpAssetSource(
+            uri=uri,
+            cache_root=cache_root,
+            freshness=freshness,
+        ).materialize()
+
+    assert first.path == second.path
+    assert first.content_hash == second.content_hash
+    mock_http_info.assert_not_called()
+
+
+def test_http_asset_source_always_revalidates_and_redownloads_when_remote_changes(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+) -> None:
+    base_url, root = http_server
+    cache_root = tmp_path / "assets-cache"
+    source_path = root / "employees.csv"
+    source_path.write_text("name,age\nAlice,30\nBob,40\n")
+    uri = f"{base_url}/employees.csv"
+    freshness = Struct(
+        kind="freshness",
+        type="always",
+        name="always",
+        attributes={},
+    )
+
+    first = HttpAssetSource(uri=uri, cache_root=cache_root, freshness=freshness).materialize()
+    source_path.write_text("name,age\nAlice,30\nBob,40\nCarol,50\n")
+    second = HttpAssetSource(uri=uri, cache_root=cache_root, freshness=freshness).materialize()
+
+    assert first.path == second.path
+    assert first.content_hash != second.content_hash
+    assert second.path.read_text() == source_path.read_text()
 
 
 def test_http_asset_source_rejects_unsupported_scheme(tmp_path: Path) -> None:

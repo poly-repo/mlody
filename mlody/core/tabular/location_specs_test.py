@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import functools
+import http.server
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,6 +12,8 @@ import pyarrow.parquet as pq
 import pytest
 
 from mlody.common.struct import Struct
+from mlody.core.assets.interfaces import MaterializedAsset
+from mlody.core.assets.metadata import AssetMetadata
 
 from mlody.core.tabular import (
     CsvSource,
@@ -23,6 +28,51 @@ from mlody.core.tabular import (
     source_from_value,
 )
 from mlody.core.tabular.location_specs import query_rows_from_value
+
+
+@pytest.fixture()
+def http_server(tmp_path: Path) -> tuple[str, Path]:
+    """Serve *tmp_path* over HTTP and return ``(base_url, root)``."""
+
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+            return
+
+    handler = functools.partial(QuietHandler, directory=str(tmp_path))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        yield (f"http://{host}:{port}", tmp_path)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
+def _remote_asset(path: Path, *, uri: str, content_hash: str) -> MaterializedAsset:
+    return MaterializedAsset(
+        path=path,
+        content_hash=content_hash,
+        metadata=AssetMetadata(
+            uri=uri,
+            resolved_url=uri,
+            digest=None,
+            digest_type=None,
+            length=None,
+            update_time=None,
+            transport="http",
+        ),
+    )
+
+
+def _manual() -> Struct:
+    return Struct(kind="freshness", type="manual", name="manual", attributes={})
+
+
+def _always() -> Struct:
+    return Struct(kind="freshness", type="always", name="always", attributes={})
 
 
 def test_posix_location_spec_reads_direct_path_field() -> None:
@@ -266,10 +316,10 @@ def test_source_from_value_returns_remote_csv_source_for_remote_csv_value() -> N
         ),
     )
 
-    with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-        mock_stage.return_value = Struct(
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+        mock_materialize.return_value = _remote_asset(
+            Path("/tmp/staged.csv"),
             uri="https://example.com/data.csv",
-            path=Path("/tmp/staged.csv"),
             content_hash="abc123",
         )
         source = source_from_value(value_struct)
@@ -312,10 +362,10 @@ def test_source_from_value_returns_remote_parquet_source_for_remote_parquet_valu
         ),
     )
 
-    with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-        mock_stage.return_value = Struct(
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+        mock_materialize.return_value = _remote_asset(
+            Path("/tmp/staged.parquet"),
             uri="https://example.com/data.parquet",
-            path=Path("/tmp/staged.parquet"),
             content_hash="def456",
         )
         source = source_from_value(value_struct)
@@ -412,10 +462,10 @@ def test_source_from_value_builds_derived_source_for_remote_csv_source(
         ),
     )
 
-    with patch("mlody.core.tabular.remote_staging.stage_remote_file") as mock_stage:
-        mock_stage.return_value = Struct(
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+        mock_materialize.return_value = _remote_asset(
+            csv_path,
             uri="https://example.com/employees.csv",
-            path=csv_path,
             content_hash="hash123",
         )
         source = source_from_value(value_struct)
@@ -599,6 +649,67 @@ def test_source_backed_local_source_cache_hit_reconstructs_upstream_lineage(
         "source_path": None,
         "destination_path": str(destination_path),
     }
+
+
+def test_source_backed_local_source_revalidates_remote_for_always_freshness(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+) -> None:
+    base_url, root = http_server
+    source_path = root / "employees.csv"
+    source_path.write_text("name,salary\nAlice,120000\n")
+    destination_path = tmp_path / "cache" / "employees.csv"
+    value_struct = Struct(
+        kind="value",
+        name="employees_local",
+        freshness=_always(),
+        location=Struct(kind="location", type="posix", path=str(destination_path)),
+        source=":employees",
+        _source_value=Struct(
+            kind="value",
+            name="employees",
+            freshness=_manual(),
+            location=Struct(
+                kind="location",
+                type="remote",
+                attributes={"uri": f"{base_url}/employees.csv"},
+            ),
+            representation=Struct(
+                kind="representation",
+                name="csv",
+                separator=",",
+                header_required=True,
+                multifile=False,
+                attributes={
+                    "separator": ",",
+                    "header_required": True,
+                    "multifile": False,
+                },
+            ),
+        ),
+        representation=Struct(
+            kind="representation",
+            name="csv",
+            separator=",",
+            header_required=True,
+            multifile=False,
+            attributes={
+                "separator": ",",
+                "header_required": True,
+                "multifile": False,
+            },
+        ),
+    )
+
+    source = source_from_value(value_struct)
+
+    assert isinstance(source, MaterializedLocalSource)
+    first = source.materialize()
+    source_path.write_text("name,salary\nAlice,120000\nBob,90000\n")
+    second = source.materialize()
+
+    assert first == second == destination_path
+    assert destination_path.read_text() == source_path.read_text()
 
 
 def test_source_backed_local_source_raises_for_non_tabular_source() -> None:

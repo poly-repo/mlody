@@ -17,6 +17,8 @@ o_py_library(
         ":materialized_local_source_lib",
         ":parquet_source_lib",
         ":remote_staging_lib",
+        "//mlody/core/assets:freshness_policy_lib",
+        "//mlody/core/assets:http_asset_lib",
         "//mlody/core/assets:interfaces_lib",
         "//mlody/core/assets:metadata_lib",
         "//mlody/core/assets:resolution_lib",

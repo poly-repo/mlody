@@ -24,6 +24,7 @@ class MaterializedLocalSource:
     separator: str = ","
     header_required: bool = True
     lineage_owner: object | None = None
+    freshness: object | None = None
 
     @property
     def paths(self) -> tuple[str, ...]:
@@ -69,4 +70,5 @@ class MaterializedLocalSource:
             upstream_factory=self.upstream_factory,
             source_label=self.source_label,
             lineage_owner=self.lineage_owner,
+            freshness=self.freshness,
         )

@@ -27,6 +27,10 @@ from rich.table import Table
 
 from common.python.console import RichDomNode, RichDomExecutor, SyntaxNode, panel
 
+from mlody.cli.asset_render import (
+    asset_metadata_payload,
+    build_asset_metadata_console_table,
+)
 from mlody.cli.dag_render import build_dag_table, render_dag_table, resolve_show_output_selection
 from mlody.cli.lineage_render import (
     build_lineage_console_table,
@@ -1314,6 +1318,12 @@ def _render_mlody_value(value: MlodyValue) -> RichDomNode:
                     title="lineage",
                 )
         payload = _display_payload(value)
+        asset_payload = asset_metadata_payload(payload)
+        if asset_payload is not None:
+            return panel(
+                _RichRenderableNode(build_asset_metadata_console_table(asset_payload)),
+                title="asset",
+            )
         raw_json = _raw_json_blob(payload, name=getattr(value.struct, "name", None))
         if raw_json is not None:
             return panel(SyntaxNode(raw_json, language="json"), title="value")

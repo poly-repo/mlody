@@ -11,6 +11,19 @@ from mlody.core.assets.copied_asset import CopiedAssetSource
 from mlody.core.assets.local_asset import LocalPathAssetSource
 
 
+def _always() -> Struct:
+    return Struct(kind="freshness", type="always", name="always", attributes={})
+
+
+def _ttl(duration: str) -> Struct:
+    return Struct(
+        kind="freshness",
+        type="ttl",
+        name="ttl",
+        attributes={"duration": duration},
+    )
+
+
 def test_copied_asset_source_copies_upstream_file_and_records_lineage(tmp_path: Path) -> None:
     source_path = tmp_path / "source.csv"
     source_path.write_text("name,age\nAlice,30\n")
@@ -89,6 +102,44 @@ def test_copied_asset_source_cache_hit_skips_upstream_factory(tmp_path: Path) ->
         "downloaded from",
         "copied from",
     ]
+
+
+def test_copied_asset_source_recent_ttl_cache_skips_upstream_factory(tmp_path: Path) -> None:
+    destination_path = tmp_path / "cache" / "employees.csv"
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    destination_path.write_text("name,age\nAlice,30\n")
+
+    def _unexpected_upstream() -> LocalPathAssetSource:
+        raise AssertionError("upstream_factory should not run for fresh TTL cache")
+
+    materialized = CopiedAssetSource(
+        value_name="employees-local",
+        destination_path=str(destination_path),
+        upstream_factory=_unexpected_upstream,
+        source_label=":employees-remote",
+        freshness=_ttl("P1D"),
+    ).materialize()
+
+    assert materialized.path == destination_path
+
+
+def test_copied_asset_source_always_refreshes_existing_cache(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.csv"
+    source_path.write_text("name,age\nAlice,30\nBob,40\n")
+    destination_path = tmp_path / "cache" / "employees.csv"
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    destination_path.write_text("name,age\nAlice,30\n")
+
+    materialized = CopiedAssetSource(
+        value_name="employees-local",
+        destination_path=str(destination_path),
+        upstream_factory=lambda: LocalPathAssetSource(path=source_path),
+        source_label=":employees-remote",
+        freshness=_always(),
+    ).materialize()
+
+    assert materialized.path == destination_path
+    assert destination_path.read_text() == source_path.read_text()
 
 
 def test_copied_asset_source_raises_when_no_upstream_is_available(tmp_path: Path) -> None:

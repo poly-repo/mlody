@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from mlody.common.struct import Struct
+from mlody.core.assets.freshness_policy import should_refresh_copied_asset
 from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
 from mlody.core.lineage import build_lineage_event, record_lineage
@@ -26,15 +28,24 @@ class CopiedAssetSource:
     upstream_factory: Callable[[], AssetSource] | None = None
     source_label: str | None = None
     lineage_owner: object | None = None
+    freshness: object | None = None
 
     def materialize(self) -> MaterializedAsset:
         """Ensure the copied local asset exists and return it."""
         destination = self._destination()
         if destination.exists():
+            if should_refresh_copied_asset(
+                self.freshness,
+                destination_mtime=destination.stat().st_mtime,
+            ):
+                return self._refresh_from_upstream(destination)
             _logger.debug("Source-backed local cache hit for %s", destination)
             self._record_copy_lineage(destination)
             return self._materialized_asset(destination, content_hash=None)
 
+        return self._refresh_from_upstream(destination)
+
+    def _refresh_from_upstream(self, destination: Path) -> MaterializedAsset:
         if self.upstream_factory is None:
             source_ref = self.source_label or "<unknown>"
             raise ValueError(
@@ -45,6 +56,24 @@ class CopiedAssetSource:
         upstream = self.upstream_factory()
         upstream_asset = upstream.materialize()
         source_path = upstream_asset.path
+
+        if (
+            destination.exists()
+            and upstream_asset.content_hash is not None
+            and self._file_content_hash(destination) == upstream_asset.content_hash
+        ):
+            os.utime(destination, None)
+            _logger.debug(
+                "Source-backed local cache for %s is already current at %s",
+                self.value_name,
+                destination,
+            )
+            self._record_copy_lineage(destination, source_path=source_path)
+            return self._materialized_asset(
+                destination,
+                content_hash=upstream_asset.content_hash,
+                source_path=source_path,
+            )
 
         destination.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = Path(str(destination) + ".tmp")
@@ -76,6 +105,16 @@ class CopiedAssetSource:
             content_hash=upstream_asset.content_hash,
             source_path=source_path,
         )
+
+    def _file_content_hash(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _destination(self) -> Path:
         return Path(os.path.expanduser(self.destination_path))
@@ -306,4 +345,3 @@ class CopiedAssetSource:
         if isinstance(value, (list, tuple)):
             return [str(item) for item in value]
         return str(value)
-

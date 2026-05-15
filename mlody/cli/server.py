@@ -41,6 +41,7 @@ from mlody.cli.autocomplete import (
     parse_stage_autocomplete_request,
     stage_autocomplete_payload,
 )
+from mlody.cli.asset_render import asset_metadata_payload
 from mlody.cli.dag_render import build_stage_dag_data
 from mlody.cli.lineage_render import is_lineage_type, lineage_rows_from_payload
 from mlody.cli.show import (
@@ -1331,6 +1332,9 @@ def _stage_result_for_mlody_value(
                             "value": _serialize_mlody_value(value),
                         },
                     )
+        asset_payload = asset_metadata_payload(display_payload)
+        if asset_payload is not None:
+            return _stage_json_result(title, asset_payload)
         return _stage_json_result(title, display_payload)
 
     return _stage_json_result(title, _serialize_mlody_value(value))

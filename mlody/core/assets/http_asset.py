@@ -18,6 +18,11 @@ from mlody.core.assets.cache import (
     default_http_cache_root,
     ensure_cache_root,
 )
+from mlody.core.assets.freshness_policy import (
+    manifest_with_refreshed_remote_metadata,
+    remote_metadata_indicates_change,
+    should_revalidate_http_asset,
+)
 from mlody.core.assets.interfaces import MaterializedAsset
 from mlody.core.assets.manifest import (
     HttpAssetManifest,
@@ -44,6 +49,7 @@ class HttpAssetSource:
 
     uri: str
     cache_root: Path | None = None
+    freshness: object | None = None
 
     def materialize(self) -> MaterializedAsset:
         """Return a locally cached copy of *uri*."""
@@ -59,21 +65,44 @@ class HttpAssetSource:
         cache_dir = cache_dir_for_key(cache_root, cache_key)
         manifest_path = cache_dir / "manifest.json"
 
-        cached_asset = self._load_cached_asset(manifest_path)
-        if cached_asset is not None:
+        manifest = self._load_manifest(manifest_path)
+        cached_asset = self._cached_asset_from_manifest(manifest_path, manifest)
+        if cached_asset is not None and not should_revalidate_http_asset(
+            self.freshness,
+            manifest,
+        ):
             _logger.info("Reusing cached remote URI %s from %s", self.uri, cached_asset.path)
             return cached_asset
 
+        if cached_asset is not None and manifest is not None:
+            revalidated = self._revalidate_cached_asset(
+                cache_dir,
+                manifest_path,
+                cache_key,
+                manifest,
+                cached_asset,
+            )
+            if revalidated is not None:
+                return revalidated
+
         return self._download_asset(cache_dir, manifest_path, cache_key)
 
-    def _load_cached_asset(self, manifest_path: Path) -> MaterializedAsset | None:
+    def _load_manifest(self, manifest_path: Path) -> HttpAssetManifest | None:
         if not manifest_path.exists():
             return None
 
         try:
-            manifest = load_manifest(manifest_path)
+            return load_manifest(manifest_path)
         except Exception as exc:  # noqa: BLE001
             _logger.warning("Ignoring unreadable remote asset manifest at %s: %s", manifest_path, exc)
+            return None
+
+    def _cached_asset_from_manifest(
+        self,
+        manifest_path: Path,
+        manifest: HttpAssetManifest | None,
+    ) -> MaterializedAsset | None:
+        if manifest is None:
             return None
 
         payload_relpath = manifest.local.payload_relpath
@@ -91,22 +120,67 @@ class HttpAssetSource:
             metadata=_asset_metadata_from_manifest(manifest),
         )
 
+    def _revalidate_cached_asset(
+        self,
+        cache_dir: Path,
+        manifest_path: Path,
+        cache_key: str,
+        manifest: HttpAssetManifest,
+        cached_asset: MaterializedAsset,
+    ) -> MaterializedAsset | None:
+        try:
+            metadata = fetch_http_info(self.uri)
+        except Exception:  # noqa: BLE001
+            _logger.warning(
+                "Unable to revalidate cached remote URI %s; reusing cached payload",
+                self.uri,
+                exc_info=True,
+            )
+            return cached_asset
+
+        if remote_metadata_indicates_change(manifest, metadata):
+            return self._download_asset(
+                cache_dir,
+                manifest_path,
+                cache_key,
+                metadata=metadata,
+            )
+
+        refreshed_manifest = manifest_with_refreshed_remote_metadata(
+            manifest,
+            metadata,
+            checked_at=_utc_now(),
+        )
+        write_manifest(manifest_path, refreshed_manifest)
+        _logger.info(
+            "Revalidated cached remote URI %s without downloading new bytes",
+            self.uri,
+        )
+        return MaterializedAsset(
+            path=cached_asset.path,
+            content_hash=cached_asset.content_hash,
+            metadata=_asset_metadata_from_manifest(refreshed_manifest),
+        )
+
     def _download_asset(
         self,
         cache_dir: Path,
         manifest_path: Path,
         cache_key: str,
+        *,
+        metadata: dict[str, object] | None = None,
     ) -> MaterializedAsset:
         cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        try:
-            metadata = fetch_http_info(self.uri)
-        except Exception:  # noqa: BLE001
-            _logger.debug(
-                "Unable to collect remote metadata for %s before download; proceeding with GET only",
-                self.uri,
-                exc_info=True,
-            )
-            metadata = {}
+        if metadata is None:
+            try:
+                metadata = fetch_http_info(self.uri)
+            except Exception:  # noqa: BLE001
+                _logger.debug(
+                    "Unable to collect remote metadata for %s before download; proceeding with GET only",
+                    self.uri,
+                    exc_info=True,
+                )
+                metadata = {}
         request = Request(self.uri, headers={"User-Agent": _REMOTE_USER_AGENT})
         temp_path: Path | None = None
         resolved_url = self.uri
@@ -154,6 +228,8 @@ class HttpAssetSource:
                 digest_type=_optional_text(metadata.get("digest_type")),
                 length=_optional_int(metadata.get("length")) or total_bytes,
                 update_time=_optional_text(metadata.get("update_time")),
+                etag=_optional_text(metadata.get("etag")),
+                last_modified=_optional_text(metadata.get("last_modified")),
                 metadata_checked_at=now,
             ),
             local=HttpAssetManifestLocal(

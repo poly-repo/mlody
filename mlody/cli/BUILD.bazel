@@ -5,6 +5,7 @@ o_py_library(
     srcs = [
         "__init__.py",
         "autocomplete.py",
+        "asset_render.py",
         "dag_gui.py",
         "dag_render.py",
         "lineage_render.py",
@@ -19,6 +20,7 @@ o_py_library(
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody/common:context_lib",  # keep
         "//mlody/core:core_lib",
+        "//mlody/core/assets:assets",
         "//mlody/core/label:label_lib",
         "//mlody/core/sql:sql_query_lib",
         "//mlody/core/tabular",

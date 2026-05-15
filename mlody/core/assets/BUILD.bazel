@@ -27,11 +27,19 @@ o_py_library(
 )
 
 o_py_library(
+    name = "freshness_policy_lib",
+    srcs = ["freshness_policy.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [":manifest_lib"],
+)
+
+o_py_library(
     name = "http_asset_lib",
     srcs = ["http_asset.py"],
     visibility = ["//:__subpackages__"],
     deps = [
         ":cache_lib",
+        ":freshness_policy_lib",
         ":interfaces_lib",
         ":manifest_lib",
         ":metadata_lib",
@@ -54,6 +62,7 @@ o_py_library(
     srcs = ["copied_asset.py"],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":freshness_policy_lib",
         ":interfaces_lib",
         ":metadata_lib",
         "//mlody/common:common_lib",
@@ -86,6 +95,7 @@ o_py_library(
         ":local_asset_lib",
         ":manifest_lib",
         ":metadata_lib",
+        ":freshness_policy_lib",
         ":resolution_lib",
     ],
 )
@@ -104,8 +114,10 @@ o_py_test(
     name = "http_asset_test",
     srcs = ["http_asset_test.py"],
     deps = [
+        ":freshness_policy_lib",
         ":http_asset_lib",
         ":manifest_lib",
+        "//mlody/common:common_lib",
         "@pip//pytest",
     ],
 )
@@ -115,6 +127,7 @@ o_py_test(
     srcs = ["asset_resolution_test.py"],
     deps = [
         ":copied_asset_lib",
+        ":freshness_policy_lib",
         ":http_asset_lib",
         ":local_asset_lib",
         ":resolution_lib",
@@ -128,7 +141,19 @@ o_py_test(
     srcs = ["copied_asset_test.py"],
     deps = [
         ":copied_asset_lib",
+        ":freshness_policy_lib",
         ":local_asset_lib",
+        "//mlody/common:common_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "freshness_policy_test",
+    srcs = ["freshness_policy_test.py"],
+    deps = [
+        ":freshness_policy_lib",
+        ":manifest_lib",
         "//mlody/common:common_lib",
         "@pip//pytest",
     ],

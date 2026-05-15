@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import http.server
 import socket
 import json
 import threading
@@ -36,6 +38,27 @@ from mlody.core.dag_value import MlodyDagType
 from mlody.core.workspace_models import RootInfo
 from mlody.resolver import MlodyFolderValue, MlodyValueValue
 from mlody.resolver.label_value import MlodySourceRangeValue, _RawAttrValue
+
+
+@pytest.fixture()
+def http_server(tmp_path: Path) -> tuple[str, Path]:
+    """Serve *tmp_path* over HTTP and return ``(base_url, root)``."""
+
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+            return
+
+    handler = functools.partial(QuietHandler, directory=str(tmp_path))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        yield (f"http://{host}:{port}", tmp_path)
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
 
 
 def _server_config(tmp_path: Path, *, http_port: int = 0) -> ServerConfig:
@@ -686,6 +709,80 @@ class TestExecuteStageCommandResponse:
             "name": "a-string",
             "data": ["FOOBAR"],
         }
+        assert "valueType" not in response
+
+    def test_serializes_non_tabular_remote_values_as_asset_metadata_json(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        http_server: tuple[str, Path],
+    ) -> None:
+        base_url, root = http_server
+        (root / "data.json").write_text('{"hello": "world"}', encoding="utf-8")
+
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyValueValue(
+                struct=Struct(
+                    kind="value",
+                    name="remote-meta",
+                    type=None,
+                    location=Struct(
+                        kind="location",
+                        type="remote",
+                        name="remote",
+                        attributes={"uri": f"{base_url}/data.json"},
+                    ),
+                    freshness=Struct(
+                        kind="freshness",
+                        type="manual",
+                        name="manual",
+                        attributes={},
+                    ),
+                    default=None,
+                    source=None,
+                    representation=Struct(
+                        kind="representation",
+                        name="json",
+                        attributes={},
+                    ),
+                    _lineage=[],
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.source_from_value",
+            lambda _value: None,
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "//simple:remote-meta",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"]["type"] == "json"
+        assert response["data"]["kind"] == "asset"
+        assert response["data"]["origin"] == "remote"
+        assert response["data"]["representation"] == "json"
+        assert response["data"]["freshness"] == "manual"
+        assert response["data"]["uri"] == f"{base_url}/data.json"
+        assert response["data"]["path"].endswith(".json")
+        assert response["data"]["contentHash"]
         assert "valueType" not in response
 
     def test_typed_scalar_json_result_includes_value_type_metadata(
