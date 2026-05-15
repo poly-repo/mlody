@@ -41,14 +41,12 @@ from mlody.cli.main import cli
 from mlody.core.dag import build_dag
 from mlody.core.derived import DerivedValueShapeError
 from mlody.core.sql.sql_query import MlodyQueryError
-from mlody.core.tabular import (
-    CsvSource,
-    DerivedSource,
-    ParquetSource,
-    PreviewResult,
-    source_from_value,
-)
+from mlody.core.tabular.csv_source import CsvSource
+from mlody.core.tabular.derived_source import DerivedSource
+from mlody.core.tabular.interfaces import PreviewResult
+from mlody.core.tabular.location_specs import source_from_value
 from mlody.core.tabular.materialized_local_source import MaterializedLocalSource
+from mlody.core.tabular.parquet_source import ParquetSource
 from mlody.core.workspace import Workspace, WorkspaceLoadError, force
 from mlody.db.evaluations import open_db, write_evaluation
 from mlody.db.local_diff import compute_local_diff_sha, get_repo_root

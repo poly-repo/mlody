@@ -30,7 +30,7 @@ from __future__ import annotations
 from typing import Callable
 
 from mlody.common.struct import Struct
-from mlody.core.tabular import DerivedLocationSpec, PosixLocationSpec
+from mlody.core.location_specs import DerivedLocationSpec, PosixLocationSpec
 
 
 class _LocationComposeError(Exception):

@@ -14,20 +14,21 @@ import pytest
 from mlody.common.struct import Struct
 from mlody.core.assets.interfaces import MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
-
-from mlody.core.tabular import (
-    CsvSource,
+from mlody.core.location_specs import (
     DerivedLocationSpec,
-    DerivedSource,
-    ParquetSource,
     PosixLocationSpec,
     RemoteLocationSpec,
     derived_location_spec_from_value,
+)
+from mlody.core.tabular.csv_source import CsvSource
+from mlody.core.tabular.derived_source import DerivedSource
+from mlody.core.tabular.location_specs import (
+    query_rows_from_value,
     source_from_location,
     source_from_value,
 )
-from mlody.core.tabular.location_specs import query_rows_from_value
 from mlody.core.tabular.materialized_local_source import MaterializedLocalSource
+from mlody.core.tabular.parquet_source import ParquetSource
 
 
 @pytest.fixture()

@@ -2351,7 +2351,8 @@ class ParquetTraversalStrategy:
         # Derived locations must be materialised before we can read rows from them.
         if _loc_root_kind == "derived":
             try:
-                from mlody.core.tabular import DerivedSource, source_from_value  # noqa: PLC0415
+                from mlody.core.location_specs import source_from_value  # noqa: PLC0415
+                from mlody.core.tabular.derived_source import DerivedSource  # noqa: PLC0415
 
                 derived_source = source_from_value(value)
                 if not isinstance(derived_source, DerivedSource):

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from mlody.core.location_specs import DerivedLocationSpec
 from mlody.core.optimiser import QueryOptimiser, SequentialOptimiser
-from mlody.core.tabular import (
+from mlody.core.tabular.derived_source import (
     DerivedSource,
     DerivedValueShapeError,
-    DerivedLocationSpec,
     validate_shape,
 )
 

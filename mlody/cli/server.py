@@ -57,7 +57,7 @@ from mlody.core.workspace_models import RootInfo
 from mlody.core.label import parse_label
 from mlody.core.label.label import Label
 from mlody.core.sql.sql_query import MlodyQueryError
-from mlody.core.tabular import source_from_value
+from mlody.core.tabular.location_specs import source_from_value
 from mlody.core.workspace import WorkspaceLoadError, force
 from mlody.resolver import (
     MlodyActionValue,
