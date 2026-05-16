@@ -28,3 +28,7 @@
 ## Future Rule Of Thumb
 
 - If stage starts rendering any new backend-provided file or image path, route it through `resolveServerBaseUrl()` unless it is already a full `http(s)` URL or a `data:` URL.
+
+## Launcher Safety
+
+- Avoid window-manager automation in `o-stage`; launching the browser is fine, but `wmctrl`/`xdotool`-style focus, resize, move, or close behavior is intentionally out of bounds because it is disruptive on GNOME setups.

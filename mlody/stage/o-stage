@@ -14,7 +14,7 @@ STAGE_URL="http://${API_HOST}:${API_PORT}/"
 STAGE_LAUNCH_URL="${STAGE_URL}?v=$(date +%s%N)"
 HEALTH_URL="http://${API_HOST}:${API_PORT}/healthz"
 BROWSER_MODE="vivaldi"
-REPL_WINDOW_CLASS="mlody-repl"
+KILL_ONLY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -26,12 +26,17 @@ while [[ $# -gt 0 ]]; do
       BROWSER_MODE="vivaldi"
       shift
       ;;
+    --kill)
+      KILL_ONLY=1
+      shift
+      ;;
     -h|--help)
       cat <<'EOF'
-Usage: o-stage [--chrome|--vivaldi]
+Usage: o-stage [--chrome|--vivaldi] [--kill]
 
 Starts a fresh mlody backend server, then opens the stage UI.
 Defaults to Vivaldi unless --chrome is passed.
+Use --kill to stop the current backend/LSP listeners without starting a new server.
 EOF
       exit 0
       ;;
@@ -105,255 +110,8 @@ wait_for_http() {
   exit 1
 }
 
-focus_chrome() {
-  if ! command -v wmctrl >/dev/null 2>&1; then
-    return 0
-  fi
-
-  for target in \
-    "google-chrome.Google-chrome" \
-    "google-chrome.Google-chrome-stable" \
-    "chromium.Chromium" \
-    "Google Chrome"; do
-    if wmctrl -xa "$target" >/dev/null 2>&1; then
-      return 0
-    fi
-  done
-
-  return 0
-}
-
-focus_vivaldi() {
-  if ! command -v wmctrl >/dev/null 2>&1; then
-    return 0
-  fi
-
-  for target in \
-    "vivaldi-stable.Vivaldi-stable" \
-    "vivaldi.Vivaldi" \
-    "vivaldi-snapshot.Vivaldi-snapshot" \
-    "Vivaldi-stable.Vivaldi-stable" \
-    "Vivaldi"; do
-    if wmctrl -xa "$target" >/dev/null 2>&1; then
-      return 0
-    fi
-  done
-
-  return 0
-}
-
-list_browser_window_ids() {
-  local pattern="$1"
-
-  if ! command -v wmctrl >/dev/null 2>&1; then
-    return 0
-  fi
-
-  wmctrl -lx | awk '
-    $4 ~ pattern {
-      print $1
-    }
-  ' pattern="$pattern"
-}
-
-find_new_window_id() {
-  local before_ids="$1"
-  local pattern="$2"
-  local after_id
-
-  for _ in $(seq 1 40); do
-    while IFS= read -r after_id; do
-      [[ -z "$after_id" ]] && continue
-      if ! grep -Fxq "$after_id" <<<"$before_ids"; then
-        printf '%s\n' "$after_id"
-        return 0
-      fi
-    done < <(list_browser_window_ids "$pattern")
-    sleep 0.25
-  done
-
-  return 1
-}
-
-focus_window_id() {
-  local window_id="$1"
-  local normalized_window_id=""
-
-  if [[ -z "$window_id" ]]; then
-    return 0
-  fi
-
-  normalized_window_id="$((window_id))"
-
-  if command -v xdotool >/dev/null 2>&1; then
-    xdotool windowactivate --sync "$normalized_window_id" >/dev/null 2>&1 || true
-  fi
-
-  if ! command -v wmctrl >/dev/null 2>&1; then
-    return 0
-  fi
-
-  wmctrl -ir "$window_id" -b add,above >/dev/null 2>&1 || true
-  for _ in $(seq 1 4); do
-    wmctrl -ia "$window_id" >/dev/null 2>&1 || true
-    sleep 0.2
-  done
-  wmctrl -ir "$window_id" -b remove,above >/dev/null 2>&1 || true
-}
-
-capture_window_geometry() {
-  local window_id="$1"
-
-  if [[ -z "$window_id" ]]; then
-    return 1
-  fi
-
-  if command -v xdotool >/dev/null 2>&1; then
-    xdotool getwindowgeometry --shell "$((window_id))" 2>/dev/null \
-      | awk -F= '/^(X|Y|WIDTH|HEIGHT)=/{print $2}'
-  fi
-}
-
-list_repl_window_ids() {
-  if command -v xdotool >/dev/null 2>&1; then
-    {
-      xdotool search --classname "$REPL_WINDOW_CLASS" 2>/dev/null || true
-      xdotool search --class "$REPL_WINDOW_CLASS" 2>/dev/null || true
-      xdotool search --name "mlody Stage" 2>/dev/null || true
-      xdotool search --name "${DEV_HOST}:${DEV_PORT}" 2>/dev/null || true
-      xdotool search --name "$STAGE_URL" 2>/dev/null || true
-    } | awk 'NF {print}' | awk '!seen[$0]++'
-    return 0
-  fi
-
-  if ! command -v wmctrl >/dev/null 2>&1; then
-    return 0
-  fi
-
-  wmctrl -lx | awk '
-    $4 ~ class_pattern {
-      print $1
-      next
-    }
-    {
-      title = ""
-      for (i = 5; i <= NF; i++) {
-        title = title (i == 5 ? "" : " ") $i
-      }
-      if (title ~ title_pattern) {
-        print $1
-      }
-    }
-  ' class_pattern="(^${REPL_WINDOW_CLASS}\\.|\\.${REPL_WINDOW_CLASS}$|^${REPL_WINDOW_CLASS}$)" \
-    title_pattern="(^mlody Stage$|${DEV_HOST}:${DEV_PORT}|${STAGE_URL})" \
-    | awk 'NF {print}' | awk '!seen[$0]++'
-}
-
-apply_window_geometry() {
-  local window_id="$1"
-  local x="$2"
-  local y="$3"
-  local width="$4"
-  local height="$5"
-  local normalized_window_id=""
-
-  if [[ -z "$window_id" ]] || [[ -z "$x" ]] || [[ -z "$y" ]] || [[ -z "$width" ]] || [[ -z "$height" ]]; then
-    return 0
-  fi
-
-  if ! command -v xdotool >/dev/null 2>&1; then
-    return 0
-  fi
-
-  normalized_window_id="$((window_id))"
-  xdotool windowsize "$normalized_window_id" "$width" "$height" >/dev/null 2>&1 || true
-  xdotool windowmove "$normalized_window_id" "$x" "$y" >/dev/null 2>&1 || true
-}
-
-close_window_id() {
-  local window_id="$1"
-  local normalized_window_id=""
-
-  if [[ -z "$window_id" ]]; then
-    return 0
-  fi
-
-  normalized_window_id="$((window_id))"
-
-  if command -v xdotool >/dev/null 2>&1; then
-    xdotool windowactivate --sync "$normalized_window_id" >/dev/null 2>&1 || true
-    xdotool key --clearmodifiers --window "$normalized_window_id" ctrl+shift+w >/dev/null 2>&1 || true
-    sleep 0.1
-    xdotool key --clearmodifiers --window "$normalized_window_id" alt+F4 >/dev/null 2>&1 || true
-    sleep 0.1
-    xdotool windowclose "$normalized_window_id" >/dev/null 2>&1 || true
-    sleep 0.1
-    xdotool windowkill "$normalized_window_id" >/dev/null 2>&1 || true
-  fi
-
-  if command -v wmctrl >/dev/null 2>&1; then
-    wmctrl -ic "$window_id" >/dev/null 2>&1 || true
-  fi
-}
-
-window_exists() {
-  local window_id="$1"
-  local normalized_window_id=""
-
-  if [[ -z "$window_id" ]]; then
-    return 1
-  fi
-
-  normalized_window_id="$((window_id))"
-
-  if command -v xdotool >/dev/null 2>&1; then
-    xdotool getwindowname "$normalized_window_id" >/dev/null 2>&1
-    return $?
-  fi
-
-  if command -v wmctrl >/dev/null 2>&1; then
-    wmctrl -l | awk '{print $1}' | grep -Fxq "$window_id"
-    return $?
-  fi
-
-  return 1
-}
-
-recycle_repl_windows() {
-  local first_window_id="$1"
-  local window_id=""
-
-  while IFS= read -r window_id; do
-    [[ -z "$window_id" ]] && continue
-    close_window_id "$window_id"
-  done < <(list_repl_window_ids)
-
-  if [[ -z "$first_window_id" ]]; then
-    return 0
-  fi
-
-  for _ in $(seq 1 50); do
-    if ! window_exists "$first_window_id"; then
-      return 0
-    fi
-    sleep 0.1
-  done
-}
-
-find_repl_window_id() {
-  list_repl_window_ids | head -n 1
-}
-
 open_stage_in_chrome() {
   local chrome_bin
-  local before_ids
-  local new_window_id=""
-  local existing_window_id=""
-  local geometry=()
-  local restore_x=""
-  local restore_y=""
-  local restore_width=""
-  local restore_height=""
 
   chrome_bin="$(find_chrome_bin)"
 
@@ -362,46 +120,11 @@ open_stage_in_chrome() {
     return 0
   fi
 
-  existing_window_id="$(find_repl_window_id || true)"
-  if [[ -n "$existing_window_id" ]]; then
-    mapfile -t geometry < <(capture_window_geometry "$existing_window_id" || true)
-    restore_x="${geometry[0]:-}"
-    restore_y="${geometry[1]:-}"
-    restore_width="${geometry[2]:-}"
-    restore_height="${geometry[3]:-}"
-    recycle_repl_windows "$existing_window_id"
-  fi
-
-  before_ids="$(list_browser_window_ids '(^google-chrome\\.|^chromium\\.)' || true)"
-  "$chrome_bin" --class="$REPL_WINDOW_CLASS" --app="$STAGE_LAUNCH_URL" >/dev/null 2>&1 &
-
-  if new_window_id="$(find_new_window_id "$before_ids" "(^${REPL_WINDOW_CLASS}\\.|\\.${REPL_WINDOW_CLASS}$|^google-chrome\\.|^chromium\\.)")"; then
-    apply_window_geometry "$new_window_id" "$restore_x" "$restore_y" "$restore_width" "$restore_height"
-    focus_window_id "$new_window_id"
-    return 0
-  fi
-
-  new_window_id="$(find_repl_window_id || true)"
-  if [[ -n "$new_window_id" ]]; then
-    apply_window_geometry "$new_window_id" "$restore_x" "$restore_y" "$restore_width" "$restore_height"
-    focus_window_id "$new_window_id"
-    return 0
-  fi
-
-  sleep 1
-  focus_chrome
+  "$chrome_bin" --app="$STAGE_LAUNCH_URL" >/dev/null 2>&1 &
 }
 
 open_stage_in_vivaldi() {
   local vivaldi_bin
-  local before_ids
-  local new_window_id=""
-  local existing_window_id=""
-  local geometry=()
-  local restore_x=""
-  local restore_y=""
-  local restore_width=""
-  local restore_height=""
 
   vivaldi_bin="$(find_vivaldi_bin)"
 
@@ -410,44 +133,23 @@ open_stage_in_vivaldi() {
     return 0
   fi
 
-  existing_window_id="$(find_repl_window_id || true)"
-  if [[ -n "$existing_window_id" ]]; then
-    mapfile -t geometry < <(capture_window_geometry "$existing_window_id" || true)
-    restore_x="${geometry[0]:-}"
-    restore_y="${geometry[1]:-}"
-    restore_width="${geometry[2]:-}"
-    restore_height="${geometry[3]:-}"
-    recycle_repl_windows "$existing_window_id"
-  fi
-
-  before_ids="$(list_browser_window_ids '(^vivaldi\\.|^vivaldi-stable\\.|^vivaldi-snapshot\\.|^Vivaldi-stable\\.)' || true)"
-  "$vivaldi_bin" --class="$REPL_WINDOW_CLASS" --app="$STAGE_LAUNCH_URL" >/dev/null 2>&1 &
-
-  if new_window_id="$(find_new_window_id "$before_ids" "(^${REPL_WINDOW_CLASS}\\.|\\.${REPL_WINDOW_CLASS}$|^vivaldi\\.|^vivaldi-stable\\.|^vivaldi-snapshot\\.|^Vivaldi-stable\\.)")"; then
-    apply_window_geometry "$new_window_id" "$restore_x" "$restore_y" "$restore_width" "$restore_height"
-    focus_window_id "$new_window_id"
-    return 0
-  fi
-
-  new_window_id="$(find_repl_window_id || true)"
-  if [[ -n "$new_window_id" ]]; then
-    apply_window_geometry "$new_window_id" "$restore_x" "$restore_y" "$restore_width" "$restore_height"
-    focus_window_id "$new_window_id"
-    return 0
-  fi
-
-  sleep 1
-  focus_vivaldi
+  "$vivaldi_bin" --app="$STAGE_LAUNCH_URL" >/dev/null 2>&1 &
 }
+
+require_command lsof
+
+kill_listener_on_port "$API_PORT" "mlody backend"
+kill_listener_on_port "$LSP_PORT" "mlody LSP"
+
+if [[ "$KILL_ONLY" -eq 1 ]]; then
+  echo "Stopped any existing mlody backend/LSP listeners on ports ${API_PORT} and ${LSP_PORT}."
+  exit 0
+fi
 
 mkdir -p "$LOG_ROOT"
 
 require_command bazel
 require_command curl
-require_command lsof
-
-kill_listener_on_port "$API_PORT" "mlody backend"
-kill_listener_on_port "$LSP_PORT" "mlody LSP"
 
 echo "Starting mlody backend server..."
 (
