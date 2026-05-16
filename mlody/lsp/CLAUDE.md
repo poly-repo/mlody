@@ -141,6 +141,7 @@ chmod 755 bazel-bin/mlody/lsp/lsp_server_pex.pex
 cp bazel-bin/mlody/lsp/lsp_server_pex.pex ~/.local/bin/mlody-lsp
 ```
 
-**Note:** `mlody-lsp --version` (and any other flag) will hang — the server
-immediately starts listening on stdio rather than parsing CLI arguments. Verify
-the installation with `ls -lh ~/.local/bin/mlody-lsp` instead.
+**Version check:** `mlody-lsp --version` prints a single line of the form
+`mlody-lsp <version>` and exits with code 0 — it does not start the server.
+Any argument other than `--version` causes the server to start normally on
+stdio. Verify the installation with `mlody-lsp --version`.

@@ -20,6 +20,9 @@ from mlody.lsp.diagnostics import get_eval_diagnostics, get_parse_diagnostics
 from mlody.lsp.log_handler import LSPLogHandler
 from mlody.lsp.parser import CACHE, apply_incremental_changes, find_ancestor, node_at_position
 from mlody.resolver.resolver import (
+    Reporter,
+    WorkspaceRequest,
+    _make_workspace_request,
     _workspace_injections,
     get_or_build_baseline_workspace,
     reload_baseline_workspace,
@@ -251,20 +254,25 @@ def _resolved_workspace_roots(
     return (initialized_root, initialized_root, None, False)
 
 
-def _baseline_workspace_kwargs(monorepo_root: Path, workspace_root: Path) -> dict[str, object]:
-    """Return shared kwargs for baseline workspace load/reload."""
+def _baseline_workspace_request(
+    monorepo_root: Path, workspace_root: Path
+) -> WorkspaceRequest:
+    """Build a WorkspaceRequest for the current LSP roots."""
     extra_roots, lazy_roots = _workspace_injections(monorepo_root, workspace_root)
-    return {
-        "mode": "cwd",
-        "monorepo_root": monorepo_root,
-        "workspace_root": workspace_root,
-        "roots_file": _roots_file,
-        "full_workspace": _full_workspace,
-        "print_fn": _noop_print,
-        "console": _null_console,
-        "extra_roots": extra_roots,
-        "lazy_roots": lazy_roots,
-    }
+    return _make_workspace_request(
+        mode="cwd",
+        monorepo_root=monorepo_root,
+        workspace_root=workspace_root,
+        roots_file=_roots_file,
+        full_workspace=_full_workspace,
+        print_fn=_noop_print,
+        console=_null_console,
+        extra_roots=extra_roots,
+        lazy_roots=lazy_roots,
+    )
+
+
+_LSP_REPORTER = Reporter(print_fn=_noop_print, verbose=False)
 
 
 @server.feature(types.INITIALIZED)
@@ -304,7 +312,8 @@ async def on_initialized(params: types.InitializedParams) -> None:
         _full_workspace = full_workspace
 
         workspace = get_or_build_baseline_workspace(
-            **_baseline_workspace_kwargs(monorepo_root, workspace_root)
+            _baseline_workspace_request(monorepo_root, workspace_root),
+            _LSP_REPORTER,
         )
         _evaluator = workspace.evaluator
         _eval_error = None
@@ -353,7 +362,8 @@ def on_changed_watched_files(params: types.DidChangeWatchedFilesParams) -> None:
     try:
         workspace_root = _workspace_root or _monorepo_root
         workspace = reload_baseline_workspace(
-            **_baseline_workspace_kwargs(_monorepo_root, workspace_root)
+            _baseline_workspace_request(_monorepo_root, workspace_root),
+            _LSP_REPORTER,
         )
         _evaluator = workspace.evaluator
         _eval_error = None

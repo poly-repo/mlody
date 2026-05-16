@@ -9,7 +9,14 @@ from __future__ import annotations
 import pytest
 
 from common.python.starlarkish.core.struct import Struct
-from mlody.core.multimethod import DispatchError, _match_score, dispatch
+from mlody.core.multimethod import (
+    DispatchError,
+    Pattern,
+    _match_score,
+    _PATTERN_REGISTRY,
+    dispatch,
+    register_pattern,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -515,3 +522,171 @@ def test_dispatch_composite_score_most_constrained_wins() -> None:
 
     ret = dispatch("render", (value_arg,), [specific_method, general_method])
     assert ret == "specific"
+
+
+# ---------------------------------------------------------------------------
+# 12. F4 — Pattern registry tests (Wave 2c)
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_registry_contains_exactly_expected_kinds() -> None:
+    """_PATTERN_REGISTRY contains exactly the 7 expected kind strings after import.
+
+    Ref: Scenario '_PATTERN_REGISTRY contains exactly the expected kinds after import'.
+    """
+    expected = {
+        "mm_any",
+        "mm_scalar_pattern",
+        "mm_repr_pattern",
+        "mm_posix_pattern",
+        "mm_vector_pattern",
+        "mm_value_pattern",
+        "mm_source_range_pattern",
+    }
+    assert set(_PATTERN_REGISTRY.keys()) == expected
+
+
+def test_pattern_registry_all_values_have_callable_score() -> None:
+    """Each class in _PATTERN_REGISTRY has a callable score attribute.
+
+    Ref: Scenario 'Each registered class implements score'.
+    """
+    for cls in _PATTERN_REGISTRY.values():
+        assert callable(cls.score)
+
+
+def test_match_score_mm_any_returns_1() -> None:
+    """_match_score returns 1 for mm_any regardless of arg.
+
+    Ref: Scenario '_match_score returns 1 for mm_any'.
+    """
+    anything = object()
+    assert _match_score(_make_struct(kind="mm_any"), anything) == 1
+    assert _match_score(_make_struct(kind="mm_any"), "train") == 1
+    assert _match_score(_make_struct(kind="mm_any"), 42) == 1
+
+
+def test_match_score_exact_string_returns_2() -> None:
+    """_match_score returns 2 for exact string match.
+
+    Ref: Scenario '_match_score returns 2 for exact string match'.
+    """
+    assert _match_score("hello", "hello") == 2
+
+
+def test_match_score_exact_string_nonmatch_returns_none() -> None:
+    """_match_score returns None for exact string non-match.
+
+    Ref: Scenario '_match_score returns None for exact string non-match'.
+    """
+    assert _match_score("hello", "world") is None
+
+
+def test_match_score_scalar_pattern_match_returns_3() -> None:
+    """_match_score returns 3 for matching mm_scalar_pattern.
+
+    Ref: Scenario '_match_score returns 3 for matching mm_scalar_pattern'.
+    """
+    pattern = _make_struct(kind="mm_scalar_pattern", type_name="integer")
+    type_struct = _make_struct(kind="type", type_name="integer")
+    assert _match_score(pattern, type_struct) == 3
+
+
+def test_match_score_scalar_pattern_nonmatch_returns_none() -> None:
+    """_match_score returns None for non-matching mm_scalar_pattern.
+
+    Ref: Scenario '_match_score returns None for non-matching mm_scalar_pattern'.
+    """
+    pattern = _make_struct(kind="mm_scalar_pattern", type_name="integer")
+    type_struct = _make_struct(kind="type", type_name="string")
+    assert _match_score(pattern, type_struct) is None
+
+
+def test_match_score_posix_double_star_returns_1() -> None:
+    """_match_score returns 1 for mm_posix_pattern with **.
+
+    Ref: Scenario '_match_score preserves posix scoring semantics'.
+    """
+    pattern = _make_struct(kind="mm_posix_pattern", path_pattern="**")
+    location = _make_struct(kind="location", type="posix", path="a/b/c")
+    assert _match_score(pattern, location) == 1
+
+
+def test_match_score_posix_single_star_returns_2() -> None:
+    """_match_score returns 2 for mm_posix_pattern with single *.
+
+    Ref: Requirement '_match_score dispatches through _PATTERN_REGISTRY'.
+    """
+    pattern = _make_struct(kind="mm_posix_pattern", path_pattern="/data/*.csv")
+    location = _make_struct(kind="location", location_type="posix", path="/data/train.csv")
+    assert _match_score(pattern, location) == 2
+
+
+def test_match_score_unknown_kind_returns_none() -> None:
+    """_match_score returns None for unknown pattern kind.
+
+    Ref: Scenario '_match_score returns None for unknown pattern kind'.
+    """
+    assert _match_score(_make_struct(kind="unknown_pattern_kind"), "anything") is None
+
+
+def test_match_score_none_kind_returns_none() -> None:
+    """_match_score returns None when pattern has no kind attribute."""
+    assert _match_score(object(), "anything") is None
+
+
+def test_register_pattern_returns_class_unchanged() -> None:
+    """register_pattern returns the class object itself.
+
+    Ref: Scenario 'register_pattern returns the class unchanged'.
+    """
+
+    @register_pattern("_test_kind_for_identity_check")
+    class _TestPattern:
+        @classmethod
+        def score(cls, pattern: object, arg: object) -> int | None:
+            return 99
+
+    try:
+        # The returned value must be the same class object (identity preserved)
+        assert _PATTERN_REGISTRY["_test_kind_for_identity_check"] is _TestPattern
+    finally:
+        # Clean up the registry so this test does not affect the registry-contents test
+        _PATTERN_REGISTRY.pop("_test_kind_for_identity_check", None)
+
+
+def test_register_pattern_inserts_into_registry() -> None:
+    """@register_pattern inserts the class into _PATTERN_REGISTRY under the given key.
+
+    Ref: Scenario 'register_pattern inserts the class into the registry'.
+    """
+
+    @register_pattern("_test_kind_for_insertion_check")
+    class _TestInsert:
+        @classmethod
+        def score(cls, pattern: object, arg: object) -> int | None:
+            return 77
+
+    try:
+        assert _PATTERN_REGISTRY["_test_kind_for_insertion_check"] is _TestInsert
+    finally:
+        _PATTERN_REGISTRY.pop("_test_kind_for_insertion_check", None)
+
+
+def test_pattern_protocol_import_and_structural_subtype() -> None:
+    """Pattern is importable and a class with score satisfies it structurally.
+
+    Ref: Scenario 'Pattern is a Protocol' and 'A class implementing score satisfies Pattern'.
+    """
+
+    class MyPattern:
+        @classmethod
+        def score(cls, pattern: object, arg: object) -> int | None:
+            return 1
+
+    # isinstance check works because Pattern is @runtime_checkable
+    assert isinstance(MyPattern, type)
+    # Structural check: MyPattern has a callable score
+    assert callable(MyPattern.score)
+    # runtime_checkable Protocol supports isinstance on instances
+    assert isinstance(MyPattern(), Pattern)

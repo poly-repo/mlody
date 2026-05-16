@@ -30,15 +30,17 @@ from mlody.core.dag_value import make_dag_virtual_value
 from mlody.core.label import parse_label as _parse_label
 from mlody.core.virtual_value import make_virtual_value
 from mlody.resolver.errors import UnknownRefError, WorkspaceResolutionError
-from mlody.resolver.label_value import (
+from mlody.resolver.values.internal import _RawAttrValue
+from mlody.resolver.values.registry_backed import (
     MlodyActionValue,
+    MlodyTaskValue,
+    MlodyValueValue,
+)
+from mlody.resolver.values.structural import (
     MlodyFolderValue,
     MlodySourceRangeValue,
     MlodySourceValue,
-    MlodyTaskValue,
     MlodyUnresolvedValue,
-    MlodyValueValue,
-    _RawAttrValue,
 )
 
 

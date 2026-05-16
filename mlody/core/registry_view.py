@@ -16,6 +16,25 @@ from mlody.core.workspace_models import RootInfo
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 
 
+def _label_components(
+    entity: object,
+    root_infos: Mapping[str, RootInfo],
+) -> tuple[str | None, str]:
+    """Return (root_prefix, path_suffix) for registry key filtering.
+
+    Both ``match_registry_entity_label`` and ``expand_wildcard_label`` need to
+    filter registry keys by root prefix and path suffix; this helper centralises
+    that extraction so the logic is written only once.
+    """
+    root_prefix: str | None = None
+    entity_root = getattr(entity, "root", None)
+    entity_path = getattr(entity, "path", None)
+    if entity_root is not None and entity_root in root_infos:
+        root_prefix = root_infos[entity_root].path.lstrip("/").rstrip("/")
+    path_suffix = entity_path.lstrip("/").rstrip("/") if entity_path else ""
+    return root_prefix, path_suffix
+
+
 def _matching_mlody_query_candidates(
     entity_query: str | None,
     candidates: list[tuple[tuple[object, object, object], object]],
@@ -246,10 +265,7 @@ class RegistryView:
         if entity_path:
             stem_parts.append(entity_path.lstrip("/").rstrip("/"))
         stem = "/".join([part for part in stem_parts if part])
-        path_suffix = entity_path.lstrip("/").rstrip("/") if entity_path else ""
-        root_prefix = None
-        if entity_root is not None and entity_root in root_infos:
-            root_prefix = root_infos[entity_root].path.lstrip("/").rstrip("/")
+        root_prefix, path_suffix = _label_components(entity, root_infos)
 
         matches: list[tuple[tuple[object, object, object], object]] = []
         if can_registry_resolve:
@@ -327,11 +343,7 @@ class RegistryView:
         entity = lbl.entity
         base_name = entity.name.split(".")[0] if entity.name else None
 
-        root_prefix: str | None = None
-        if entity.root is not None and entity.root in root_infos:
-            root_prefix = root_infos[entity.root].path.lstrip("/").rstrip("/")
-
-        path_suffix = entity.path.lstrip("/").rstrip("/") if entity.path else ""
+        root_prefix, path_suffix = _label_components(entity, root_infos)
 
         candidates: list[tuple[tuple[object, object, object], object]] = []
         for key, value in self.iter_registry_items():

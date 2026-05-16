@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from common.python.errors import StructuredError
 from mlody.resolver.errors import (
     AmbiguousRefError,
     BranchTagCollisionError,
@@ -155,3 +156,42 @@ class TestGitNetworkError:
         assert "git" in msg
         assert "connection refused" in msg
         assert "128" in msg
+
+
+class TestF9StructuredErrorInheritance:
+    """F9: WorkspaceResolutionError inherits StructuredError."""
+
+    def test_unknown_ref_error_is_instance_of_structured_error(self) -> None:
+        # Scenario: WorkspaceResolutionError is a StructuredError
+        error = UnknownRefError("abc", "origin")
+
+        assert isinstance(error, StructuredError)
+
+    def test_unknown_ref_error_has_default_exit_code(self) -> None:
+        # Scenario: WorkspaceResolutionError is a StructuredError — exit_code defaults to 1
+        error = UnknownRefError("abc", "origin")
+
+        assert error.exit_code == 1
+
+    def test_unknown_ref_error_committoid_field_preserved(self) -> None:
+        # Scenario: WorkspaceResolutionError subclasses preserve their structured fields
+        error = UnknownRefError("abc", "origin")
+
+        assert error.committoid == "abc"
+
+    def test_label_parse_error_import_succeeds(self) -> None:
+        # Scenario: LabelParseError re-export is unaffected
+        from mlody.resolver.errors import LabelParseError as _LabelParseError
+
+        assert _LabelParseError is not None
+
+    def test_workspace_resolution_error_is_subclass_of_structured_error(self) -> None:
+        assert issubclass(WorkspaceResolutionError, StructuredError)
+
+    def test_ambiguous_ref_error_preserves_structured_fields(self) -> None:
+        # Scenario: WorkspaceResolutionError subclasses preserve their structured fields
+        error = AmbiguousRefError("abc", ["abc123", "abc456"])
+
+        assert error.committoid == "abc"
+        assert error.matching_shas == ["abc123", "abc456"]
+        assert isinstance(error, StructuredError)

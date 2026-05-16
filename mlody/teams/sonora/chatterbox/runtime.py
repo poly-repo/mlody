@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
+
+from common.python.audio.playback import PlaybackSession, PlaybackTarget
 
 DEFAULT_DEVICE = "cuda"
 
@@ -29,7 +29,8 @@ class ChatterboxSpeaker:
         self._config = config
         self._model = _load_model(device=config.device)
         self._sample_rate: int = self._model.sr
-        self._playback_program = _resolve_playback_program() if config.output_file is None else None
+        target = PlaybackTarget(output_file=config.output_file, sink=config.sink)
+        self._playback_session = PlaybackSession(target)
 
     def synthesize_text(self, text: str) -> Any:
         """Return synthesized audio tensor for one text segment."""
@@ -52,20 +53,12 @@ class ChatterboxSpeaker:
 
     def play_audio(self, *, audio: Any) -> None:
         """Play audio through paplay/aplay."""
-        if self._playback_program is None:
-            raise RuntimeError("playback is unavailable when output_file mode is enabled")
-
         temp_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(prefix="sonora_cb_", suffix=".wav", delete=False) as tmp:
                 temp_path = Path(tmp.name)
             self.write_wav(path=temp_path, audio=audio)
-            command = _build_playback_command(
-                program=self._playback_program,
-                wav_path=temp_path,
-                sink=self._config.sink,
-            )
-            subprocess.run(command, check=True)
+            self._playback_session.play(temp_path)
         finally:
             if temp_path is not None and temp_path.exists():
                 temp_path.unlink()
@@ -164,23 +157,3 @@ def _load_model(device: str) -> Any:
     from chatterbox.tts_turbo import ChatterboxTurboTTS
 
     return ChatterboxTurboTTS.from_pretrained(device=device)
-
-
-def _resolve_playback_program() -> str:
-    if shutil.which("paplay") is not None:
-        return "paplay"
-    if shutil.which("aplay") is not None:
-        return "aplay"
-    raise RuntimeError("no playback program found (expected paplay or aplay)")
-
-
-def _build_playback_command(*, program: str, wav_path: Path, sink: str | None) -> list[str]:
-    if program == "paplay":
-        command = [program]
-        if sink:
-            command.extend(["--device", sink])
-        command.append(str(wav_path))
-        return command
-    if program == "aplay":
-        return [program, str(wav_path)]
-    raise RuntimeError(f"unsupported playback program: {program}")

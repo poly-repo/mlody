@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import enum
 
+from common.python.errors import StructuredError
+
 
 class ExitCode(enum.IntEnum):
     SUCCESS = 0
@@ -12,16 +14,12 @@ class ExitCode(enum.IntEnum):
     PUSH_FAILURE = 4
 
 
-class BuilderError(Exception):
+class BuilderError(StructuredError):
     """Base class for all pipeline errors.
 
     Carries the exit code and a human-readable message. Subclasses add
     structured context (e.g. affected targets, stderr from subprocess).
     """
-
-    exit_code: ExitCode
-    message: str
-    context: dict[str, object]
 
     def __init__(
         self,
@@ -29,10 +27,8 @@ class BuilderError(Exception):
         exit_code: ExitCode,
         **context: object,
     ) -> None:
-        super().__init__(message)
-        self.exit_code = exit_code
-        self.message = message
-        self.context = context
+        # int() cast is required: ExitCode is an IntEnum but StructuredError.exit_code is int
+        super().__init__(message, exit_code=int(exit_code), **context)
 
 
 class CloneError(BuilderError):

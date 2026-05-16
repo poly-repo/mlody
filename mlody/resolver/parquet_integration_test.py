@@ -25,12 +25,10 @@ from mlody.core.assets.interfaces import MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
 from mlody.core.label import parse_label
 from mlody.core.workspace import Workspace
-from mlody.resolver.label_value import (
-    MlodyUnresolvedValue,
-    MlodyValueValue,
-    _RawAttrValue,
-    resolve_label_to_value,
-)
+from mlody.resolver import resolve_label_to_value
+from mlody.resolver.values.internal import _RawAttrValue
+from mlody.resolver.values.registry_backed import MlodyValueValue
+from mlody.resolver.values.structural import MlodyUnresolvedValue
 
 # Real source files required by workspace_loader Phase 1.
 _REAL_RULE_MLODY = Path(__file__).parent.parent / "core" / "rule.mlody"
@@ -586,7 +584,7 @@ class TestParquetChainedAccess:
         ws = _make_workspace(tmp_path, parquet_file)
 
         # Fetch the struct from the registry to drive strategy directly
-        from mlody.resolver.label_value import (
+        from mlody.resolver.resolver_impl import (
             ParquetTraversalStrategy,
             _lookup_entity,
         )
@@ -623,7 +621,7 @@ class TestParquetChainedAccess:
             local_path,
         )
 
-        from mlody.resolver.label_value import ValueTraversalStrategy, _lookup_entity
+        from mlody.resolver.resolver_impl import ValueTraversalStrategy, _lookup_entity
         from mlody.core.traversal_grammar import FieldSegment, SliceSegment
 
         lookup = _lookup_entity(ws, "teams/data/pkg/dataset", "local_dataset")
@@ -665,7 +663,7 @@ class TestParquetChainedAccess:
         _make_parquet_file(parquet_file)
         ws = _make_workspace(tmp_path, parquet_file)
 
-        from mlody.resolver.label_value import (
+        from mlody.resolver.resolver_impl import (
             ParquetTraversalStrategy,
             _lookup_entity,
         )
@@ -693,7 +691,7 @@ class TestParquetChainedAccess:
         self, tmp_path: Path
     ) -> None:
         """Scenario: Missing location path returns MlodyUnresolvedValue."""
-        from mlody.resolver.label_value import ParquetTraversalStrategy
+        from mlody.resolver.resolver_impl import ParquetTraversalStrategy
         from mlody.core.traversal_grammar import IndexSegment
         from common.python.starlarkish.core.struct import Struct
 
@@ -719,7 +717,7 @@ class TestParquetChainedAccess:
         self, tmp_path: Path
     ) -> None:
         """Scenario: File not found returns MlodyUnresolvedValue."""
-        from mlody.resolver.label_value import ParquetTraversalStrategy
+        from mlody.resolver.resolver_impl import ParquetTraversalStrategy
         from mlody.core.traversal_grammar import IndexSegment
         from common.python.starlarkish.core.struct import Struct
 
@@ -904,7 +902,7 @@ class TestScalarPromotionParquet:
         _make_rich_parquet_file(parquet_file)
         ws = _make_rich_workspace(tmp_path, parquet_file)
 
-        from mlody.resolver.label_value import ParquetTraversalStrategy, _lookup_entity
+        from mlody.resolver.resolver_impl import ParquetTraversalStrategy, _lookup_entity
         from mlody.core.traversal_grammar import FieldSegment, SliceSegment
 
         lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
@@ -930,7 +928,7 @@ class TestScalarPromotionParquet:
         _make_rich_parquet_file(parquet_file)
         ws = _make_rich_workspace(tmp_path, parquet_file)
 
-        from mlody.resolver.label_value import ParquetTraversalStrategy, _lookup_entity
+        from mlody.resolver.resolver_impl import ParquetTraversalStrategy, _lookup_entity
         from mlody.core.traversal_grammar import FieldSegment, SliceSegment
 
         lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
@@ -955,7 +953,7 @@ class TestScalarPromotionParquet:
         _make_rich_parquet_file(parquet_file)
         ws = _make_rich_workspace(tmp_path, parquet_file)
 
-        from mlody.resolver.label_value import ParquetTraversalStrategy, _lookup_entity
+        from mlody.resolver.resolver_impl import ParquetTraversalStrategy, _lookup_entity
         from mlody.core.traversal_grammar import FieldSegment, SliceSegment
 
         lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
@@ -981,7 +979,7 @@ class TestScalarPromotionParquet:
         _make_rich_parquet_file(parquet_file)
         ws = _make_rich_workspace(tmp_path, parquet_file)
 
-        from mlody.resolver.label_value import ParquetTraversalStrategy, _lookup_entity
+        from mlody.resolver.resolver_impl import ParquetTraversalStrategy, _lookup_entity
         from mlody.core.traversal_grammar import FieldSegment, IndexSegment
 
         lookup = _lookup_entity(ws, "teams/data/pkg/rich", "rich_dataset")
@@ -1007,7 +1005,7 @@ class TestScalarPromotionParquet:
         _make_rich_parquet_file(parquet_file)
         ws = _make_rich_workspace(tmp_path, parquet_file)
 
-        from mlody.resolver.label_value import (
+        from mlody.resolver.resolver_impl import (
             MlodyUnresolvedValue,
             ParquetTraversalStrategy,
             _lookup_entity,
@@ -1037,7 +1035,7 @@ class TestScalarPromotionParquet:
         _make_rich_parquet_file(parquet_file)
         ws = _make_rich_workspace(tmp_path, parquet_file)
 
-        from mlody.resolver.label_value import (
+        from mlody.resolver.resolver_impl import (
             ParquetTraversalStrategy,
             _RawAttrValue,
             _lookup_entity,
@@ -1065,7 +1063,7 @@ class TestScalarPromotionParquet:
         _make_rich_parquet_file(parquet_file)
         ws = _make_mismatch_workspace(tmp_path, parquet_file)
 
-        from mlody.resolver.label_value import (
+        from mlody.resolver.resolver_impl import (
             MlodyUnresolvedValue,
             ParquetTraversalStrategy,
             _lookup_entity,
@@ -1097,7 +1095,7 @@ class TestScalarPromotionParquet:
         _make_rich_parquet_file(parquet_file)
         ws = _make_rich_workspace(tmp_path, parquet_file)
 
-        from mlody.resolver.label_value import (
+        from mlody.resolver.resolver_impl import (
             ParquetTraversalStrategy,
             _RawAttrValue,
             _lookup_entity,

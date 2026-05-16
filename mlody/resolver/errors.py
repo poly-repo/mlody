@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from common.python.errors import StructuredError
+
 # Backward-compat re-export. Import from mlody.core.label.errors directly.
 # TODO(mlody-label-parsing): remove re-export after all callers are migrated.
 from mlody.core.label.errors import LabelParseError as LabelParseError
 
 
-class WorkspaceResolutionError(Exception):
+class WorkspaceResolutionError(StructuredError):
     """Base class for all workspace resolution errors."""
 
 

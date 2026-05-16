@@ -11,12 +11,11 @@ from unittest.mock import ANY, patch
 
 import numpy as np
 
+import mlody.teams.sonora.speak.runtime as speak_runtime
 from mlody.teams.sonora.speak.runtime import (
     DEFAULT_SAMPLE_RATE,
     SpeakConfig,
-    _build_playback_command,
     _load_pipeline,
-    _resolve_playback_program,
     _silence_audio,
     _validate_model_assets,
     run_stdin,
@@ -57,29 +56,14 @@ def _config(output_file: Path | None = None) -> SpeakConfig:
     )
 
 
-def test_resolve_playback_program_prefers_paplay() -> None:
-    with patch(
-        "mlody.teams.sonora.speak.runtime.shutil.which",
-        side_effect=["/usr/bin/paplay", "/usr/bin/aplay"],
-    ):
-        assert _resolve_playback_program() == "paplay"
+def test_resolve_playback_program_not_in_module() -> None:
+    # _resolve_playback_program was removed; playback logic lives in PlaybackSession.
+    assert not hasattr(speak_runtime, "_resolve_playback_program")
 
 
-def test_resolve_playback_program_falls_back_to_aplay() -> None:
-    with patch(
-        "mlody.teams.sonora.speak.runtime.shutil.which",
-        side_effect=[None, "/usr/bin/aplay"],
-    ):
-        assert _resolve_playback_program() == "aplay"
-
-
-def test_build_playback_command_supports_sink() -> None:
-    command = _build_playback_command(
-        program="paplay",
-        wav_path=Path("/tmp/audio.wav"),
-        sink="alsa_output.pci-0000",
-    )
-    assert command == ["paplay", "--device", "alsa_output.pci-0000", "/tmp/audio.wav"]
+def test_build_playback_command_not_in_module() -> None:
+    # _build_playback_command was removed; it lives in common.python.audio.playback.
+    assert not hasattr(speak_runtime, "_build_playback_command")
 
 
 def test_run_stdin_writes_one_concatenated_file(tmp_path: Path) -> None:

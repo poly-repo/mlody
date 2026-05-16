@@ -1,0 +1,35 @@
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
+
+o_py_library(
+    name = "engine_lib",
+    srcs = [
+        "__init__.py",
+        "dispatch.py",
+        "step_index.py",
+        "step_key.py",
+        "step_recursive_descent.py",
+        "step_slice.py",
+        "step_wildcard.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//common/python/starlarkish/core:core_lib",
+        "//mlody/core:core_lib",
+        "//mlody/core/label:label_lib",
+        "//mlody/resolver:resolver_lib",
+        "//mlody/resolver/values:values_lib",
+    ],
+)
+
+o_py_test(
+    name = "engine_test",
+    srcs = ["engine_test.py"],
+    deps = [
+        ":engine_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "//mlody/core:core_lib",
+        "//mlody/resolver:resolver_lib",
+        "//mlody/resolver/values:values_lib",
+        "@pip//pytest",
+    ],
+)

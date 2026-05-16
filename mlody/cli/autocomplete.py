@@ -17,7 +17,7 @@ from mlody.resolver import (
     MlodyValueValue,
     resolve_label_to_value,
 )
-from mlody.resolver.label_value import _RawAttrValue
+from mlody.resolver.values.internal import _RawAttrValue
 
 _IDENTIFIER_EXTRA_CHARS = frozenset({"_", "-"})
 _UNSUPPORTED_FRAGMENT_CHARS = frozenset({"[", "]", "'", "|"})

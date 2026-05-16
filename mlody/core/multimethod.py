@@ -11,9 +11,8 @@ is threaded in via closures defined in mm.mlody.
 
 from __future__ import annotations
 
-import fnmatch
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from common.python.starlarkish.core.struct import Struct
@@ -26,6 +25,168 @@ class DispatchError(Exception):
     method's patterns so authors can diagnose dispatch gaps without reading
     source code.
     """
+
+
+@runtime_checkable
+class Pattern(Protocol):
+    """Structural protocol for pattern-matching strategy objects.
+
+    Each registered pattern class implements ``score`` as a classmethod
+    because it acts as a pure function over the (pattern, arg) pair with
+    no per-instance state.
+    """
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        """Return a specificity score, or None if the pattern does not match."""
+        ...
+
+
+_PATTERN_REGISTRY: dict[str, type[Pattern]] = {}
+
+
+def register_pattern(kind: str) -> Callable[[type[Pattern]], type[Pattern]]:
+    """Decorator factory that registers a Pattern class under ``kind``.
+
+    The class is inserted into ``_PATTERN_REGISTRY`` and returned unchanged.
+    """
+
+    def _decorator(cls: type[Pattern]) -> type[Pattern]:
+        _PATTERN_REGISTRY[kind] = cls
+        return cls
+
+    return _decorator
+
+
+# ---------------------------------------------------------------------------
+# Pattern class implementations
+# ---------------------------------------------------------------------------
+
+
+@register_pattern("mm_any")
+class MmAnyPattern:
+    """Matches any argument with score 1 (wildcard, least specific)."""
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        return 1
+
+
+@register_pattern("mm_scalar_pattern")
+class MmScalarPattern:
+    """Matches a type struct by its type_name field (score 3)."""
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        arg_type_name: str | None = None
+        if _is_struct_kind(arg, "type"):
+            arg_type_name = getattr(arg, "type_name", None) or getattr(arg, "name", None)
+        elif isinstance(arg, str) and arg.startswith(":"):
+            # Unresolved label reference stored by _make_factory, e.g. ":celebA-row"
+            arg_type_name = arg[1:]
+        if arg_type_name == getattr(pattern, "type_name", None):
+            return 3
+        return None
+
+
+@register_pattern("mm_repr_pattern")
+class MmReprPattern:
+    """Matches a representation struct by its repr_name field (score 3)."""
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        if _is_struct_kind(arg, "representation"):
+            # Real mlody representation structs carry `name`; stub/test structs may
+            # carry `repr_name`. Fall back to `name` so both work.
+            arg_repr_name = getattr(arg, "repr_name", None) or getattr(arg, "name", None)
+            if arg_repr_name == getattr(pattern, "repr_name", None):
+                return 3
+        return None
+
+
+@register_pattern("mm_posix_pattern")
+class MmPosixPattern:
+    """Matches a POSIX location struct by glob pattern (scores 1/2/3)."""
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        if not _is_struct_kind(arg, "location"):
+            return None
+        # Real mlody location structs carry `type`; stub/test structs may carry
+        # `location_type`. Fall back to `type` so both work.
+        loc_kind = getattr(arg, "location_type", None) or getattr(arg, "type", None)
+        if loc_kind != "posix":
+            return None
+        path = getattr(arg, "path", "")
+        path_pattern: str = getattr(pattern, "path_pattern", "")
+        return _posix_match_score(path_pattern, path)
+
+
+@register_pattern("mm_vector_pattern")
+class MmVectorPattern:
+    """Matches a vector type struct, recursing into element_type (score 3 + sub)."""
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        if not _is_struct_kind(arg, "type"):
+            return None
+        arg_type_name = getattr(arg, "type_name", None) or getattr(arg, "name", None)
+        if arg_type_name != "vector":
+            return None
+        element_type = getattr(arg, "element_type", None)
+        # Real mlody vector types produced by _make_factory store element_type
+        # inside arg.attributes, not as a direct field.
+        if element_type is None:
+            _attrs = getattr(arg, "attributes", None)
+            if isinstance(_attrs, dict):
+                element_type = _attrs.get("element_type")
+        element_pattern = getattr(pattern, "element_type", None)
+        if element_pattern is None:
+            return 4  # 3 + 1 (default mm.ANY)
+        sub = _match_score(element_pattern, element_type) if element_type is not None else None
+        if sub is None:
+            return None
+        return 3 + sub
+
+
+@register_pattern("mm_value_pattern")
+class MmValuePattern:
+    """Matches a value struct by comparing named fields (score 3 + total)."""
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        if not _is_struct_kind(arg, "value"):
+            return None
+        raw_fields: Any = getattr(pattern, "fields", {}) or {}
+        # When mm.value() is called from Starlark, the struct() factory coerces
+        # the **kwargs dict into a Struct.  Normalise both cases to a mapping.
+        fields: Any = raw_fields.as_mapping() if hasattr(raw_fields, "as_mapping") else raw_fields
+        if not fields:
+            return 3
+        total = 0
+        for field_name, field_pattern in fields.items():
+            field_val = getattr(arg, field_name, None)
+            sub = _match_score(field_pattern, field_val)
+            if sub is None:
+                return None
+            total += sub
+        return 3 + total
+
+
+@register_pattern("mm_source_range_pattern")
+class MmSourceRangePattern:
+    """Matches a mlody-source-range struct (score 3)."""
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        if _is_struct_kind(arg, "mlody-source-range"):
+            return 3
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Core matching logic
+# ---------------------------------------------------------------------------
 
 
 def _match_score(pattern: object, arg: object) -> int | None:
@@ -47,97 +208,20 @@ def _match_score(pattern: object, arg: object) -> int | None:
     - mm.json (repr)   : reads `arg.repr_name`, falls back to `arg.name`
     - mm.posix (loc)   : reads `arg.location_type`, falls back to `arg.type`
     """
-    # --- mm.ANY ---
-    if _is_struct_kind(pattern, "mm_any"):
-        return 1
-
-    # --- exact string ---
+    # Exact string match is checked before registry lookup: str is not a
+    # struct-like object with a `kind` field, so it cannot be registered.
     if isinstance(pattern, str):
         return 2 if arg == pattern else None
 
-    # --- mm.T scalar type pattern ---
-    if _is_struct_kind(pattern, "mm_scalar_pattern"):
-        arg_type_name: str | None = None
-        if _is_struct_kind(arg, "type"):
-            arg_type_name = getattr(arg, "type_name", None) or getattr(arg, "name", None)
-        elif isinstance(arg, str) and arg.startswith(":"):
-            # Unresolved label reference stored by _make_factory, e.g. ":celebA-row"
-            arg_type_name = arg[1:]
-        if arg_type_name == getattr(pattern, "type_name", None):
-            return 3
+    kind: str | None = getattr(pattern, "kind", None)
+    if kind is None:
         return None
 
-    # --- mm.json / bare repr constant ---
-    if _is_struct_kind(pattern, "mm_repr_pattern"):
-        if _is_struct_kind(arg, "representation"):
-            # Real mlody representation structs carry `name`; stub/test structs may
-            # carry `repr_name`. Fall back to `name` so both work.
-            arg_repr_name = getattr(arg, "repr_name", None) or getattr(arg, "name", None)
-            if arg_repr_name == getattr(pattern, "repr_name", None):
-                return 3
+    cls = _PATTERN_REGISTRY.get(kind)
+    if cls is None:
         return None
 
-    # --- mm.posix location pattern ---
-    if _is_struct_kind(pattern, "mm_posix_pattern"):
-        if not _is_struct_kind(arg, "location"):
-            return None
-        # Real mlody location structs carry `type`; stub/test structs may carry
-        # `location_type`. Fall back to `type` so both work.
-        loc_kind = getattr(arg, "location_type", None) or getattr(arg, "type", None)
-        if loc_kind != "posix":
-            return None
-        path = getattr(arg, "path", "")
-        path_pattern: str = getattr(pattern, "path_pattern", "")
-        return _posix_match_score(path_pattern, path)
-
-    # --- mm.vector pattern ---
-    if _is_struct_kind(pattern, "mm_vector_pattern"):
-        if not _is_struct_kind(arg, "type"):
-            return None
-        arg_type_name = getattr(arg, "type_name", None) or getattr(arg, "name", None)
-        if arg_type_name != "vector":
-            return None
-        element_type = getattr(arg, "element_type", None)
-        # Real mlody vector types produced by _make_factory store element_type
-        # inside arg.attributes, not as a direct field.
-        if element_type is None:
-            _attrs = getattr(arg, "attributes", None)
-            if isinstance(_attrs, dict):
-                element_type = _attrs.get("element_type")
-        element_pattern = getattr(pattern, "element_type", None)
-        if element_pattern is None:
-            return 4  # 3 + 1 (default mm.ANY)
-        sub = _match_score(element_pattern, element_type) if element_type is not None else None
-        if sub is None:
-            return None
-        return 3 + sub
-
-    # --- mm.value composite pattern ---
-    if _is_struct_kind(pattern, "mm_value_pattern"):
-        if not _is_struct_kind(arg, "value"):
-            return None
-        raw_fields: Any = getattr(pattern, "fields", {}) or {}
-        # When mm.value() is called from Starlark, the struct() factory coerces
-        # the **kwargs dict into a Struct.  Normalise both cases to a mapping.
-        fields: Any = raw_fields.as_mapping() if hasattr(raw_fields, "as_mapping") else raw_fields
-        if not fields:
-            return 3
-        total = 0
-        for field_name, field_pattern in fields.items():
-            field_val = getattr(arg, field_name, None)
-            sub = _match_score(field_pattern, field_val)
-            if sub is None:
-                return None
-            total += sub
-        return 3 + total
-
-    # --- mm.source_range ---
-    if _is_struct_kind(pattern, "mm_source_range_pattern"):
-        if _is_struct_kind(arg, "mlody-source-range"):
-            return 3
-        return None
-
-    return None
+    return cls.score(pattern, arg)
 
 
 def _is_struct_kind(obj: object, kind: str) -> bool:

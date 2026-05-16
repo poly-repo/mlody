@@ -13,11 +13,13 @@ from mlody.core.lineage import append_lineage, build_lineage_event
 from mlody.core.place import AssignmentMode, MISSING_PLACE_VALUE, Place, PlaceSet
 from mlody.core.setf_strategies import (
     DictKeySetter,
+    FieldSetter,
     ListIndexSetter,
     ReadOnlyFieldSetter,
     SequenceSliceSetter,
     StructFieldSetter,
     VirtualValueFieldSetter,
+    _STRATEGIES,
 )
 from mlody.core.traversal_runtime import (
     has_named_child,
@@ -176,31 +178,22 @@ def _make_direct_place(
         if isinstance(segment, FieldSegment)
         else None
     )
-    if isinstance(segment, FieldSegment) and is_virtual_value(owner):
-        strategy = VirtualValueFieldSetter()
-    elif (
+    strategy: FieldSetter
+    if (
         isinstance(segment, FieldSegment)
         and runtime_attr is not None
         and getattr(runtime_attr, "_readonly", False)
     ):
         strategy = ReadOnlyFieldSetter()
-    elif isinstance(segment, FieldSegment) and (
-        is_struct_like(owner) or isinstance(owner, dict)
-    ):
-        strategy = StructFieldSetter()
-    elif (
-        isinstance(segment, (FieldSegment, KeySegment))
-        and isinstance(owner, dict)
-    ):
-        strategy = DictKeySetter()
-    elif isinstance(segment, IndexSegment) and isinstance(owner, list):
-        strategy = ListIndexSetter()
-    elif isinstance(segment, KeySegment) and isinstance(owner, dict):
-        strategy = DictKeySetter()
     else:
-        raise NotImplementedError(
-            f"no setter strategy for {type(segment).__name__} on {type(owner).__name__}"
-        )
+        for cls in _STRATEGIES:
+            if cls.matches(segment, owner):
+                strategy = cls()
+                break
+        else:
+            raise NotImplementedError(
+                f"no setter strategy for {type(segment).__name__} on {type(owner).__name__}"
+            )
     declared_type, declared_representation = _declared_child_contract(
         owner,
         segment,

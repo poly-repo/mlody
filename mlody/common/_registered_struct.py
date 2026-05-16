@@ -15,6 +15,16 @@ class RegisteredStructBase:
 
     _KIND: ClassVar[str]
     _REQUIRE_STRUCT_KIND: ClassVar[bool] = True
+    _REGISTERED: ClassVar[dict[str, type[RegisteredStructBase]]] = {}
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        kind = getattr(cls, "_KIND", None)
+        # Only register concrete subclasses that declare a non-empty string _KIND.
+        # This prevents abstract or test-only subclasses without _KIND from
+        # polluting the registry (R-001 mitigation from design.md).
+        if isinstance(kind, str) and kind:
+            RegisteredStructBase._REGISTERED[kind] = cls
 
     @property
     def kind(self) -> str:
@@ -193,9 +203,76 @@ def _wrap_struct_item(
     return wrapper(item)
 
 
+# Kinds for which ``wrap_registered_struct`` wraps an evaluator-registered Struct
+# into its typed Python dataclass.  Intentionally limited to user-authored entity
+# kinds (roots, values, actions, tasks, users, configs).  System-level kinds
+# (type, location, freshness, etc.) are excluded because their Structs may be
+# used as Starlark-first-class values and must remain plain Structs.
+_ENTITY_KINDS_FOR_STRUCT_WRAP: frozenset[str] = frozenset(
+    {"root", "value", "action", "task", "user", "config"}
+)
+
+# Kinds for which ``wrap_method_result`` upgrades a plain Struct into its typed
+# Python dataclass.  Matches the original ``_method_wrapper_for_kind`` coverage.
+# ``generic`` is intentionally excluded: mm.mlody generic structs are used as
+# Starlark values in method dispatch contexts and must remain plain Structs.
+_ENTITY_KINDS_FOR_METHOD_WRAP: frozenset[str] = frozenset(
+    {
+        "root",
+        "type",
+        "location",
+        "freshness",
+        "representation",
+        "value",
+        "action",
+        "task",
+        "user",
+        "build_ref",
+        "implementation",
+        "executor",
+        "config",
+    }
+)
+
+
+def _ensure_registered() -> None:
+    """Import all RegisteredX subclasses so that __init_subclass__ has fired.
+
+    ``RegisteredStructBase._REGISTERED`` is populated lazily: each subclass
+    registers itself via ``__init_subclass__`` only when its module is first
+    imported.  Callers that reach this module before any Registered* import
+    would otherwise find an empty registry.  This function is a cheap guard
+    (each import is a no-op after the first call) called at the start of both
+    public wrap functions.
+    """
+    import mlody.common.action  # noqa: PLC0415, F401
+    import mlody.common.build_ref  # noqa: PLC0415, F401
+    import mlody.common.config  # noqa: PLC0415, F401
+    import mlody.common.executor  # noqa: PLC0415, F401
+    import mlody.common.freshness  # noqa: PLC0415, F401
+    import mlody.common.generic  # noqa: PLC0415, F401
+    import mlody.common.implementation  # noqa: PLC0415, F401
+    import mlody.common.location  # noqa: PLC0415, F401
+    import mlody.common.representation  # noqa: PLC0415, F401
+    import mlody.common.root  # noqa: PLC0415, F401
+    import mlody.common.task  # noqa: PLC0415, F401
+    import mlody.common.type  # noqa: PLC0415, F401
+    import mlody.common.user  # noqa: PLC0415, F401
+    import mlody.common.value  # noqa: PLC0415, F401
+
+
 def wrap_registered_struct(kind: str, value: object) -> object:
-    """Wrap a registered evaluator Struct in its typed dataclass when possible."""
-    wrapper = _wrapper_for_kind(kind)
+    """Wrap a registered evaluator Struct in its typed dataclass when possible.
+
+    Looks up the wrapper class in ``RegisteredStructBase._REGISTERED`` for
+    user-authored entity kinds only.  System-level kinds (type, location, etc.)
+    are returned unchanged to preserve their raw Struct representation in the
+    Starlark evaluation context.
+    """
+    if kind not in _ENTITY_KINDS_FOR_STRUCT_WRAP:
+        return value
+    _ensure_registered()
+    wrapper = RegisteredStructBase._REGISTERED.get(kind)
     return _wrap_struct_with_wrapper(wrapper, value)
 
 
@@ -208,7 +285,10 @@ def wrap_method_result(value: object) -> object:
     kind = getattr(value, "kind", None)
     if not isinstance(kind, str):
         return value
-    wrapper = _method_wrapper_for_kind(kind)
+    if kind not in _ENTITY_KINDS_FOR_METHOD_WRAP:
+        return value
+    _ensure_registered()
+    wrapper = RegisteredStructBase._REGISTERED.get(kind)
     return _wrap_struct_with_wrapper(wrapper, value)
 
 
@@ -230,51 +310,3 @@ def _wrap_struct_with_wrapper(
         return value
 
 
-def _wrapper_for_kind(kind: str) -> type[object] | None:
-    from mlody.common.action import RegisteredAction
-    from mlody.common.config import RegisteredConfig
-    from mlody.common.root import RegisteredRoot
-    from mlody.common.task import RegisteredTask
-    from mlody.common.user import RegisteredUser
-    from mlody.common.value import RegisteredValue
-
-    return {
-        "root": RegisteredRoot,
-        "value": RegisteredValue,
-        "action": RegisteredAction,
-        "task": RegisteredTask,
-        "user": RegisteredUser,
-        "config": RegisteredConfig,
-    }.get(kind)
-
-
-def _method_wrapper_for_kind(kind: str) -> type[object] | None:
-    from mlody.common.action import RegisteredAction
-    from mlody.common.build_ref import RegisteredBuildRef
-    from mlody.common.config import RegisteredConfig
-    from mlody.common.executor import RegisteredExecutor
-    from mlody.common.freshness import RegisteredFreshness
-    from mlody.common.implementation import RegisteredImplementation
-    from mlody.common.location import RegisteredLocation
-    from mlody.common.representation import RegisteredRepresentation
-    from mlody.common.root import RegisteredRoot
-    from mlody.common.task import RegisteredTask
-    from mlody.common.type import RegisteredType
-    from mlody.common.user import RegisteredUser
-    from mlody.common.value import RegisteredValue
-
-    return {
-        "root": RegisteredRoot,
-        "type": RegisteredType,
-        "location": RegisteredLocation,
-        "freshness": RegisteredFreshness,
-        "representation": RegisteredRepresentation,
-        "value": RegisteredValue,
-        "action": RegisteredAction,
-        "task": RegisteredTask,
-        "user": RegisteredUser,
-        "build_ref": RegisteredBuildRef,
-        "implementation": RegisteredImplementation,
-        "executor": RegisteredExecutor,
-        "config": RegisteredConfig,
-    }.get(kind)

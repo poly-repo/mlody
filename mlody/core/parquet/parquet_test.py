@@ -10,7 +10,6 @@ Covers:
 
 from __future__ import annotations
 
-import io
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +21,14 @@ from mlody.core.parquet.deserializer import (
     OPAQUE_SENTINEL,
     ParquetDeserializer,
     _clear_handlers,
+    convert_arrow_value,
     register_parquet_handler,
 )
 from mlody.core.parquet import (
     OPAQUE_SENTINEL as PKG_SENTINEL,
     ParquetDeserializer as PkgDeserializer,
+    convert_arrow_value as pkg_convert_arrow_value,
+    read_file_as_rows as pkg_read_file_as_rows,
     register_parquet_handler as pkg_register,
 )
 
@@ -372,3 +374,122 @@ def test_invalid_key_type_raises_type_error(tmp_path: Path) -> None:
     ds = ParquetDeserializer(p)
     with pytest.raises(TypeError, match="str"):
         ds["column_name"]  # type: ignore[call-overload]
+
+
+# ---------------------------------------------------------------------------
+# F10: convert_arrow_value public module-level function
+# ---------------------------------------------------------------------------
+
+
+class TestConvertArrowValueF10:
+    """F10: convert_arrow_value extracted as a public module-level function.
+
+    Covers the spec scenarios from specs/parquet-deserializer/spec.md.
+    """
+
+    def test_convert_arrow_value_importable_from_package(self) -> None:
+        """Scenario: convert_arrow_value importable from mlody.core.parquet."""
+        # pkg_convert_arrow_value was imported at module level from
+        # mlody.core.parquet — this test asserts the import succeeded and the
+        # function is the same object as the one in the deserializer module.
+        assert pkg_convert_arrow_value is convert_arrow_value
+
+    def test_registered_handler_invoked_by_convert_arrow_value(self) -> None:
+        """Scenario: registered custom handler invoked by convert_arrow_value."""
+        struct_type = pa.struct([("z", pa.int32())])
+        calls: list[tuple[object, pa.Field]] = []
+
+        def _custom(value: object, field: pa.Field) -> str:
+            calls.append((value, field))
+            return "from_handler"
+
+        register_parquet_handler(struct_type, _custom)
+
+        # Build a field with the registered type and call convert_arrow_value
+        # directly (no Parquet file needed — just pass a scalar value).
+        field = pa.field("z_col", struct_type)
+        result = convert_arrow_value({"z": 99}, field)
+
+        assert result == "from_handler"
+        assert len(calls) == 1
+        _, called_field = calls[0]
+        assert called_field.name == "z_col"
+
+    def test_convert_arrow_value_primitive_returns_python_scalar(self) -> None:
+        """convert_arrow_value converts a pyarrow scalar to a Python primitive."""
+        field = pa.field("n", pa.int64())
+        raw = pa.array([42])[0]  # a pyarrow Int64Scalar
+        result = convert_arrow_value(raw, field)
+        assert result == 42
+        assert isinstance(result, int)
+
+    def test_convert_arrow_value_map_returns_sentinel(self) -> None:
+        """convert_arrow_value returns OPAQUE_SENTINEL for map_ columns."""
+        map_type = pa.map_(pa.string(), pa.int32())
+        field = pa.field("m", map_type)
+        result = convert_arrow_value("anything", field)
+        assert result == OPAQUE_SENTINEL
+
+    def test_deserializer_and_read_file_as_rows_identical_for_primitives(
+        self, tmp_path: Path
+    ) -> None:
+        """Scenario: ParquetDeserializer and read_file_as_rows identical for primitives."""
+        data: dict[str, list[Any]] = {
+            "int_col": [1, 2, 3],
+            "float_col": [1.1, 2.2, 3.3],
+            "str_col": ["a", "b", "c"],
+        }
+        p = _make_parquet_file(tmp_path, data)
+
+        ds = ParquetDeserializer(p)
+        deserializer_rows = [ds[i] for i in range(3)]
+        file_rows = pkg_read_file_as_rows(p)
+
+        assert file_rows == deserializer_rows
+
+    def test_deserializer_and_read_file_as_rows_identical_for_structs(
+        self, tmp_path: Path
+    ) -> None:
+        """Scenario: ParquetDeserializer and read_file_as_rows identical for structs and maps."""
+        p = _make_struct_parquet(tmp_path)
+
+        ds = ParquetDeserializer(p)
+        deserializer_rows = [ds[i] for i in range(2)]
+        file_rows = pkg_read_file_as_rows(p)
+
+        assert file_rows == deserializer_rows
+
+    def test_deserializer_and_read_file_as_rows_identical_with_large_binary(
+        self, tmp_path: Path
+    ) -> None:
+        """Scenario: identical output for large-binary column type."""
+        large_binary_array = pa.array([b"hello", b"world"], type=pa.large_binary())
+        table = pa.table({"blob": large_binary_array, "id": pa.array([1, 2])})
+        p = tmp_path / "large_bin.parquet"
+        pq.write_table(table, str(p))
+
+        ds = ParquetDeserializer(p)
+        deserializer_rows = [ds[i] for i in range(2)]
+        file_rows = pkg_read_file_as_rows(p)
+
+        # Both paths return OPAQUE_SENTINEL for large-binary columns.
+        assert file_rows == deserializer_rows
+        assert all(r["blob"] == OPAQUE_SENTINEL for r in file_rows)
+
+    def test_deserializer_and_read_file_as_rows_identical_with_registered_handler(
+        self, tmp_path: Path
+    ) -> None:
+        """Scenario: identical output when a custom handler is registered."""
+        struct_type = pa.struct([("x", pa.int32())])
+        register_parquet_handler(struct_type, lambda v, f: "handled")
+
+        table = pa.table({"nested": pa.array([{"x": 1}, {"x": 2}], type=struct_type)})
+        p = tmp_path / "handler_parity.parquet"
+        pq.write_table(table, str(p))
+
+        ds = ParquetDeserializer(p)
+        deserializer_rows = [ds[i] for i in range(2)]
+        file_rows = pkg_read_file_as_rows(p)
+
+        assert file_rows == deserializer_rows
+        assert all(r["nested"] == "handled" for r in file_rows)

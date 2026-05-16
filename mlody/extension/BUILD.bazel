@@ -1,0 +1,22 @@
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
+
+o_py_library(
+    name = "extension_lib",
+    srcs = ["__init__.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//mlody/common:common_lib",
+        "//mlody/core:core_lib",
+        "//mlody/resolver/engine:engine_lib",
+    ],
+)
+
+o_py_test(
+    name = "extension_test",
+    srcs = ["extension_test.py"],
+    deps = [
+        ":extension_lib",
+        "//mlody/core:core_lib",
+        "//mlody/resolver:resolver_lib",
+    ],
+)

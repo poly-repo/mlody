@@ -10,8 +10,14 @@ from pyfakefs.fake_filesystem import FakeFilesystem
 from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.setf import can_setf, resolve_places, setf, setf_root
-from mlody.core.setf_strategies import StructFieldSetter
-from mlody.core.traversal_grammar import FieldSegment, PathExpression
+from mlody.core.setf_strategies import (
+    DictKeySetter,
+    ListIndexSetter,
+    ReadOnlyFieldSetter,
+    StructFieldSetter,
+    VirtualValueFieldSetter,
+)
+from mlody.core.traversal_grammar import FieldSegment, IndexSegment, KeySegment, PathExpression
 from mlody.core.virtual_value import make_virtual_value
 from mlody.core.workspace import Workspace
 
@@ -637,3 +643,74 @@ class TestWorkspaceFirstSetf:
                 "oops",
                 workspace=loaded_workspace,
             )
+
+
+class TestMakeDirectPlaceStrategySelection:
+    """F11: _make_direct_place selects the correct strategy via _STRATEGIES loop.
+
+    Tests are written against resolve_places() since _make_direct_place is private.
+    The strategy is accessible via place.strategy.
+    """
+
+    def test_resolve_places_selects_virtual_value_setter_for_virtual_owner(self) -> None:
+        # Spec scenario: _make_direct_place selects VirtualValueFieldSetter for virtual owner
+        root = _virtual_workspace_info()
+
+        place_set = resolve_places(root, ".branch")
+
+        assert len(place_set.places) == 1
+        assert isinstance(place_set.places[0].strategy, VirtualValueFieldSetter)
+
+    def test_resolve_places_selects_read_only_setter_for_readonly_runtime_attr(self) -> None:
+        # Spec scenario: _make_direct_place selects ReadOnlyFieldSetter for read-only runtime attr
+        root = Struct(
+            kind="location",
+            type="inline",
+            name="inline",
+            methods=Struct(
+                info=lambda owner, _enclosing=None: f"location: {owner.name}",
+            ),
+        )
+
+        place_set = resolve_places(root, ".info")
+
+        assert len(place_set.places) == 1
+        assert isinstance(place_set.places[0].strategy, ReadOnlyFieldSetter)
+
+    def test_resolve_places_selects_struct_field_setter_for_struct_owner(self) -> None:
+        # Spec scenario: _make_direct_place selects StructFieldSetter for struct owner
+        root = Struct(config=Struct(lr=0.1))
+
+        place_set = resolve_places(root, ".config.lr")
+
+        assert len(place_set.places) == 1
+        assert isinstance(place_set.places[0].strategy, StructFieldSetter)
+
+    def test_resolve_places_selects_dict_key_setter_for_dict_owner_with_key_segment(self) -> None:
+        # Spec scenario: _make_direct_place selects DictKeySetter for dict owner + KeySegment
+        root = {"config": {"lr": 0.1}}
+
+        place_set = resolve_places(root, '["config"]["lr"]')
+
+        assert len(place_set.places) == 1
+        assert isinstance(place_set.places[0].strategy, DictKeySetter)
+
+    def test_resolve_places_selects_list_index_setter_for_list_owner(self) -> None:
+        # Spec scenario: _make_direct_place selects ListIndexSetter for list owner + IndexSegment
+        root = Struct(items=[1, 2, 3])
+
+        place_set = resolve_places(root, ".items[0]")
+
+        assert len(place_set.places) == 1
+        assert isinstance(place_set.places[0].strategy, ListIndexSetter)
+
+    def test_resolve_places_raises_not_implemented_for_unsupported_combination(self) -> None:
+        # Spec scenario: raises NotImplementedError for unsupported (seg, owner) pair
+        # A plain int owner with a FieldSegment has no matching strategy.
+        # We need to construct this case directly via resolve_places on a nested path
+        # that terminates on an int owner — that triggers _make_direct_place failure.
+        root = Struct(n=42)
+
+        # .n.x would try to navigate into an int owner with FieldSegment("x")
+        with pytest.raises((NotImplementedError, AttributeError)):
+            resolve_places(root, ".n.x")

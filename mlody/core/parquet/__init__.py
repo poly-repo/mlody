@@ -28,13 +28,14 @@ Usage example::
     loss = ds[0]["loss"]         # scalar from a specific column
 
 Public re-exports: ``ParquetDeserializer``, ``register_parquet_handler``,
-``OPAQUE_SENTINEL``.
+``OPAQUE_SENTINEL``, ``convert_arrow_value``.
 """
 
 from mlody.core.parquet.deserializer import (
     OPAQUE_SENTINEL as OPAQUE_SENTINEL,
     ParquetDeserializer as ParquetDeserializer,
     _clear_handlers as _clear_handlers,
+    convert_arrow_value as convert_arrow_value,
     read_file_as_rows as read_file_as_rows,
     register_parquet_handler as register_parquet_handler,
 )

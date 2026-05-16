@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol
 
 from mlody.common.struct import Struct, is_struct_like, struct_like_as_mapping, struct_like_updated
@@ -56,6 +57,16 @@ class _VirtualValueAdapter:
 
     def step_segment(self, value: object, segment: object) -> object:
         assert is_struct_like(value)
+        if isinstance(segment, IndexSegment):
+            raise TypeError(
+                f"IndexSegment requires a sequence, got {type(value).__name__}"
+            )
+        if isinstance(segment, KeySegment):
+            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
+        if isinstance(segment, SliceSegment):
+            raise TypeError(
+                f"SliceSegment requires a sequence, got {type(value).__name__}"
+            )
         if not isinstance(segment, FieldSegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
@@ -72,6 +83,12 @@ class _VirtualValueAdapter:
 
     def replace_child(self, value: object, segment: object, new_child: object) -> object:
         assert is_struct_like(value)
+        if isinstance(segment, IndexSegment):
+            raise TypeError(f"IndexSegment requires a list, got {type(value).__name__}")
+        if isinstance(segment, KeySegment):
+            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
+        if isinstance(segment, SliceSegment):
+            raise TypeError(f"SliceSegment requires a list, got {type(value).__name__}")
         if not isinstance(segment, FieldSegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
@@ -101,6 +118,16 @@ class _StructAdapter:
 
     def step_segment(self, value: object, segment: object) -> object:
         assert is_struct_like(value)
+        if isinstance(segment, IndexSegment):
+            raise TypeError(
+                f"IndexSegment requires a sequence, got {type(value).__name__}"
+            )
+        if isinstance(segment, KeySegment):
+            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
+        if isinstance(segment, SliceSegment):
+            raise TypeError(
+                f"SliceSegment requires a sequence, got {type(value).__name__}"
+            )
         if not isinstance(segment, FieldSegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
@@ -143,6 +170,12 @@ class _StructAdapter:
 
     def replace_child(self, value: object, segment: object, new_child: object) -> object:
         assert is_struct_like(value)
+        if isinstance(segment, IndexSegment):
+            raise TypeError(f"IndexSegment requires a list, got {type(value).__name__}")
+        if isinstance(segment, KeySegment):
+            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
+        if isinstance(segment, SliceSegment):
+            raise TypeError(f"SliceSegment requires a list, got {type(value).__name__}")
         if not isinstance(segment, FieldSegment):
             raise NotImplementedError(
                 f"selector segment {type(segment).__name__} is not supported yet"
@@ -170,6 +203,12 @@ class _SequenceAdapter:
             return value[segment.index]
         if isinstance(segment, SliceSegment):
             return list(value[slice(segment.start, segment.stop, segment.step)])
+        if isinstance(segment, FieldSegment):
+            raise TypeError(
+                f"FieldSegment requires a Struct-like value or dict, got {type(value).__name__}"
+            )
+        if isinstance(segment, KeySegment):
+            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
         raise NotImplementedError(
             f"selector segment {type(segment).__name__} is not supported yet"
         )
@@ -192,6 +231,12 @@ class _SequenceAdapter:
             ):
                 updated[index] = new_child
             return updated
+        if isinstance(segment, FieldSegment):
+            raise TypeError(
+                f"FieldSegment requires a Struct-like value or dict, got {type(value).__name__}"
+            )
+        if isinstance(segment, KeySegment):
+            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
         raise NotImplementedError(
             f"selector segment {type(segment).__name__} is not supported yet"
         )
@@ -214,11 +259,19 @@ class _DictAdapter:
         assert isinstance(value, dict)
         if isinstance(segment, FieldSegment):
             return self.step_named_child(value, segment.name)
-        if not isinstance(segment, KeySegment):
-            raise NotImplementedError(
-                f"selector segment {type(segment).__name__} is not supported yet"
+        if isinstance(segment, KeySegment):
+            return value[segment.key]
+        if isinstance(segment, IndexSegment):
+            raise TypeError(
+                f"IndexSegment requires a sequence, got {type(value).__name__}"
             )
-        return value[segment.key]
+        if isinstance(segment, SliceSegment):
+            raise TypeError(
+                f"SliceSegment requires a sequence, got {type(value).__name__}"
+            )
+        raise NotImplementedError(
+            f"selector segment {type(segment).__name__} is not supported yet"
+        )
 
     def iter_children(self, value: object) -> tuple[tuple[object, object], ...]:
         assert isinstance(value, dict)
@@ -232,13 +285,17 @@ class _DictAdapter:
             updated = dict(value)
             updated[segment.name] = new_child
             return updated
-        if not isinstance(segment, KeySegment):
-            raise NotImplementedError(
-                f"selector segment {type(segment).__name__} is not supported yet"
-            )
-        updated = dict(value)
-        updated[segment.key] = new_child
-        return updated
+        if isinstance(segment, KeySegment):
+            updated = dict(value)
+            updated[segment.key] = new_child
+            return updated
+        if isinstance(segment, IndexSegment):
+            raise TypeError(f"IndexSegment requires a list, got {type(value).__name__}")
+        if isinstance(segment, SliceSegment):
+            raise TypeError(f"SliceSegment requires a list, got {type(value).__name__}")
+        raise NotImplementedError(
+            f"selector segment {type(segment).__name__} is not supported yet"
+        )
 
     def has_named_child(self, value: object, name: str) -> bool:
         assert isinstance(value, dict)
@@ -258,18 +315,38 @@ class _ObjectAdapter:
             raise
 
     def step_segment(self, value: object, segment: object) -> object:
-        if not isinstance(segment, FieldSegment):
-            raise NotImplementedError(
-                f"selector segment {type(segment).__name__} is not supported yet"
+        if isinstance(segment, FieldSegment):
+            return self.step_named_child(value, segment.name)
+        if isinstance(segment, IndexSegment):
+            raise TypeError(
+                f"IndexSegment requires a sequence, got {type(value).__name__}"
             )
-        return self.step_named_child(value, segment.name)
+        if isinstance(segment, KeySegment):
+            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
+        if isinstance(segment, SliceSegment):
+            raise TypeError(
+                f"SliceSegment requires a sequence, got {type(value).__name__}"
+            )
+        raise NotImplementedError(
+            f"selector segment {type(segment).__name__} is not supported yet"
+        )
 
     def iter_children(self, value: object) -> tuple[tuple[object, object], ...]:
         _ = value
         return ()
 
     def replace_child(self, value: object, segment: object, new_child: object) -> object:
-        _ = (value, new_child)
+        _ = new_child
+        if isinstance(segment, FieldSegment):
+            raise TypeError(
+                f"FieldSegment requires a Struct-like value or dict, got {type(value).__name__}"
+            )
+        if isinstance(segment, IndexSegment):
+            raise TypeError(f"IndexSegment requires a list, got {type(value).__name__}")
+        if isinstance(segment, KeySegment):
+            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
+        if isinstance(segment, SliceSegment):
+            raise TypeError(f"SliceSegment requires a list, got {type(value).__name__}")
         raise NotImplementedError(
             f"selector segment {type(segment).__name__} is not supported yet"
         )
@@ -284,109 +361,45 @@ _SEQUENCE_ADAPTER = _SequenceAdapter()
 _DICT_ADAPTER = _DictAdapter()
 _OBJECT_ADAPTER = _ObjectAdapter()
 
+# Predicate-list registry for adapter selection.  Ordered by priority: virtual
+# values first, then struct-like, then dict, then sequence.  The fallback
+# (_OBJECT_ADAPTER) is used when no predicate matches.
+_ADAPTER_RULES: list[tuple[Callable[[object], bool], TraversalAdapter]] = [
+    (_is_virtual_value, _VIRTUAL_VALUE_ADAPTER),
+    (is_struct_like, _STRUCT_ADAPTER),
+    (lambda v: isinstance(v, dict), _DICT_ADAPTER),
+    (lambda v: isinstance(v, (list, tuple)), _SEQUENCE_ADAPTER),
+]
+
+
+def _adapter_for(value: object) -> TraversalAdapter:
+    """Return the correct TraversalAdapter for *value* by consulting _ADAPTER_RULES."""
+    for predicate, adapter in _ADAPTER_RULES:
+        if predicate(value):
+            return adapter
+    return _OBJECT_ADAPTER
+
 
 def step_named_child(value: object, name: str) -> object:
     """Traverse a named child using the current runtime semantics."""
-    if _is_virtual_value(value):
-        return _VIRTUAL_VALUE_ADAPTER.step_named_child(value, name)
-    if is_struct_like(value):
-        return _STRUCT_ADAPTER.step_named_child(value, name)
-    if isinstance(value, dict):
-        return _DICT_ADAPTER.step_named_child(value, name)
-    if isinstance(value, (list, tuple)):
-        return _SEQUENCE_ADAPTER.step_named_child(value, name)
-    return _OBJECT_ADAPTER.step_named_child(value, name)
+    return _adapter_for(value).step_named_child(value, name)
 
 
 def step_segment(value: object, segment: object) -> object:
     """Traverse one selector segment on a runtime value."""
-    if isinstance(segment, FieldSegment):
-        if _is_virtual_value(value):
-            return _VIRTUAL_VALUE_ADAPTER.step_segment(value, segment)
-        if is_struct_like(value):
-            return _STRUCT_ADAPTER.step_segment(value, segment)
-        if isinstance(value, dict):
-            return _DICT_ADAPTER.step_segment(value, segment)
-        return _OBJECT_ADAPTER.step_segment(value, segment)
-
-    if isinstance(segment, IndexSegment):
-        if not isinstance(value, (list, tuple)):
-            raise TypeError(
-                f"IndexSegment requires a sequence, got {type(value).__name__}"
-            )
-        return _SEQUENCE_ADAPTER.step_segment(value, segment)
-
-    if isinstance(segment, KeySegment):
-        if not isinstance(value, dict):
-            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
-        return _DICT_ADAPTER.step_segment(value, segment)
-
-    if isinstance(segment, SliceSegment):
-        if not isinstance(value, (list, tuple)):
-            raise TypeError(
-                f"SliceSegment requires a sequence, got {type(value).__name__}"
-            )
-        return _SEQUENCE_ADAPTER.step_segment(value, segment)
-
-    raise NotImplementedError(
-        f"selector segment {type(segment).__name__} is not supported yet"
-    )
+    return _adapter_for(value).step_segment(value, segment)
 
 
 def iter_children(value: object) -> tuple[tuple[object, object], ...]:
     """Return the immediate traversable children of *value*."""
-    if _is_virtual_value(value):
-        return _VIRTUAL_VALUE_ADAPTER.iter_children(value)
-    if is_struct_like(value):
-        return _STRUCT_ADAPTER.iter_children(value)
-    if isinstance(value, dict):
-        return _DICT_ADAPTER.iter_children(value)
-    if isinstance(value, (list, tuple)):
-        return _SEQUENCE_ADAPTER.iter_children(value)
-    return _OBJECT_ADAPTER.iter_children(value)
+    return _adapter_for(value).iter_children(value)
 
 
 def replace_child(value: object, segment: object, new_child: object) -> object:
     """Return *value* with *segment* replaced by *new_child*."""
-    if isinstance(segment, FieldSegment):
-        if _is_virtual_value(value):
-            return _VIRTUAL_VALUE_ADAPTER.replace_child(value, segment, new_child)
-        if is_struct_like(value):
-            return _STRUCT_ADAPTER.replace_child(value, segment, new_child)
-        if isinstance(value, dict):
-            return _DICT_ADAPTER.replace_child(value, segment, new_child)
-        raise TypeError(
-            f"FieldSegment requires a Struct-like value or dict, got {type(value).__name__}"
-        )
-
-    if isinstance(segment, IndexSegment):
-        if not isinstance(value, list):
-            raise TypeError(f"IndexSegment requires a list, got {type(value).__name__}")
-        return _SEQUENCE_ADAPTER.replace_child(value, segment, new_child)
-
-    if isinstance(segment, KeySegment):
-        if not isinstance(value, dict):
-            raise TypeError(f"KeySegment requires a dict, got {type(value).__name__}")
-        return _DICT_ADAPTER.replace_child(value, segment, new_child)
-
-    if isinstance(segment, SliceSegment):
-        if not isinstance(value, list):
-            raise TypeError(f"SliceSegment requires a list, got {type(value).__name__}")
-        return _SEQUENCE_ADAPTER.replace_child(value, segment, new_child)
-
-    raise NotImplementedError(
-        f"selector segment {type(segment).__name__} is not supported yet"
-    )
+    return _adapter_for(value).replace_child(value, segment, new_child)
 
 
 def has_named_child(value: object, name: str) -> bool:
     """Return True when *value* exposes *name* as a traversable child."""
-    if _is_virtual_value(value):
-        return _VIRTUAL_VALUE_ADAPTER.has_named_child(value, name)
-    if is_struct_like(value):
-        return _STRUCT_ADAPTER.has_named_child(value, name)
-    if isinstance(value, dict):
-        return _DICT_ADAPTER.has_named_child(value, name)
-    if isinstance(value, (list, tuple)):
-        return _SEQUENCE_ADAPTER.has_named_child(value, name)
-    return _OBJECT_ADAPTER.has_named_child(value, name)
+    return _adapter_for(value).has_named_child(value, name)

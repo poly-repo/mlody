@@ -7,13 +7,16 @@ o_py_library(
         "cache.py",
         "errors.py",
         "git_client.py",
-        "label_value.py",
+        "render.py",
         "resolver.py",
+        "resolver_impl.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [
         "//common/python/console:console_lib",  # keep — label_value.py imports RichDomNode
+        "//common/python/errors:errors_lib",
         "//common/python/starlarkish/core:core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody/common:common_lib",
         "//mlody/core:core_lib",
         "//mlody/core/label:label_lib",
@@ -22,6 +25,7 @@ o_py_library(
         "//mlody/core/tabular:derived_source_lib",
         "//mlody/core/tabular:location_specs_lib",
         "//mlody/db:db_lib",  # keep — resolver.py imports open_db, write_evaluation, compute_local_diff_sha
+        "//mlody/resolver/values:values_lib",
         "@pip//pyarrow",  # keep — label_value.py inline-imports pyarrow.parquet
         "@pip//rich",
     ],
@@ -32,6 +36,7 @@ o_py_test(
     srcs = ["errors_test.py"],
     deps = [
         ":resolver_lib",
+        "//common/python/errors:errors_lib",
         "@pip//pytest",
     ],
 )
@@ -60,7 +65,10 @@ o_py_test(
     deps = [
         ":resolver_lib",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/core:core_lib",
         "//mlody/db:db_lib",  # keep — resolver_test queries SQLite directly after resolve_workspace
+        "//mlody/resolver/engine:engine_lib",  # keep — resolver_impl.py lazily imports mlody.resolver.engine during traversal
+        "@pip//astropy",
         "@pip//pytest",
     ],
 )
@@ -78,7 +86,10 @@ _LABEL_VALUE_TEST_DEPS = [
     ":resolver_lib",
     "//common/python/console:console_lib",
     "//common/python/starlarkish/core:core_lib",
+    "//common/python/starlarkish/evaluator:evaluator_lib",
     "//mlody/core:core_lib",
+    "//mlody/resolver/engine:engine_lib",  # keep — resolver_impl.py lazily imports mlody.resolver.engine during traversal
+    "//mlody/resolver/values:values_lib",
     "@pip//networkx",
     "@pip//pyarrow",
     "@pip//pyfakefs",  # keep — pyfakefs provides the `fs` fixture via pytest plugin
@@ -189,6 +200,8 @@ o_py_test(
         ":resolver_lib",
         "//common/python/starlarkish/core:core_lib",
         "//mlody/core:core_lib",
+        "//mlody/resolver/engine:engine_lib",  # keep — resolver_impl.py lazily imports mlody.resolver.engine during traversal
+        "//mlody/resolver/values:values_lib",
         "@pip//pyarrow",  # keep — tests write real Parquet files via pyarrow
         "@pip//pytest",
     ],
@@ -202,5 +215,18 @@ test_suite(
         ":label_value_engine_test",
         ":label_value_extensions_test",
         ":label_value_scalar_promotion_test",
+    ],
+)
+
+o_py_test(
+    name = "render_test",
+    srcs = ["render_test.py"],
+    deps = [
+        ":resolver_lib",
+        "//common/python/console:console_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "//mlody/resolver/values:values_lib",
+        "@pip//pytest",
+        "@pip//rich",
     ],
 )

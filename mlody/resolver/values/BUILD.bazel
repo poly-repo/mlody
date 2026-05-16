@@ -1,0 +1,28 @@
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
+
+o_py_library(
+    name = "values_lib",
+    srcs = [
+        "__init__.py",
+        "base.py",
+        "internal.py",
+        "registry_backed.py",
+        "structural.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//common/python/starlarkish/core:core_lib",
+        "//mlody/core/label:label_lib",
+        "@pip//pyarrow",
+    ],
+)
+
+o_py_test(
+    name = "values_test",
+    srcs = ["values_test.py"],
+    deps = [
+        ":values_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "@pip//pyarrow",
+    ],
+)

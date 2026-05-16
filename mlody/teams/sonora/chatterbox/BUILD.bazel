@@ -7,6 +7,7 @@ load("//build/bzl:python.bzl", "o_py_binary", "o_py_library")
 # gazelle:resolve py torchaudio @chatterbox_pip//torchaudio
 # gazelle:resolve py librosa @chatterbox_pip//librosa
 # gazelle:resolve py ml_dtypes @chatterbox_pip//ml_dtypes
+# gazelle:resolve py common.python.audio //common/python/audio:audio_lib
 
 o_py_library(
     name = "chatterbox_lib",
@@ -18,6 +19,7 @@ o_py_library(
     tags = ["manual"],
     visibility = ["//:__subpackages__"],
     deps = [
+        "//common/python/audio:audio_lib",  # keep
         "@chatterbox_pip//chatterbox_tts",
         "@chatterbox_pip//librosa",
         "@chatterbox_pip//ml_dtypes",

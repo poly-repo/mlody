@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from pyfakefs.fake_filesystem import FakeFilesystem
 import pytest
@@ -14,6 +16,7 @@ from mlody.core.workspace_models import RootInfo, WorkspaceLoadError
 from mlody.core.value_context_validation import (
     ContextRestrictedValueValidationError,
 )
+from mlody.resolver.resolver import Reporter, WorkspaceRequest, _make_workspace_request, get_or_build_baseline_workspace, evict_baseline_workspace
 
 
 @dataclass
@@ -413,3 +416,151 @@ def test_workspace_loader_config_application_noop_when_no_configs(
 
     loader.load()
     assert converted == ["converted"]
+
+
+# ---------------------------------------------------------------------------
+# Wave 1f — Reporter + WorkspaceLoader verbose output (tasks 5.12, 5.13)
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_loader(
+    project: Path,
+    reporter: "Reporter | None" = None,
+    root_infos_to_return: dict[str, RootInfo] | None = None,
+) -> WorkspaceLoader:
+    """Build a WorkspaceLoader with a fake registry and no roots for quick tests."""
+    registry = _FakeRegistry(root_infos_to_return=root_infos_to_return or {})
+    return WorkspaceLoader(
+        monorepo_root=project,
+        roots_file=project / "mlody" / "roots.mlody",
+        root_infos={},
+        registry=registry,  # type: ignore[arg-type]
+        extra_roots={},
+        lazy_roots={},
+        should_skip_mlody_file=lambda _path: False,
+        convert_ports_to_structs=lambda: None,
+        resolve_value_sources=lambda: None,
+        reporter=reporter,
+    )
+
+
+def test_reporter_default_emits_nothing(fs: FakeFilesystem) -> None:
+    """Scenario: verbose=False (default) emits no output from WorkspaceLoader."""
+    project = Path("/workspace")
+    fs.create_dir(str(project))
+
+    calls: list[str] = []
+    reporter = Reporter(print_fn=lambda msg, *a, **kw: calls.append(str(msg)))
+    loader = _make_minimal_loader(project, reporter=reporter)
+    loader.load()
+
+    assert calls == [], f"Expected no output but got: {calls}"
+
+
+def test_reporter_verbose_emits_phase_lines(fs: FakeFilesystem) -> None:
+    """Scenario: verbose=True emits all phase 1/2 lines from WorkspaceLoader.
+
+    Tests patterns: phase 1 start, phase 1 end, phase 2 start, phase 2 end.
+    """
+    project = Path("/workspace")
+    fs.create_dir(str(project))
+    fs.create_file(str(project / "mlody" / "common" / "types.mlody"), contents="")
+    fs.create_file(str(project / "mlody" / "teams" / "lexica" / "model.mlody"), contents="")
+
+    root_infos = {
+        "lexica": RootInfo(name="lexica", path="mlody/teams/lexica", description="team")
+    }
+    calls: list[str] = []
+    reporter = Reporter(
+        print_fn=lambda msg, *a, **kw: calls.append(str(msg)),
+        verbose=True,
+    )
+    registry = _FakeRegistry(root_infos_to_return=root_infos)
+    loader = WorkspaceLoader(
+        monorepo_root=project,
+        roots_file=project / "mlody" / "roots.mlody",
+        root_infos={},
+        registry=registry,  # type: ignore[arg-type]
+        extra_roots={},
+        lazy_roots={},
+        should_skip_mlody_file=lambda _path: False,
+        convert_ports_to_structs=lambda: None,
+        resolve_value_sources=lambda: None,
+        reporter=reporter,
+    )
+    loader.load()
+
+    output = "\n".join(calls)
+    assert re.search(r"\[mlody\] phase 1: root discovery started", output)
+    assert re.search(r"\[mlody\] phase 1: root discovery done \(\d+ roots\) \[\d+\.\d{2}s\]", output)
+    assert re.search(r"\[mlody\] phase 2: full evaluation started \(\d+ roots\)", output)
+    assert re.search(r"\[mlody\]   loading .+model\.mlody", output)
+    assert re.search(r"\[mlody\] phase 2: done \(\d+ files loaded, \d+ errors\) \[\d+\.\d{2}s\]", output)
+
+
+def test_workspace_loader_load_verbose_kwarg_raises_type_error(
+    fs: FakeFilesystem,
+) -> None:
+    """Scenario: WorkspaceLoader.load(verbose=True) raises TypeError after refactor."""
+    project = Path("/workspace")
+    fs.create_dir(str(project))
+    loader = _make_minimal_loader(project)
+
+    with pytest.raises(TypeError):
+        loader.load(verbose=True)  # type: ignore[call-arg]
+
+
+def test_reporter_verbose_elapsed_non_negative(fs: FakeFilesystem) -> None:
+    """Scenario: all elapsed time values parsed from verbose output are >= 0."""
+    project = Path("/workspace")
+    fs.create_dir(str(project))
+
+    calls: list[str] = []
+    reporter = Reporter(
+        print_fn=lambda msg, *a, **kw: calls.append(str(msg)),
+        verbose=True,
+    )
+    loader = _make_minimal_loader(project, reporter=reporter)
+    loader.load()
+
+    output = "\n".join(calls)
+    elapsed_values = re.findall(r"\[(\d+\.\d+)s\]", output)
+    assert len(elapsed_values) >= 2, f"Expected elapsed time in output, got: {output}"
+    for val in elapsed_values:
+        assert float(val) >= 0.0, f"Elapsed time {val} is negative"
+
+
+def test_cache_hit_and_miss_lines_emitted_on_consecutive_calls(
+    tmp_path: Path,
+) -> None:
+    """Scenario: cache miss on first call, cache hit on second call, both logged.
+
+    Tests patterns: cache key, cache miss, cache hit.
+    """
+    calls: list[str] = []
+
+    def capture(msg: object, *a: object, **kw: object) -> None:
+        calls.append(str(msg))
+
+    reporter = Reporter(print_fn=capture, verbose=True)
+    req = _make_workspace_request(mode="cwd", monorepo_root=tmp_path)
+    evict_baseline_workspace(req)
+
+    raw_workspace = MagicMock()
+    baseline_workspace = MagicMock()
+
+    with (
+        patch("mlody.resolver.resolver.Workspace", return_value=raw_workspace),
+        patch(
+            "mlody.resolver.resolver.build_baseline_workspace",
+            return_value=baseline_workspace,
+        ),
+    ):
+        get_or_build_baseline_workspace(req, reporter)
+        get_or_build_baseline_workspace(req, reporter)
+
+    output = "\n".join(calls)
+    assert re.search(r"\[mlody\] cache key:", output), f"Missing cache key line in: {output}"
+    assert re.search(r"\[mlody\] cache miss", output), f"Missing cache miss line in: {output}"
+    assert re.search(r"\[mlody\] cache hit for", output), f"Missing cache hit line in: {output}"
+    evict_baseline_workspace(req)

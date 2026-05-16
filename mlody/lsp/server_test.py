@@ -35,6 +35,55 @@ from mlody.lsp.server import (
     on_hover,
     on_semantic_tokens_full,
 )
+from mlody.resolver.resolver import Reporter, WorkspaceRequest
+
+
+def _assert_workspace_request(
+    mock_fn: MagicMock,
+    *,
+    mode: str,
+    monorepo_root: Path,
+    workspace_root: Path,
+    roots_file: "Path | None",
+    full_workspace: bool,
+    extra_roots: "dict[str, str] | None",
+    lazy_roots: "dict[str, str] | None",
+) -> None:
+    """Assert that mock_fn was called once with a WorkspaceRequest matching the
+    given fields plus a Reporter as the second positional argument.
+
+    This helper encapsulates the transition from the old kwargs-based call
+    assertions to the new (WorkspaceRequest, Reporter) call signature.
+    """
+    mock_fn.assert_called_once()
+    args, kwargs = mock_fn.call_args
+    assert len(args) == 2, f"Expected 2 positional args, got {len(args)}: {args}"
+    request, reporter = args
+    assert isinstance(request, WorkspaceRequest), f"Expected WorkspaceRequest, got {type(request)}"
+    assert isinstance(reporter, Reporter), f"Expected Reporter, got {type(reporter)}"
+
+    assert request.mode == mode, f"mode: {request.mode!r} != {mode!r}"
+    assert request.monorepo_root == monorepo_root
+    assert request.workspace_root == workspace_root
+
+    effective_roots_file = (
+        roots_file
+        if roots_file is not None
+        else (monorepo_root / "mlody" / "roots.mlody")
+    )
+    assert request.roots_file == effective_roots_file, (
+        f"roots_file: {request.roots_file!r} != {effective_roots_file!r}"
+    )
+    assert request.full_workspace == full_workspace
+
+    expected_extra = tuple(sorted((extra_roots or {}).items()))
+    expected_lazy = tuple(sorted((lazy_roots or {}).items()))
+    assert request.extra_roots == expected_extra, (
+        f"extra_roots: {request.extra_roots!r} != {expected_extra!r}"
+    )
+    assert request.lazy_roots == expected_lazy, (
+        f"lazy_roots: {request.lazy_roots!r} != {expected_lazy!r}"
+    )
 
 
 def _make_params(*uris: str) -> types.DidChangeWatchedFilesParams:
@@ -78,14 +127,13 @@ class TestOnChangedWatchedFiles:
         ):
             asyncio.run(server_module.on_initialized(types.InitializedParams()))
 
-            mock_get_baseline.assert_called_once_with(
+            _assert_workspace_request(
+                mock_get_baseline,
                 mode="cwd",
                 monorepo_root=tmp_path,
                 workspace_root=tmp_path,
                 roots_file=None,
                 full_workspace=False,
-                print_fn=_noop_print,
-                console=server_module._null_console,
                 extra_roots=None,
                 lazy_roots=None,
             )
@@ -138,14 +186,13 @@ class TestOnChangedWatchedFiles:
             assert server_module._monorepo_root == tmp_path
             assert server_module._workspace_root == workspace_root
 
-        mock_get_baseline.assert_called_once_with(
+        _assert_workspace_request(
+            mock_get_baseline,
             mode="cwd",
             monorepo_root=tmp_path,
             workspace_root=workspace_root,
             roots_file=roots_file,
             full_workspace=True,
-            print_fn=_noop_print,
-            console=server_module._null_console,
             extra_roots={"workspace": "sandboxes/exp1"},
             lazy_roots={"mlody": "mlody"},
         )
@@ -174,14 +221,13 @@ class TestOnChangedWatchedFiles:
         ):
             on_changed_watched_files(_make_params("file:///mlody/foo.mlody"))
 
-            mock_reload.assert_called_once_with(
+            _assert_workspace_request(
+                mock_reload,
                 mode="cwd",
                 monorepo_root=tmp_path,
                 workspace_root=tmp_path,
                 roots_file=None,
                 full_workspace=False,
-                print_fn=_noop_print,
-                console=server_module._null_console,
                 extra_roots=None,
                 lazy_roots=None,
             )
@@ -211,14 +257,13 @@ class TestOnChangedWatchedFiles:
             on_changed_watched_files(_make_params("file:///mlody/foo.mlody"))
             assert server_module._evaluator is mock_evaluator
 
-        mock_reload.assert_called_once_with(
+        _assert_workspace_request(
+            mock_reload,
             mode="cwd",
             monorepo_root=tmp_path,
             workspace_root=workspace_root,
             roots_file=roots_file,
             full_workspace=True,
-            print_fn=_noop_print,
-            console=server_module._null_console,
             extra_roots={"workspace": "sandboxes/exp1"},
             lazy_roots={"mlody": "mlody"},
         )
@@ -267,14 +312,13 @@ class TestOnChangedWatchedFiles:
                 )
             )
 
-        mock_reload.assert_called_once_with(
+        _assert_workspace_request(
+            mock_reload,
             mode="cwd",
             monorepo_root=tmp_path,
             workspace_root=tmp_path,
             roots_file=None,
             full_workspace=False,
-            print_fn=_noop_print,
-            console=server_module._null_console,
             extra_roots=None,
             lazy_roots=None,
         )

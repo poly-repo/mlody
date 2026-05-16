@@ -38,7 +38,8 @@ from mlody.core.dag import Edge, TaskNode, ValueNode
 from mlody.core.dag_value import MlodyDagType
 from mlody.core.workspace_models import RootInfo
 from mlody.resolver import MlodyFolderValue, MlodyValueValue
-from mlody.resolver.label_value import MlodySourceRangeValue, _RawAttrValue
+from mlody.resolver.values.internal import _RawAttrValue
+from mlody.resolver.values.structural import MlodySourceRangeValue
 
 
 @pytest.fixture()

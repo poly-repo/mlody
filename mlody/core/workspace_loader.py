@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable, Mapping, MutableMapping
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from common.python.starlarkish.core.struct import Struct
 
@@ -16,6 +19,26 @@ from mlody.core.workspace_models import RootInfo, WorkspaceLoadError
 
 _logger = logging.getLogger(__name__)
 _SYNTHETIC_MAV_USER_KEY = ("user", "", "mav")
+
+
+def _noop_print(*_args: object, **_kwargs: object) -> None:
+    """Discard all output — used as the default reporter print_fn."""
+
+
+@dataclass
+class _LoaderReporter:
+    """Minimal reporter for WorkspaceLoader — carries print_fn and verbose flag.
+
+    Structurally compatible with mlody.resolver.resolver.Reporter; callers
+    can pass a Reporter instance directly since both have the same fields.
+    """
+
+    print_fn: Callable[..., None]
+    console: object | None = None
+    verbose: bool = False
+
+
+_NOOP_LOADER_REPORTER = _LoaderReporter(print_fn=_noop_print)
 
 
 class WorkspaceLoader:
@@ -35,6 +58,7 @@ class WorkspaceLoader:
         convert_ports_to_structs: Callable[[], None],
         resolve_value_sources: Callable[[], None],
         after_root_discovery: Callable[[], None] | None = None,
+        reporter: Any | None = None,
     ) -> None:
         self._monorepo_root = monorepo_root
         self._workspace_root = workspace_root if workspace_root is not None else monorepo_root
@@ -47,12 +71,42 @@ class WorkspaceLoader:
         self._convert_ports_to_structs = convert_ports_to_structs
         self._resolve_value_sources = resolve_value_sources
         self._after_root_discovery = after_root_discovery
+        # Accept any object with .verbose and .print_fn (duck-typed).
+        # This avoids a circular import with mlody.resolver.resolver.
+        self._reporter: Any = reporter if reporter is not None else _NOOP_LOADER_REPORTER
+        self._last_phase2_files_loaded: int = 0
 
     def load(self, *, workspace: object | None = None) -> None:
+        verbose = self._reporter.verbose
+        print_fn = self._reporter.print_fn
+
+        if verbose:
+            print_fn("[mlody] phase 1: root discovery started")
+        t0 = time.monotonic()
         self._phase1_root_discovery()
+        elapsed1 = time.monotonic() - t0
+        root_count = len(self._root_infos)
+        if verbose:
+            print_fn(
+                f"[mlody] phase 1: root discovery done ({root_count} roots)"
+                f" [{elapsed1:.2f}s]"
+            )
+
         if self._after_root_discovery is not None:
             self._after_root_discovery()
-        load_errors = self._phase2_full_evaluation()
+
+        if verbose:
+            print_fn(f"[mlody] phase 2: full evaluation started ({root_count} roots)")
+        t2 = time.monotonic()
+        load_errors = self._phase2_full_evaluation(verbose=verbose, print_fn=print_fn)
+        elapsed2 = time.monotonic() - t2
+        files_loaded = self._last_phase2_files_loaded
+        if verbose:
+            print_fn(
+                f"[mlody] phase 2: done ({files_loaded} files loaded,"
+                f" {len(load_errors)} errors) [{elapsed2:.2f}s]"
+            )
+
         if load_errors:
             raise WorkspaceLoadError(load_errors)
         self._ensure_synthetic_mav_user()
@@ -132,8 +186,14 @@ class WorkspaceLoader:
                 description="injected",
             )
 
-    def _phase2_full_evaluation(self) -> list[tuple[Path, Exception]]:
+    def _phase2_full_evaluation(
+        self,
+        *,
+        verbose: bool = False,
+        print_fn: Callable[..., None] = _noop_print,
+    ) -> list[tuple[Path, Exception]]:
         load_errors: list[tuple[Path, Exception]] = []
+        files_loaded = 0
         for info in self._root_infos.values():
             root_abs = (self._monorepo_root / info.path.lstrip("/")).resolve()
             _logger.debug("Loading root: %s", root_abs)
@@ -151,7 +211,15 @@ class WorkspaceLoader:
                 if self._registry.is_loaded(mlody_file):
                     continue
                 try:
+                    relative_path: str
+                    try:
+                        relative_path = str(mlody_file.relative_to(self._monorepo_root))
+                    except ValueError:
+                        relative_path = str(mlody_file)
+                    if verbose:
+                        print_fn(f"[mlody]   loading {relative_path}")
                     self._registry.eval_file(mlody_file)
+                    files_loaded += 1
                 except Exception as exc:
                     _logger.error(
                         "Failed to load %s: %s: %s",
@@ -160,6 +228,7 @@ class WorkspaceLoader:
                         exc,
                     )
                     load_errors.append((mlody_file, exc))
+        self._last_phase2_files_loaded = files_loaded
         return load_errors
 
     def _ensure_synthetic_mav_user(self) -> None:

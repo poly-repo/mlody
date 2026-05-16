@@ -1,5 +1,7 @@
 load("//build/bzl:python.bzl", "o_py_binary", "o_py_library", "o_py_test")
 
+# gazelle:resolve py common.python.audio //common/python/audio:audio_lib
+
 o_py_library(
     name = "sonora_speak_lib",
     srcs = [
@@ -9,6 +11,7 @@ o_py_library(
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        "//common/python/audio:audio_lib",
         "@pip//click",
         "@pip//kokoro",
         "@pip//numpy",

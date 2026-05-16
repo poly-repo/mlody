@@ -39,23 +39,42 @@ _DEFAULT_CACHE_SUFFIX = Path(".cache") / "mlody" / "workspaces"
 _DEFAULT_DB_SUFFIX = Path(".cache") / "mlody" / "mlody.sqlite"
 
 
-@dataclass(frozen=True)
-class BaselineWorkspaceCacheKey:
-    """Process-local identity for one cached baseline workspace."""
+@dataclass(frozen=True, unsafe_hash=True)
+class WorkspaceRequest:
+    """Immutable description of one baseline workspace build request.
+
+    Frozen dataclass so it is usable as a dict key directly — no separate
+    factory function needed.  print_fn and console compare by Python object
+    identity (the default for callables and arbitrary objects), which gives
+    the same cache-hit semantics as the former id()-based approach.
+    """
 
     mode: str
-    monorepo_root: str
-    workspace_root: str
-    roots_file: str
+    monorepo_root: Path
+    workspace_root: Path
+    roots_file: Path
     full_workspace: bool
     extra_roots: tuple[tuple[str, str], ...]
     lazy_roots: tuple[tuple[str, str], ...]
-    print_fn_identity: int
-    console_identity: int | None
+    print_fn: Callable[..., None]
+    console: object | None
     resolved_sha: str | None
 
+    def cache_key(self) -> WorkspaceRequest:
+        """Return self — WorkspaceRequest is its own cache key."""
+        return self
 
-_BASELINE_WORKSPACE_CACHE: dict[BaselineWorkspaceCacheKey, Workspace] = {}
+
+@dataclass
+class Reporter:
+    """Carries the output channels and verbosity flag for workspace operations."""
+
+    print_fn: Callable[..., None]
+    console: object | None = None
+    verbose: bool = False
+
+
+_BASELINE_WORKSPACE_CACHE: dict[WorkspaceRequest, Workspace] = {}
 
 
 def _get_username() -> str:
@@ -111,169 +130,69 @@ class ResolvedRef(NamedTuple):
     local_only: bool
 
 
-def make_baseline_workspace_cache_key(
-    *,
-    mode: str,
-    monorepo_root: Path,
-    workspace_root: Path | None = None,
-    roots_file: Path | None = None,
-    full_workspace: bool = False,
-    print_fn: Callable[..., None] = print,
-    console: object | None = None,
-    extra_roots: dict[str, str] | None = None,
-    lazy_roots: dict[str, str] | None = None,
-    resolved_sha: str | None = None,
-) -> BaselineWorkspaceCacheKey:
-    """Return the cache key for a baseline workspace build."""
-    effective_workspace_root = workspace_root if workspace_root is not None else monorepo_root
-    effective_roots_file = (
-        roots_file if roots_file is not None else (monorepo_root / "mlody" / "roots.mlody")
-    )
-    return BaselineWorkspaceCacheKey(
-        mode=mode,
-        monorepo_root=str(monorepo_root),
-        workspace_root=str(effective_workspace_root),
-        roots_file=str(effective_roots_file),
-        full_workspace=full_workspace,
-        extra_roots=tuple(sorted((extra_roots or {}).items())),
-        lazy_roots=tuple(sorted((lazy_roots or {}).items())),
-        print_fn_identity=id(print_fn),
-        console_identity=None if console is None else id(console),
-        resolved_sha=resolved_sha,
-    )
-
-
 def _load_baseline_workspace(
-    *,
-    monorepo_root: Path,
-    workspace_root: Path | None = None,
-    roots_file: Path | None = None,
-    full_workspace: bool = False,
-    print_fn: Callable[..., None] = print,
-    console: object | None = None,
-    extra_roots: dict[str, str] | None = None,
-    lazy_roots: dict[str, str] | None = None,
-    verbose: bool = False,
+    request: WorkspaceRequest,
+    reporter: Reporter,
 ) -> Workspace:
     """Construct, load, and baseline-normalise a workspace."""
     workspace = Workspace(
-        monorepo_root=monorepo_root,
-        roots_file=roots_file,
-        full_workspace=full_workspace,
-        print_fn=print_fn,
-        console=console,
-        extra_roots=extra_roots,
-        lazy_roots=lazy_roots,
-        workspace_root=workspace_root if workspace_root != monorepo_root else None,
+        monorepo_root=request.monorepo_root,
+        roots_file=request.roots_file,
+        full_workspace=request.full_workspace,
+        print_fn=request.print_fn,
+        console=request.console,
+        extra_roots=dict(request.extra_roots) if request.extra_roots else None,
+        lazy_roots=dict(request.lazy_roots) if request.lazy_roots else None,
+        workspace_root=request.workspace_root if request.workspace_root != request.monorepo_root else None,
     )
-    workspace.load(verbose=verbose)
+    workspace.load(reporter=reporter)
     return build_baseline_workspace(workspace)
 
 
 def get_or_build_baseline_workspace(
-    *,
-    mode: str,
-    monorepo_root: Path,
-    workspace_root: Path | None = None,
-    roots_file: Path | None = None,
-    full_workspace: bool = False,
-    print_fn: Callable[..., None] = print,
-    console: object | None = None,
-    extra_roots: dict[str, str] | None = None,
-    lazy_roots: dict[str, str] | None = None,
-    resolved_sha: str | None = None,
-    verbose: bool = False,
+    request: WorkspaceRequest,
+    reporter: Reporter,
 ) -> Workspace:
     """Return a cached baseline workspace or build one on a miss."""
-    key = make_baseline_workspace_cache_key(
-        mode=mode,
-        monorepo_root=monorepo_root,
-        workspace_root=workspace_root,
-        roots_file=roots_file,
-        full_workspace=full_workspace,
-        print_fn=print_fn,
-        console=console,
-        extra_roots=extra_roots,
-        lazy_roots=lazy_roots,
-        resolved_sha=resolved_sha,
-    )
-    cached = _BASELINE_WORKSPACE_CACHE.get(key)
+    if reporter.verbose:
+        reporter.print_fn(f"[mlody] cache key: {request!r}")
+
+    cached = _BASELINE_WORKSPACE_CACHE.get(request)
     if cached is not None:
-        _logger.debug("Baseline workspace cache hit for %s", key)
+        _logger.debug("Baseline workspace cache hit for %r", request.mode)
+        if reporter.verbose:
+            reporter.print_fn(f"[mlody] cache hit for {request.mode!r}")
         return cached
 
-    _logger.debug("Baseline workspace cache miss for %s", key)
-    baseline = _load_baseline_workspace(
-        monorepo_root=monorepo_root,
-        workspace_root=workspace_root,
-        roots_file=roots_file,
-        full_workspace=full_workspace,
-        print_fn=print_fn,
-        console=console,
-        extra_roots=extra_roots,
-        lazy_roots=lazy_roots,
-        verbose=verbose,
-    )
-    _BASELINE_WORKSPACE_CACHE[key] = baseline
+    _logger.debug("Baseline workspace cache miss for %r", request.mode)
+    if reporter.verbose:
+        reporter.print_fn("[mlody] cache miss — building workspace")
+    baseline = _load_baseline_workspace(request, reporter)
+    _BASELINE_WORKSPACE_CACHE[request] = baseline
     return baseline
 
 
-def evict_baseline_workspace(key: BaselineWorkspaceCacheKey) -> bool:
+def evict_baseline_workspace(key: WorkspaceRequest) -> bool:
     """Remove one cached baseline workspace by identity key."""
     return _BASELINE_WORKSPACE_CACHE.pop(key, None) is not None
 
 
 def reload_baseline_workspace(
-    *,
-    mode: str,
-    monorepo_root: Path,
-    workspace_root: Path | None = None,
-    roots_file: Path | None = None,
-    full_workspace: bool = False,
-    print_fn: Callable[..., None] = print,
-    console: object | None = None,
-    extra_roots: dict[str, str] | None = None,
-    lazy_roots: dict[str, str] | None = None,
-    resolved_sha: str | None = None,
-    verbose: bool = False,
+    request: WorkspaceRequest,
+    reporter: Reporter,
 ) -> Workspace:
     """Force a rebuild for one baseline workspace identity."""
-    key = make_baseline_workspace_cache_key(
-        mode=mode,
-        monorepo_root=monorepo_root,
-        workspace_root=workspace_root,
-        roots_file=roots_file,
-        full_workspace=full_workspace,
-        print_fn=print_fn,
-        console=console,
-        extra_roots=extra_roots,
-        lazy_roots=lazy_roots,
-        resolved_sha=resolved_sha,
-    )
-    evict_baseline_workspace(key)
-    return get_or_build_baseline_workspace(
-        mode=mode,
-        monorepo_root=monorepo_root,
-        workspace_root=workspace_root,
-        roots_file=roots_file,
-        full_workspace=full_workspace,
-        print_fn=print_fn,
-        console=console,
-        extra_roots=extra_roots,
-        lazy_roots=lazy_roots,
-        resolved_sha=resolved_sha,
-        verbose=verbose,
-    )
+    evict_baseline_workspace(request)
+    return get_or_build_baseline_workspace(request, reporter)
 
 
 def evict_cwd_baseline_workspaces(*, monorepo_root: Path | None = None) -> int:
     """Remove cached cwd baselines, optionally scoped to one monorepo root."""
-    root_str = None if monorepo_root is None else str(monorepo_root)
     removed = 0
     for key in list(_BASELINE_WORKSPACE_CACHE):
         if key.mode != "cwd":
             continue
-        if root_str is not None and key.monorepo_root != root_str:
+        if monorepo_root is not None and key.monorepo_root != monorepo_root:
             continue
         _BASELINE_WORKSPACE_CACHE.pop(key, None)
         removed += 1
@@ -869,6 +788,38 @@ def apply_workspace_user(
     return (request_workspace, selected_user)
 
 
+def _make_workspace_request(
+    *,
+    mode: str,
+    monorepo_root: Path,
+    workspace_root: Path | None = None,
+    roots_file: Path | None = None,
+    full_workspace: bool = False,
+    print_fn: Callable[..., None] = print,
+    console: object | None = None,
+    extra_roots: dict[str, str] | None = None,
+    lazy_roots: dict[str, str] | None = None,
+    resolved_sha: str | None = None,
+) -> WorkspaceRequest:
+    """Build a WorkspaceRequest from individual kwargs, applying defaults."""
+    effective_workspace_root = workspace_root if workspace_root is not None else monorepo_root
+    effective_roots_file = (
+        roots_file if roots_file is not None else (monorepo_root / "mlody" / "roots.mlody")
+    )
+    return WorkspaceRequest(
+        mode=mode,
+        monorepo_root=monorepo_root,
+        workspace_root=effective_workspace_root,
+        roots_file=effective_roots_file,
+        full_workspace=full_workspace,
+        extra_roots=tuple(sorted((extra_roots or {}).items())),
+        lazy_roots=tuple(sorted((lazy_roots or {}).items())),
+        print_fn=print_fn,
+        console=console,
+        resolved_sha=resolved_sha,
+    )
+
+
 def resolve_workspace_baseline(
     label: str,
     monorepo_root: Path,
@@ -882,11 +833,12 @@ def resolve_workspace_baseline(
 ) -> tuple[Workspace, str | None]:
     """Resolve a raw label to a loaded baseline workspace and optional SHA."""
     committoid, _inner_label = parse_label(label)
+    reporter = Reporter(print_fn=print_fn, verbose=verbose)
 
     if committoid is None:
         ws_root = workspace_root if workspace_root is not None else monorepo_root
         extra_roots, lazy_roots = _workspace_injections(monorepo_root, ws_root)
-        baseline = get_or_build_baseline_workspace(
+        request = _make_workspace_request(
             mode="cwd",
             monorepo_root=monorepo_root,
             workspace_root=ws_root,
@@ -895,8 +847,8 @@ def resolve_workspace_baseline(
             print_fn=print_fn,
             extra_roots=extra_roots,
             lazy_roots=lazy_roots,
-            verbose=verbose,
         )
+        baseline = get_or_build_baseline_workspace(request, reporter)
         return (baseline, None)
 
     client = git_client or GitClient(monorepo_root)
@@ -916,7 +868,7 @@ def resolve_workspace_baseline(
     )
 
     try:
-        baseline = get_or_build_baseline_workspace(
+        request = _make_workspace_request(
             mode="commit",
             monorepo_root=dest,
             workspace_root=dest,
@@ -924,8 +876,8 @@ def resolve_workspace_baseline(
             full_workspace=full_workspace,
             print_fn=print_fn,
             resolved_sha=resolved.sha,
-            verbose=verbose,
         )
+        baseline = get_or_build_baseline_workspace(request, reporter)
         return (baseline, resolved.sha)
     except FileNotFoundError:
         raise NoMlodyAtCommitError(committoid, resolved.sha) from None

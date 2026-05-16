@@ -1,4 +1,4 @@
-"""Tests for mlody.resolver.label_value — resolve_label_to_value golden tests.
+"""Tests for mlody.resolver — resolve_label_to_value golden tests.
 
 Each test traces back to a named scenario in the spec
 (openspec/changes/mav-457-label-value-mapping/specs/label-value-resolver/spec.md).
@@ -6,6 +6,34 @@ Each test traces back to a named scenario in the spec
 Filesystem fixtures: pyfakefs (``fs`` fixture).
 Evaluator fixtures: Workspace with pyfakefs + .mlody content — no mocking of
 starlarkish internals.
+
+Wave 3b import changes (mlody-refactor-phase-3, task 2.19):
+  MlodyValue types moved from mlody.resolver.label_value to:
+    - MlodyValue                 → mlody.resolver.values.base
+    - MlodyWorkspaceValue        → mlody.resolver.values.structural
+    - MlodyFolderValue           → mlody.resolver.values.structural
+    - MlodySourceValue           → mlody.resolver.values.structural
+    - MlodyUnresolvedValue       → mlody.resolver.values.structural
+    - MlodyVectorValue           → mlody.resolver.values.structural
+    - MlodySourceRangeValue      → mlody.resolver.values.structural
+    - MlodyTaskValue             → mlody.resolver.values.registry_backed
+    - MlodyActionValue           → mlody.resolver.values.registry_backed
+    - MlodyUserValue             → mlody.resolver.values.registry_backed
+    - MlodyValueValue            → mlody.resolver.values.registry_backed
+    - _RawAttrValue              → mlody.resolver.values.internal
+    - is_registry_backed         → mlody.resolver.values.base
+    Traversal/resolver logic moved from mlody.resolver.label_value to:
+    - TRAVERSAL_STRATEGIES       → mlody.resolver.resolver_impl
+    - _entity_io_panel           → mlody.resolver.resolver_impl
+    - _traverse_one_step         → mlody.resolver.resolver_impl
+    - _value_rows                → mlody.resolver.resolver_impl
+    - resolve_label_to_value     → mlody.resolver (public API, unchanged)
+    Inline test imports also updated:
+    - ValueTraversalStrategy     → mlody.resolver.resolver_impl
+    - TraversalErrorPolicy       → mlody.resolver.resolver_impl
+    - _engine_index_step         → mlody.resolver.engine (step() dispatcher, Wave 3c)
+    - _lookup_entity             → mlody.resolver.resolver_impl
+    - ParquetTraversalStrategy   → mlody.resolver.resolver_impl
 """
 
 from __future__ import annotations
@@ -25,24 +53,32 @@ from common.python.starlarkish.evaluator import evaluator as evaluator_module
 from mlody.core.label import parse_label
 from mlody.core.virtual_value import force_virtual_value
 from mlody.core.workspace import Workspace
-from mlody.resolver.label_value import (
+from mlody.resolver import resolve_label_to_value
+from mlody.resolver.resolver import configure_workspace
+from mlody.resolver.render import dom_for
+from mlody.resolver.resolver_impl import (
     TRAVERSAL_STRATEGIES,
-    MlodyActionValue,
-    MlodyFolderValue,
-    MlodySourceValue,
-    MlodySourceRangeValue,
-    MlodyTaskValue,
-    MlodyUnresolvedValue,
-    MlodyUserValue,
-    MlodyValue,  # noqa: F401 — imported for type annotations in extensibility test
-    MlodyValueValue,
-    MlodyVectorValue,
-    _RawAttrValue,
+    _entity_io_panel,
     _traverse_one_step,
     _value_rows,
-    resolve_label_to_value,
 )
-from mlody.resolver.resolver import configure_workspace
+from mlody.resolver.values.base import MlodyValue  # noqa: F401 — type annotations
+from mlody.resolver.values.base import is_registry_backed
+from mlody.resolver.values.internal import _RawAttrValue
+from mlody.resolver.values.registry_backed import (
+    MlodyActionValue,
+    MlodyTaskValue,
+    MlodyUserValue,
+    MlodyValueValue,
+)
+from mlody.resolver.values.structural import (
+    MlodyFolderValue,
+    MlodySourceRangeValue,
+    MlodySourceValue,
+    MlodyUnresolvedValue,
+    MlodyVectorValue,
+    MlodyWorkspaceValue,
+)
 
 # ---------------------------------------------------------------------------
 # Shared .mlody file contents used across fixtures
@@ -444,7 +480,7 @@ class TestTaskValue:
 
         assert isinstance(result, MlodyTaskValue)
         # isinstance check confirms exact type (spec scenario)
-        from mlody.resolver.label_value import MlodyTaskValue as _T
+        from mlody.resolver.values.registry_backed import MlodyTaskValue as _T
 
         assert isinstance(result, _T)
 
@@ -1460,7 +1496,7 @@ class TestAggregateTypeRendering:
         )
 
         buffer = Console(record=True, width=120)
-        RichDomExecutor(console=buffer).render(task_value.to_console_representation())
+        RichDomExecutor(console=buffer).render(dom_for(task_value))
         rendered = buffer.export_text()
 
         assert "releases" in rendered
@@ -1483,9 +1519,7 @@ class TestAggregateTypeRendering:
         )
 
         buffer = Console(record=True, width=120)
-        RichDomExecutor(console=buffer).render(
-            source_range_value.to_console_representation()
-        )
+        RichDomExecutor(console=buffer).render(dom_for(source_range_value))
         rendered_lines = [line.rstrip() for line in buffer.export_text().splitlines()]
 
         assert rendered_lines[0] == "# teams/myroot/entities.mlody:2-3"
@@ -1510,9 +1544,7 @@ class TestAggregateTypeRendering:
         )
 
         buffer = Console(record=True, width=120)
-        RichDomExecutor(console=buffer).render(
-            source_range_value.to_console_representation()
-        )
+        RichDomExecutor(console=buffer).render(dom_for(source_range_value))
         rendered_lines = [line.rstrip() for line in buffer.export_text().splitlines()]
 
         assert rendered_lines[0] == "# teams/myroot/entities.mlody:2"
@@ -1667,7 +1699,7 @@ class TestValueTraversalStrategyMultiLevel:
     """
 
     def _strategy(self) -> Any:
-        from mlody.resolver.label_value import ValueTraversalStrategy
+        from mlody.resolver.resolver_impl import ValueTraversalStrategy
 
         return ValueTraversalStrategy()
 
@@ -1833,13 +1865,13 @@ class TestTraversalErrorPolicy:
 
     def test_importable_from_label_value(self) -> None:
         """Scenario: TraversalErrorPolicy members are importable."""
-        from mlody.resolver.label_value import TraversalErrorPolicy
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         assert TraversalErrorPolicy.SKIP is not None
         assert TraversalErrorPolicy.RAISE is not None
 
     def test_skip_and_raise_are_distinct(self) -> None:
-        from mlody.resolver.label_value import TraversalErrorPolicy
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         assert TraversalErrorPolicy.SKIP != TraversalErrorPolicy.RAISE
 
@@ -1849,14 +1881,14 @@ class TestMlodyVectorValue:
 
     def test_is_mlody_value_subtype(self) -> None:
         """Scenario: MlodyVectorValue is a MlodyValue subtype."""
-        from mlody.resolver.label_value import MlodyVectorValue
+        from mlody.resolver.values.structural import MlodyVectorValue
 
         v = MlodyVectorValue(elements=())
         assert isinstance(v, MlodyValue)
 
     def test_carries_element_tuple(self) -> None:
         """Scenario: MlodyVectorValue carries its element tuple."""
-        from mlody.resolver.label_value import MlodyVectorValue
+        from mlody.resolver.values.structural import MlodyVectorValue
 
         e1 = MlodyValueValue(struct=_make_struct(x=1))
         e2 = MlodyValueValue(struct=_make_struct(x=2))
@@ -1866,7 +1898,7 @@ class TestMlodyVectorValue:
         assert v.elements[1] is e2
 
     def test_frozen_and_hashable(self) -> None:
-        from mlody.resolver.label_value import MlodyVectorValue
+        from mlody.resolver.values.structural import MlodyVectorValue
 
         v = MlodyVectorValue(elements=())
         d = {v: "ok"}
@@ -1882,12 +1914,12 @@ class TestEngineIndexStep:
     """Requirement: IndexSegment on vector-typed value."""
 
     def _engine(self) -> object:
-        from mlody.resolver.label_value import _engine_index_step
+        from mlody.resolver.engine import step as _engine_index_step
 
         return _engine_index_step
 
     def _make_vector(self, *values: object) -> object:
-        from mlody.resolver.label_value import MlodyVectorValue
+        from mlody.resolver.values.structural import MlodyVectorValue
 
         elems = tuple(MlodyValueValue(struct=_make_struct(v=v)) for v in values)
         return MlodyVectorValue(elements=elems)
@@ -1895,7 +1927,8 @@ class TestEngineIndexStep:
     def test_in_bounds_positive_index_returns_element(self) -> None:
         """Scenario: IndexSegment on in-bounds positive index returns element."""
         from mlody.core.traversal_grammar import IndexSegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _engine_index_step
+        from mlody.resolver.engine import step as _engine_index_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         vec = self._make_vector(10, 20, 30)
         result = _engine_index_step(vec, IndexSegment(index=1), TraversalErrorPolicy.RAISE, _make_label())
@@ -1905,7 +1938,8 @@ class TestEngineIndexStep:
     def test_in_bounds_negative_index_returns_last_element(self) -> None:
         """Scenario: IndexSegment on in-bounds negative index returns element."""
         from mlody.core.traversal_grammar import IndexSegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _engine_index_step
+        from mlody.resolver.engine import step as _engine_index_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         vec = self._make_vector(10, 20, 30)
         result = _engine_index_step(vec, IndexSegment(index=-1), TraversalErrorPolicy.RAISE, _make_label())
@@ -1915,7 +1949,8 @@ class TestEngineIndexStep:
     def test_out_of_bounds_raise_policy_returns_unresolved(self) -> None:
         """Scenario: IndexSegment out-of-bounds with RAISE policy returns MlodyUnresolvedValue."""
         from mlody.core.traversal_grammar import IndexSegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _engine_index_step
+        from mlody.resolver.engine import step as _engine_index_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         vec = self._make_vector(10, 20, 30)
         result = _engine_index_step(vec, IndexSegment(index=10), TraversalErrorPolicy.RAISE, _make_label())
@@ -1925,7 +1960,9 @@ class TestEngineIndexStep:
     def test_out_of_bounds_skip_policy_returns_empty_vector(self) -> None:
         """Scenario: IndexSegment out-of-bounds with SKIP policy returns empty vector."""
         from mlody.core.traversal_grammar import IndexSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _engine_index_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.engine import step as _engine_index_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         vec = self._make_vector(10, 20, 30)
         result = _engine_index_step(vec, IndexSegment(index=10), TraversalErrorPolicy.SKIP, _make_label())
@@ -1935,7 +1972,8 @@ class TestEngineIndexStep:
     def test_type_mismatch_raise_policy_returns_unresolved(self) -> None:
         """Scenario: IndexSegment on non-vector value with RAISE policy."""
         from mlody.core.traversal_grammar import IndexSegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _engine_index_step
+        from mlody.resolver.engine import step as _engine_index_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         scalar = MlodyValueValue(struct=_make_struct(x=1))
         result = _engine_index_step(scalar, IndexSegment(index=0), TraversalErrorPolicy.RAISE, _make_label())
@@ -1951,33 +1989,35 @@ class TestEngineKeyStep:
     """Requirement: KeySegment on map-typed value."""
 
     def _make_dict_value(self, d: dict[str, object]) -> object:
-        from mlody.resolver.label_value import MlodyVectorValue  # noqa: F401
-        from mlody.resolver.label_value import _RawAttrValue  # noqa: F401
+        from mlody.resolver.values.structural import MlodyVectorValue  # noqa: F401
+        from mlody.resolver.values.internal import _RawAttrValue  # noqa: F401
 
         # We represent a dict-backed value as a _RawAttrValue wrapping a Python dict.
         # The engine must handle this case.
-        from mlody.resolver.label_value import _RawAttrValue
+        from mlody.resolver.values.internal import _RawAttrValue
 
         return _RawAttrValue(value=d, label=_make_label())
 
     def test_present_key_returns_value(self) -> None:
         """Scenario: KeySegment on present key returns value."""
         from mlody.core.traversal_grammar import KeySegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _engine_key_step
+        from mlody.resolver.engine import step as _engine_key_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         d = {"f1": 0.95, "acc": 0.87}
         val = self._make_dict_value(d)
         result = _engine_key_step(val, KeySegment(key="f1"), TraversalErrorPolicy.RAISE, _make_label())
         # Should return a value wrapping 0.95
         assert result is not None
-        from mlody.resolver.label_value import _RawAttrValue
+        from mlody.resolver.values.internal import _RawAttrValue
         assert isinstance(result, _RawAttrValue)
         assert result.value == 0.95
 
     def test_missing_key_raise_policy_returns_unresolved(self) -> None:
         """Scenario: KeySegment on missing key with RAISE policy returns MlodyUnresolvedValue."""
         from mlody.core.traversal_grammar import KeySegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _engine_key_step
+        from mlody.resolver.engine import step as _engine_key_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         val = self._make_dict_value({"f1": 0.95})
         result = _engine_key_step(val, KeySegment(key="recall"), TraversalErrorPolicy.RAISE, _make_label())
@@ -1987,7 +2027,9 @@ class TestEngineKeyStep:
     def test_missing_key_skip_policy_returns_empty_vector(self) -> None:
         """Scenario: KeySegment on missing key with SKIP policy returns empty vector."""
         from mlody.core.traversal_grammar import KeySegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _engine_key_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.engine import step as _engine_key_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         val = self._make_dict_value({"f1": 0.95})
         result = _engine_key_step(val, KeySegment(key="recall"), TraversalErrorPolicy.SKIP, _make_label())
@@ -1997,7 +2039,8 @@ class TestEngineKeyStep:
     def test_non_dict_value_raise_returns_unresolved(self) -> None:
         """Non-dict-backed value with RAISE policy → MlodyUnresolvedValue."""
         from mlody.core.traversal_grammar import KeySegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _engine_key_step
+        from mlody.resolver.engine import step as _engine_key_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         scalar = MlodyValueValue(struct=_make_struct(x=1))
         result = _engine_key_step(scalar, KeySegment(key="x"), TraversalErrorPolicy.RAISE, _make_label())
@@ -2015,7 +2058,9 @@ class TestEngineWildcardStep:
     def test_wildcard_on_vector_value_returns_all_elements(self) -> None:
         """Scenario: WildcardSegment on MlodyVectorValue returns all elements."""
         from mlody.core.traversal_grammar import WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _engine_wildcard_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.engine import step as _engine_wildcard_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         e1 = MlodyValueValue(struct=_make_struct(v=1))
         e2 = MlodyValueValue(struct=_make_struct(v=2))
@@ -2029,7 +2074,10 @@ class TestEngineWildcardStep:
     def test_wildcard_on_dict_backed_returns_all_values(self) -> None:
         """Scenario: WildcardSegment on dict-backed value returns all values."""
         from mlody.core.traversal_grammar import WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _RawAttrValue, _engine_wildcard_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.values.internal import _RawAttrValue
+        from mlody.resolver.engine import step as _engine_wildcard_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         d = {"x": 1, "y": 2}
         val = _RawAttrValue(value=d, label=_make_label())
@@ -2044,7 +2092,9 @@ class TestEngineWildcardStep:
     def test_wildcard_on_record_struct_returns_all_fields(self) -> None:
         """Scenario: WildcardSegment on record Struct returns all fields."""
         from mlody.core.traversal_grammar import WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _engine_wildcard_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.engine import step as _engine_wildcard_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         field_a = _make_field("fa", "a")
         field_b = _make_field("fb", "b")
@@ -2057,7 +2107,8 @@ class TestEngineWildcardStep:
     def test_wildcard_on_non_traversable_raise_returns_unresolved(self) -> None:
         """Non-traversable value with RAISE policy → MlodyUnresolvedValue."""
         from mlody.core.traversal_grammar import WildcardSegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _engine_wildcard_step
+        from mlody.resolver.engine import step as _engine_wildcard_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         # A scalar MlodyUnresolvedValue is not traversable
         scalar = MlodyUnresolvedValue(label=_make_label(), reason="already unresolved")
@@ -2067,7 +2118,9 @@ class TestEngineWildcardStep:
     def test_wildcard_on_non_traversable_skip_returns_empty_vector(self) -> None:
         """Non-traversable value with SKIP policy → MlodyVectorValue(elements=())."""
         from mlody.core.traversal_grammar import WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _engine_wildcard_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.engine import step as _engine_wildcard_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         scalar = MlodyUnresolvedValue(label=_make_label(), reason="already unresolved")
         result = _engine_wildcard_step(scalar, WildcardSegment(), TraversalErrorPolicy.SKIP, _make_label())
@@ -2086,7 +2139,9 @@ class TestEngineRecursiveDescentStep:
     def test_recursive_descent_on_flat_vector(self) -> None:
         """Scenario: RecursiveDescentSegment on flat vector collects all elements."""
         from mlody.core.traversal_grammar import RecursiveDescentSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _engine_recursive_descent_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.engine import step as _engine_recursive_descent_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         e1 = MlodyValueValue(struct=_make_struct(v=1))
         e2 = MlodyValueValue(struct=_make_struct(v=2))
@@ -2104,7 +2159,9 @@ class TestEngineRecursiveDescentStep:
         Expected DFS order: a, a1, a2, b
         """
         from mlody.core.traversal_grammar import RecursiveDescentSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _engine_recursive_descent_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.engine import step as _engine_recursive_descent_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         a1 = _make_field("a1", "a1")
         a2 = _make_field("a2", "a2")
@@ -2123,7 +2180,9 @@ class TestEngineRecursiveDescentStep:
     def test_recursive_descent_non_traversable_skip_returns_empty(self) -> None:
         """Non-traversable root with SKIP policy → MlodyVectorValue(elements=())."""
         from mlody.core.traversal_grammar import RecursiveDescentSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _engine_recursive_descent_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.engine import step as _engine_recursive_descent_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         scalar = MlodyUnresolvedValue(label=_make_label(), reason="already unresolved")
         result = _engine_recursive_descent_step(
@@ -2135,7 +2194,8 @@ class TestEngineRecursiveDescentStep:
     def test_recursive_descent_non_traversable_raise_returns_unresolved(self) -> None:
         """Non-traversable root with RAISE policy → MlodyUnresolvedValue."""
         from mlody.core.traversal_grammar import RecursiveDescentSegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _engine_recursive_descent_step
+        from mlody.resolver.engine import step as _engine_recursive_descent_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         scalar = MlodyUnresolvedValue(label=_make_label(), reason="already unresolved")
         result = _engine_recursive_descent_step(
@@ -2156,7 +2216,7 @@ class TestTraverseOneStepExtension:
     def test_field_segment_behaves_identically_to_str(self) -> None:
         """Scenario: _traverse_one_step with FieldSegment behaves identically to str input."""
         from mlody.core.traversal_grammar import FieldSegment
-        from mlody.resolver.label_value import TraversalErrorPolicy, _traverse_one_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy, _traverse_one_step
 
         field_loc = _make_loc("info")
         field_obj = _make_struct(name="model_info", type=None, location=field_loc)
@@ -2176,7 +2236,7 @@ class TestTraverseOneStepExtension:
 
     def test_str_backward_compat_preserved(self) -> None:
         """Scenario: _traverse_one_step with str backward compatibility preserved."""
-        from mlody.resolver.label_value import TraversalErrorPolicy, _traverse_one_step
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy, _traverse_one_step
 
         field_loc = _make_loc("a")
         field_obj = _make_struct(name="field_a", type=None, location=field_loc)
@@ -2191,7 +2251,8 @@ class TestTraverseOneStepExtension:
     def test_wildcard_segment_delegates_to_wildcard_handler(self) -> None:
         """Scenario: _traverse_one_step with WildcardSegment delegates to wildcard handler."""
         from mlody.core.traversal_grammar import WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _traverse_one_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy, _traverse_one_step
 
         field_a = _make_field("fa", "a")
         field_b = _make_field("fb", "b")
@@ -2204,7 +2265,8 @@ class TestTraverseOneStepExtension:
     def test_index_segment_delegates_to_index_handler(self) -> None:
         """Scenario: _traverse_one_step with IndexSegment delegates to index handler."""
         from mlody.core.traversal_grammar import IndexSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, _traverse_one_step
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy, _traverse_one_step
 
         e1 = MlodyValueValue(struct=_make_struct(v=1))
         e2 = MlodyValueValue(struct=_make_struct(v=2))
@@ -2219,7 +2281,7 @@ class TestValueTraversalStrategyEngine:
     """Requirement: Engine integration into ValueTraversalStrategy (tasks 4.2–4.4)."""
 
     def _strategy(self) -> object:
-        from mlody.resolver.label_value import ValueTraversalStrategy
+        from mlody.resolver.resolver_impl import ValueTraversalStrategy
 
         return ValueTraversalStrategy()
 
@@ -2230,7 +2292,7 @@ class TestValueTraversalStrategyEngine:
         field_a = _make_field("field_a", "a", child_fields=[field_b])
         root_value = _make_value_struct_with_fields("root", [field_a])
 
-        from mlody.resolver.label_value import TraversalErrorPolicy
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         result = self._strategy().traverse(root_value, ("field_a", "field_b"), label, traversal_error_policy=TraversalErrorPolicy.RAISE)
         assert isinstance(result, MlodyValueValue)
@@ -2238,7 +2300,8 @@ class TestValueTraversalStrategyEngine:
     def test_wildcard_path_returns_vector_value(self) -> None:
         """Scenario: Wildcard path returns MlodyVectorValue from strategy."""
         from mlody.core.traversal_grammar import WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         label = _make_label()
         fa = _make_field("fa", "a")
@@ -2254,7 +2317,8 @@ class TestValueTraversalStrategyEngine:
     def test_mapped_traversal_flattens_field_over_wildcard(self) -> None:
         """Scenario: FieldSegment mapped over vector produces flat vector."""
         from mlody.core.traversal_grammar import FieldSegment, WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         label = _make_label()
         loss_child1 = _make_field("loss", "l1")
@@ -2271,7 +2335,8 @@ class TestValueTraversalStrategyEngine:
     def test_mapped_traversal_skip_drops_missing_fields(self) -> None:
         """Scenario: FieldSegment mapped over vector with SKIP omits missing fields."""
         from mlody.core.traversal_grammar import FieldSegment, WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         label = _make_label()
         loss_c1 = _make_field("optional_field", "l1")
@@ -2289,7 +2354,8 @@ class TestValueTraversalStrategyEngine:
     def test_two_consecutive_wildcards_produce_vector_of_vectors(self) -> None:
         """Scenario: Two consecutive WildcardSegments produce vector of vectors."""
         from mlody.core.traversal_grammar import WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         label = _make_label()
         sub1 = _make_field("s1", "s1")
@@ -2311,7 +2377,8 @@ class TestValueTraversalStrategyEngine:
     def test_mixed_path_with_index_routes_to_engine(self) -> None:
         """Scenario: Mixed path with IndexSegment routes to traversal engine."""
         from mlody.core.traversal_grammar import FieldSegment, IndexSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         label = _make_label()
         # Build a vector then access index 0 then field "loss"
@@ -2319,7 +2386,7 @@ class TestValueTraversalStrategyEngine:
         loss_field = _make_field("loss", "loss")
         child = _make_value_struct_with_fields("child", [loss_field])
 
-        from mlody.resolver.label_value import MlodyVectorValue as MVV
+        from mlody.resolver.values.structural import MlodyVectorValue as MVV
 
         vec = MVV(elements=(MlodyValueValue(struct=child),))
 
@@ -2328,12 +2395,15 @@ class TestValueTraversalStrategyEngine:
         assert isinstance(result, MlodyValueValue)
 
     def test_deferred_seam_comment_exists(self) -> None:
-        """Task 4.5: D-6 seam comment is present in the source."""
+        """Task 4.5: D-6 seam comment is present in the source.
+
+        After Wave 3b refactor, the seam comment moved to resolver_impl.py.
+        """
         import inspect
 
-        from mlody.resolver import label_value as lv
+        import mlody.resolver.resolver_impl as impl
 
-        src = inspect.getsource(lv)
+        src = inspect.getsource(impl)
         assert "TODO(mlody-label-traversal): uniform-level-traversal" in src
 
 
@@ -2372,7 +2442,8 @@ class TestResolverAPIExtension:
     def test_wildcard_traversal_returns_vector_value(self) -> None:
         """Scenario: Wildcard traversal returns MlodyVectorValue with correct element count."""
         from mlody.core.traversal_grammar import WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy
 
         label = _make_label()
         fa = _make_field("fa", "a")
@@ -2380,7 +2451,7 @@ class TestResolverAPIExtension:
         fc = _make_field("fc", "c")
         root_value = _make_value_struct_with_fields("root", [fa, fb, fc])
 
-        from mlody.resolver.label_value import ValueTraversalStrategy
+        from mlody.resolver.resolver_impl import ValueTraversalStrategy
 
         strategy = ValueTraversalStrategy()
         segs = (WildcardSegment(),)
@@ -2391,7 +2462,8 @@ class TestResolverAPIExtension:
     def test_skip_policy_drops_missing_fields_in_wildcard_traversal(self) -> None:
         """Scenario: SKIP policy silently drops missing fields in wildcard + field traversal."""
         from mlody.core.traversal_grammar import FieldSegment, WildcardSegment
-        from mlody.resolver.label_value import MlodyVectorValue, TraversalErrorPolicy, ValueTraversalStrategy
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import TraversalErrorPolicy, ValueTraversalStrategy
 
         label = _make_label()
         loss_c1 = _make_field("metric", "m1")
@@ -2416,9 +2488,15 @@ class TestArrowTypeMapping:
     """Requirement: Arrow type mapping dict covers FR-002 Must-Have set."""
 
     def _get_map(self) -> object:
-        from mlody.resolver.label_value import _get_arrow_type_map
+        # After Wave 3a the map is accessed via TypeCatalog; build a fresh
+        # catalog here so the test is not tied to module-level singleton state.
+        from mlody.resolver.values.base import TypeCatalog
+        import pyarrow as pa
 
-        return _get_arrow_type_map()
+        catalog = TypeCatalog()
+        # Force map construction by calling arrow_type_name once.
+        catalog.arrow_type_name(pa.bool_())
+        return catalog._arrow_map  # type: ignore[attr-defined]
 
     def test_bool_maps_to_bool(self) -> None:
         """FR-002: pa.bool_() maps to 'bool'."""
@@ -2498,37 +2576,37 @@ class TestArrowTypeMapping:
 
 def _make_bool_type() -> object:
     """Return the canonical mlody bool() type struct for test use."""
-    from mlody.resolver.label_value import _get_mlody_primitive_type
+    from mlody.resolver.values.base import _TYPE_CATALOG
 
-    return _get_mlody_primitive_type("bool")
+    return _TYPE_CATALOG.primitive_type_struct("bool")
 
 
 def _make_integer_type() -> object:
     """Return the canonical mlody integer() type struct for test use."""
-    from mlody.resolver.label_value import _get_mlody_primitive_type
+    from mlody.resolver.values.base import _TYPE_CATALOG
 
-    return _get_mlody_primitive_type("integer")
+    return _TYPE_CATALOG.primitive_type_struct("integer")
 
 
 def _make_float_type() -> object:
     """Return the canonical mlody float() type struct for test use."""
-    from mlody.resolver.label_value import _get_mlody_primitive_type
+    from mlody.resolver.values.base import _TYPE_CATALOG
 
-    return _get_mlody_primitive_type("float")
+    return _TYPE_CATALOG.primitive_type_struct("float")
 
 
 def _make_string_type() -> object:
     """Return the canonical mlody string() type struct for test use."""
-    from mlody.resolver.label_value import _get_mlody_primitive_type
+    from mlody.resolver.values.base import _TYPE_CATALOG
 
-    return _get_mlody_primitive_type("string")
+    return _TYPE_CATALOG.primitive_type_struct("string")
 
 
 class TestPromoteScalarLeaf:
     """Requirement: promote_scalar_leaf helper (FR-001, FR-004, FR-005, FR-009)."""
 
     def _promote(self, scalars: object, field_name: str = "field", element_type: object = None) -> object:
-        from mlody.resolver.label_value import promote_scalar_leaf
+        from mlody.resolver.resolver_impl import promote_scalar_leaf
 
         if element_type is None:
             element_type = _make_bool_type()
@@ -2536,7 +2614,7 @@ class TestPromoteScalarLeaf:
 
     def test_single_bool_produces_one_element_vector(self) -> None:
         """FR-004/FR-001: Single bool promotes to MlodyValueValue with data=(True,)."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote(True, "flag", _make_bool_type())
 
@@ -2545,7 +2623,7 @@ class TestPromoteScalarLeaf:
 
     def test_single_string_produces_one_element_vector(self) -> None:
         """FR-004/FR-007: Single str promotes to MlodyValueValue with one-element tuple."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote("hello", "sha", _make_string_type())
 
@@ -2554,7 +2632,7 @@ class TestPromoteScalarLeaf:
 
     def test_list_of_ints_produces_multi_element_vector(self) -> None:
         """FR-004: List of ints promotes to MlodyValueValue with multi-element tuple."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote([1, 2, 3], "ids", _make_integer_type())
 
@@ -2578,7 +2656,7 @@ class TestPromoteScalarLeaf:
 
     def test_promoted_struct_kind_is_value(self) -> None:
         """FR-004: Promoted struct has kind='value'."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote(42, "n", _make_integer_type())
 
@@ -2587,7 +2665,7 @@ class TestPromoteScalarLeaf:
 
     def test_promoted_type_is_vector(self) -> None:
         """FR-004: Promoted type struct has type='vector'."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote(True, "flag", _make_bool_type())
 
@@ -2596,7 +2674,7 @@ class TestPromoteScalarLeaf:
 
     def test_promoted_type_element_type_matches_input(self) -> None:
         """FR-004: element_type on the vector matches the passed-in element_type struct."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         int_type = _make_integer_type()
         result = self._promote(7, "count", int_type)
@@ -2607,7 +2685,7 @@ class TestPromoteScalarLeaf:
 
     def test_promoted_location_type_is_inline(self) -> None:
         """FR-009: Location type is 'inline'."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote(3.14, "score", _make_float_type())
 
@@ -2616,7 +2694,7 @@ class TestPromoteScalarLeaf:
 
     def test_promoted_location_data_is_tuple(self) -> None:
         """FR-009: Location data is always a Python tuple."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote([1, 2, 3], "ids", _make_integer_type())
 
@@ -2625,7 +2703,7 @@ class TestPromoteScalarLeaf:
 
     def test_promoted_name_is_field_name(self) -> None:
         """FR-004: Promoted struct name is the bare field name."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote(True, "Bald", _make_bool_type())
 
@@ -2634,7 +2712,7 @@ class TestPromoteScalarLeaf:
 
     def test_promoted_lineage_is_empty_list(self) -> None:
         """FR-004: Promoted struct has _lineage=[]."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote("abc", "tag", _make_string_type())
 
@@ -2643,7 +2721,7 @@ class TestPromoteScalarLeaf:
 
     def test_register_true_raises_not_implemented(self) -> None:
         """FR-005: register=True raises NotImplementedError (OQ-003 deferred)."""
-        from mlody.resolver.label_value import promote_scalar_leaf
+        from mlody.resolver.resolver_impl import promote_scalar_leaf
 
         with pytest.raises(NotImplementedError, match="OQ-003"):
             promote_scalar_leaf(
@@ -2657,7 +2735,7 @@ class TestPromoteScalarLeaf:
 
     def test_tuple_of_scalars_is_accepted(self) -> None:
         """FR-004: A tuple of scalars is equivalent to a list of scalars."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote((1, 2), "ids", _make_integer_type())
 
@@ -2666,7 +2744,7 @@ class TestPromoteScalarLeaf:
 
     def test_location_kind_is_location(self) -> None:
         """FR-009: Location struct has kind='location'."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote(True, "ok", _make_bool_type())
         assert isinstance(result, MlodyValueValue)
@@ -2674,7 +2752,7 @@ class TestPromoteScalarLeaf:
 
     def test_location_name_is_inline(self) -> None:
         """FR-009: Location struct has name='inline'."""
-        from mlody.resolver.label_value import MlodyValueValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote(True, "ok", _make_bool_type())
         assert isinstance(result, MlodyValueValue)
@@ -2838,7 +2916,7 @@ class TestStructScalarPromotion:
     """Requirement: scalar promotion from Starlark struct fields (FR-008, spec §6.4)."""
 
     def _traverse_struct(self, struct: object, field: str) -> object:
-        from mlody.resolver.label_value import StructTraversalStrategy
+        from mlody.resolver.resolver_impl import StructTraversalStrategy
 
         strategy = StructTraversalStrategy("task")
         return strategy.traverse(struct, (field,), _make_label())
@@ -2900,7 +2978,7 @@ class TestStructScalarPromotion:
         # The field value is a dict — not a scalar, should not be promoted
         struct = Struct(kind="task", name="t", type=parent_type, nested={"k": 1})
 
-        from mlody.resolver.label_value import StructTraversalStrategy
+        from mlody.resolver.resolver_impl import StructTraversalStrategy
         strategy = StructTraversalStrategy("task")
         result = strategy.traverse(struct, ("nested",), _make_label())
 
@@ -2917,7 +2995,9 @@ class TestStructListPromotion:
 
     def test_outputs_list_of_value_structs_returns_vector(self) -> None:
         from common.python.starlarkish.core.struct import Struct
-        from mlody.resolver.label_value import MlodyValueValue, MlodyVectorValue, StructTraversalStrategy
+        from mlody.resolver.values.registry_backed import MlodyValueValue
+        from mlody.resolver.values.structural import MlodyVectorValue
+        from mlody.resolver.resolver_impl import StructTraversalStrategy
 
         task = Struct(
             kind="task",
@@ -2935,7 +3015,8 @@ class TestStructListPromotion:
 
     def test_empty_outputs_list_returns_empty_vector(self) -> None:
         from common.python.starlarkish.core.struct import Struct
-        from mlody.resolver.label_value import MlodyVectorValue, StructTraversalStrategy
+        from mlody.resolver.resolver_impl import StructTraversalStrategy
+        from mlody.resolver.values.structural import MlodyVectorValue
 
         task = Struct(
             kind="task",
@@ -2952,7 +3033,7 @@ class TestStructListPromotion:
 
     def test_mixed_kind_list_stays_raw(self) -> None:
         from common.python.starlarkish.core.struct import Struct
-        from mlody.resolver.label_value import StructTraversalStrategy
+        from mlody.resolver.resolver_impl import StructTraversalStrategy
 
         task = Struct(
             kind="task",
@@ -2967,7 +3048,8 @@ class TestStructListPromotion:
         assert isinstance(result, _RawAttrValue)
 
     def test_outputs_via_workspace_returns_vector(self, fs: FakeFilesystem) -> None:
-        from mlody.resolver.label_value import MlodyValueValue, MlodyVectorValue
+        from mlody.resolver.values.registry_backed import MlodyValueValue
+        from mlody.resolver.values.structural import MlodyVectorValue
 
         ws = _make_workspace(
             fs,
@@ -2981,7 +3063,7 @@ class TestStructListPromotion:
         assert isinstance(result.elements[0], MlodyValueValue)
 
     def test_empty_outputs_via_workspace_returns_empty_vector(self, fs: FakeFilesystem) -> None:
-        from mlody.resolver.label_value import MlodyVectorValue
+        from mlody.resolver.values.structural import MlodyVectorValue
 
         ws = _make_workspace(
             fs,
@@ -3096,7 +3178,7 @@ class TestDagVirtualAttribute:
     def test_dag_segment_without_workspace_returns_unresolved(
         self, fs: FakeFilesystem
     ) -> None:
-        from mlody.resolver.label_value import StructTraversalStrategy
+        from mlody.resolver.resolver_impl import StructTraversalStrategy
 
         ws = _make_workspace(
             fs,
@@ -3138,7 +3220,7 @@ class TestParquetTraversalStrategyDerivedLocation:
         import pyarrow.parquet as pq
 
         from mlody.core.traversal_grammar import FieldSegment, SliceSegment
-        from mlody.resolver.label_value import ParquetTraversalStrategy
+        from mlody.resolver.resolver_impl import ParquetTraversalStrategy
 
         parquet_file = tmp_path / "derived-output.parquet"
         pq.write_table(pa.table({"label": ["cat", "dog", "bird"]}), parquet_file)
@@ -3172,3 +3254,232 @@ class TestParquetTraversalStrategyDerivedLocation:
             f"Expected MlodyValueValue, got {result!r}"
         )
         assert result.struct.location.data == ("cat", "dog")  # type: ignore[union-attr]
+
+
+
+# ---------------------------------------------------------------------------
+# is_registry_backed  (F6 — task 2.8)
+# ---------------------------------------------------------------------------
+
+
+class TestIsRegistryBacked:
+    """F6: is_registry_backed returns True for registry-backed entity types only."""
+
+    def test_is_registry_backed_returns_true_for_mlody_value_value(self) -> None:
+        """F6: MlodyValueValue is a registry-backed entity."""
+        from common.python.starlarkish.core.struct import Struct
+
+        struct = Struct(kind="value", name="x")
+        assert is_registry_backed(MlodyValueValue(struct=struct)) is True
+
+    def test_is_registry_backed_returns_true_for_mlody_task_value(self) -> None:
+        """F6: MlodyTaskValue is a registry-backed entity."""
+        from common.python.starlarkish.core.struct import Struct
+
+        struct = Struct(kind="task", name="my_task")
+        assert is_registry_backed(MlodyTaskValue(struct=struct)) is True
+
+    def test_is_registry_backed_returns_true_for_mlody_action_value(self) -> None:
+        """F6: MlodyActionValue is a registry-backed entity."""
+        from common.python.starlarkish.core.struct import Struct
+
+        struct = Struct(kind="action", name="my_action")
+        assert is_registry_backed(MlodyActionValue(struct=struct)) is True
+
+    def test_is_registry_backed_returns_true_for_mlody_user_value(self) -> None:
+        """F6: MlodyUserValue is a registry-backed entity."""
+        from common.python.starlarkish.core.struct import Struct
+
+        struct = Struct(kind="user", name="alice")
+        assert is_registry_backed(MlodyUserValue(struct=struct)) is True
+
+    def test_is_registry_backed_returns_false_for_none(self) -> None:
+        """F6: None is not a registry-backed entity."""
+        assert is_registry_backed(None) is False
+
+    def test_is_registry_backed_returns_false_for_plain_python_object(self) -> None:
+        """F6: An arbitrary Python object is not a registry-backed entity."""
+        assert is_registry_backed(object()) is False
+        assert is_registry_backed(42) is False
+        assert is_registry_backed("task") is False
+
+    def test_is_registry_backed_returns_false_for_mlody_workspace_value(self) -> None:
+        """F6: MlodyWorkspaceValue is NOT a registry-backed entity."""
+        ws_value = MlodyWorkspaceValue(name="myws", root="/workspace")
+        assert is_registry_backed(ws_value) is False
+
+    def test_is_registry_backed_returns_false_for_mlody_unresolved_value(self) -> None:
+        """F6: MlodyUnresolvedValue is not a registry-backed entity."""
+        from mlody.core.label import parse_label
+
+        label = parse_label("//pkg:anything")
+        unresolved = MlodyUnresolvedValue(label=label, reason="test")
+        assert is_registry_backed(unresolved) is False
+
+    def test_is_registry_backed_returns_false_for_raw_attr_value(self) -> None:
+        """F6: _RawAttrValue (internal terminal) is not a registry-backed entity."""
+        from mlody.core.label import parse_label
+
+        label = parse_label("//pkg:anything")
+        raw = _RawAttrValue(value="some_scalar", label=label)
+        assert is_registry_backed(raw) is False
+
+
+# ---------------------------------------------------------------------------
+# _entity_io_panel + F1a — entity panel dedup  (task 3.11)
+# ---------------------------------------------------------------------------
+
+
+class TestEntityIoPanel:
+    """F1a: MlodyTaskValue and MlodyActionValue share _entity_io_panel."""
+
+    def _make_task_struct(self) -> object:
+        """Build a minimal task-like Struct for rendering tests."""
+        from common.python.starlarkish.core.struct import Struct
+
+        value_struct = Struct(
+            kind="value",
+            name="inp",
+            type=Struct(kind="type", type="integer", name="integer"),
+            location=Struct(type="s3"),
+            default=None,
+        )
+        return Struct(
+            kind="task",
+            name="my_task",
+            inputs={"inp": value_struct},
+            outputs={},
+            config={},
+        )
+
+    def _make_action_struct(self) -> object:
+        """Build a minimal action-like Struct for rendering tests."""
+        from common.python.starlarkish.core.struct import Struct
+
+        value_struct = Struct(
+            kind="value",
+            name="out",
+            type=Struct(kind="type", type="string", name="string"),
+            location=Struct(type="local"),
+            default=None,
+        )
+        return Struct(
+            kind="action",
+            name="my_action",
+            inputs={},
+            outputs={"out": value_struct},
+            config={},
+        )
+
+    def test_task_dom_for_returns_rich_dom_node(self) -> None:
+        """F1a: dom_for(MlodyTaskValue) returns a PanelNode.
+
+        Scenario: Task console representation is unchanged.
+        Rendering moved from to_console_representation() to dom_for() in render.py.
+        RichDomNode is a non-runtime-checkable Protocol; check the concrete
+        return type (PanelNode) instead.
+        """
+        from common.python.console import PanelNode
+
+        task_value = MlodyTaskValue(struct=self._make_task_struct())
+        result = dom_for(task_value)
+        assert isinstance(result, PanelNode)
+
+    def test_task_dom_for_panel_title_contains_task_name(self) -> None:
+        """F1a: dom_for(MlodyTaskValue) panel title includes the task name prefixed with 'task: '.
+
+        Scenario: Task console representation is unchanged.
+        """
+        task_value = MlodyTaskValue(struct=self._make_task_struct())
+        result = dom_for(task_value)
+        # RichDomExecutor takes the Console in __init__, not in render.
+        console = Console(record=True, width=120)
+        RichDomExecutor(console=console).render(result)
+        rendered = console.export_text()
+        assert "task: my_task" in rendered
+
+    def test_action_dom_for_returns_rich_dom_node(self) -> None:
+        """F1a: dom_for(MlodyActionValue) returns a PanelNode.
+
+        Scenario: Action console representation is unchanged.
+        Rendering moved from to_console_representation() to dom_for() in render.py.
+        RichDomNode is a non-runtime-checkable Protocol; check the concrete
+        return type (PanelNode) instead.
+        """
+        from common.python.console import PanelNode
+
+        action_value = MlodyActionValue(struct=self._make_action_struct())
+        result = dom_for(action_value)
+        assert isinstance(result, PanelNode)
+
+    def test_action_dom_for_panel_title_contains_action_name(self) -> None:
+        """F1a: dom_for(MlodyActionValue) panel title includes the action name prefixed with 'action: '.
+
+        Scenario: Action console representation is unchanged.
+        """
+        action_value = MlodyActionValue(struct=self._make_action_struct())
+        result = dom_for(action_value)
+        # RichDomExecutor takes the Console in __init__, not in render.
+        console = Console(record=True, width=120)
+        RichDomExecutor(console=console).render(result)
+        rendered = console.export_text()
+        assert "action: my_action" in rendered
+
+    def test_entity_io_panel_exists_as_module_level_function(self) -> None:
+        """F1a: Only one function handles the io-panel layout.
+
+        Scenario: Single _entity_io_panel function exists.
+        The function must be importable from resolver_impl and callable.
+        After Wave 3b refactor, rendering lives in render.py (dom_for); the
+        _entity_io_panel helper moved to resolver_impl.py.
+        """
+        import mlody.resolver.resolver_impl as lv
+
+        # _entity_io_panel must exist as a callable at module scope in resolver_impl
+        assert callable(_entity_io_panel)
+        assert hasattr(lv, "_entity_io_panel")
+
+    def test_task_and_action_produce_same_structure_for_identical_structs(self) -> None:
+        """F1a: _entity_io_panel is the single source of table layout.
+
+        Verifies that swapping title strings is the only difference between
+        task and action representations — both must pass through the same helper.
+        """
+        from common.python.starlarkish.core.struct import Struct
+        from common.python.console import PanelNode
+
+        # Build a struct that could represent either kind
+        value_struct = Struct(
+            kind="value",
+            name="x",
+            type=Struct(kind="type", type="integer", name="integer"),
+            location=Struct(type="s3"),
+            default=None,
+        )
+        shared_struct = Struct(
+            kind="task",
+            name="shared",
+            inputs={"x": value_struct},
+            outputs={},
+            config={},
+        )
+
+        task_result = _entity_io_panel("task: shared", shared_struct)
+        action_result = _entity_io_panel("action: shared", shared_struct)
+
+        # RichDomNode is a non-runtime-checkable Protocol; PanelNode is the
+        # concrete type returned by _entity_io_panel.
+        assert isinstance(task_result, PanelNode)
+        assert isinstance(action_result, PanelNode)
+
+        # Both must render to output containing the input row.
+        # RichDomExecutor takes the Console in __init__, not in render.
+        task_console = Console(record=True, width=120)
+        action_console = Console(record=True, width=120)
+        RichDomExecutor(console=task_console).render(task_result)
+        RichDomExecutor(console=action_console).render(action_result)
+        task_text = task_console.export_text()
+        action_text = action_console.export_text()
+        # Both should contain the value name
+        assert "x" in task_text
+        assert "x" in action_text

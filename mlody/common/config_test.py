@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mlody.common._registered_struct import _wrapper_for_kind
+from mlody.common._registered_struct import RegisteredStructBase
 from mlody.common.config import RegisteredConfig
 from mlody.common.struct import Struct
 
@@ -64,13 +64,14 @@ def test_registered_config_wrong_kind_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-8.5: _wrapper_for_kind("config") returns RegisteredConfig
+# TC-8.5: _REGISTERED["config"] returns RegisteredConfig
 # ---------------------------------------------------------------------------
 
 
-def test_wrapper_for_kind_config_returns_registered_config() -> None:
-    """_wrapper_for_kind('config') dispatches to RegisteredConfig.
+def test_registered_dict_config_returns_registered_config() -> None:
+    """RegisteredStructBase._REGISTERED['config'] dispatches to RegisteredConfig.
 
-    Ref: Scenario '_wrapper_for_kind dispatch'.
+    Replaces the deleted _wrapper_for_kind dispatch test after the
+    __init_subclass__ registry refactor (F1b).
     """
-    assert _wrapper_for_kind("config") is RegisteredConfig
+    assert RegisteredStructBase._REGISTERED.get("config") is RegisteredConfig

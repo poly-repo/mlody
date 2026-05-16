@@ -11,7 +11,7 @@ from pyfakefs.fake_filesystem import FakeFilesystem
 from rich.console import Console
 from common.python.starlarkish.core.struct import Struct
 
-import mlody.resolver.label_value  # noqa: F401 — triggers _register_workspace_hook()
+import mlody.resolver.resolver_impl  # noqa: F401 — triggers _register_workspace_hook()
 
 from mlody.core.anchor import (
     ModuleAggregateAnchor,
@@ -1514,7 +1514,7 @@ builtins.register("value", Struct(
         self, fs: FakeFilesystem
     ) -> None:
         """Scenario: Missing field returns MlodyUnresolvedValue listing available fields."""
-        from mlody.resolver.label_value import MlodyUnresolvedValue
+        from mlody.resolver.values.structural import MlodyUnresolvedValue
 
         entity_mlody = """\
 name_field = Struct(name="name", type=None, location=None)
@@ -1592,7 +1592,7 @@ class TestRecordFieldTraversalErrorPropagation:
         self, fs: FakeFilesystem
     ) -> None:
         """Scenario: Cross-kind compose error returned as MlodyUnresolvedValue."""
-        from mlody.resolver.label_value import MlodyUnresolvedValue
+        from mlody.resolver.values.structural import MlodyUnresolvedValue
 
         entity_mlody = """\
 weights_field = Struct(
@@ -1632,7 +1632,7 @@ builtins.register("value", Struct(
         When a field is absent from type.fields (empty list here), the result is
         MlodyUnresolvedValue — not a fallback to generic getattr.
         """
-        from mlody.resolver.label_value import MlodyUnresolvedValue
+        from mlody.resolver.values.structural import MlodyUnresolvedValue
 
         entity_mlody = """\
 record_type = Struct(kind="record", name="ModelType", fields=[])
@@ -1675,7 +1675,7 @@ class TestMultiLevelRecordTraversalViaWorkspace:
         Verifies that the new multi-level loop preserves the existing single-level
         behaviour: field struct returned with composed location.
         """
-        from mlody.resolver.label_value import MlodyUnresolvedValue  # noqa: F401
+        from mlody.resolver.values.structural import MlodyUnresolvedValue  # noqa: F401
 
         entity_mlody = """\
 field_a = Struct(
@@ -1755,7 +1755,7 @@ builtins.register("value", Struct(
 
         Missing field at first segment → MlodyUnresolvedValue, no exception.
         """
-        from mlody.resolver.label_value import MlodyUnresolvedValue
+        from mlody.resolver.values.structural import MlodyUnresolvedValue
 
         entity_mlody = """\
 record_type = Struct(kind="record", name="T", fields=[])

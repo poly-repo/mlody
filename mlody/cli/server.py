@@ -74,9 +74,15 @@ from mlody.resolver import (
     resolve_label_to_value,
     resolve_workspace,
 )
-from mlody.resolver.label_value import MlodySourceRangeValue, _RawAttrValue
+from mlody.resolver.values.internal import _RawAttrValue
+from mlody.resolver.values.structural import MlodySourceRangeValue
 from mlody.resolver.errors import WorkspaceResolutionError
-from mlody.resolver.resolver import _workspace_injections, get_or_build_baseline_workspace
+from mlody.resolver.resolver import (
+    Reporter,
+    _make_workspace_request,
+    _workspace_injections,
+    get_or_build_baseline_workspace,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -656,7 +662,7 @@ def _current_baseline_workspace(config: ServerConfig) -> object:
     extra_roots, lazy_roots = _workspace_injections(
         config.monorepo_root, config.workspace_root
     )
-    return get_or_build_baseline_workspace(
+    request = _make_workspace_request(
         mode="cwd",
         monorepo_root=config.monorepo_root,
         workspace_root=config.workspace_root,
@@ -665,8 +671,9 @@ def _current_baseline_workspace(config: ServerConfig) -> object:
         print_fn=_noop_print,
         extra_roots=extra_roots,
         lazy_roots=lazy_roots,
-        verbose=config.verbose,
     )
+    reporter = Reporter(print_fn=_noop_print, verbose=config.verbose)
+    return get_or_build_baseline_workspace(request, reporter)
 
 
 def _baseline_workspace_for_root(

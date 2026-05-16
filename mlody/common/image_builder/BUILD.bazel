@@ -1,4 +1,4 @@
-load("//build/bzl:python.bzl", "o_py_binary", "o_py_library")
+load("//build/bzl:python.bzl", "o_py_binary", "o_py_library", "o_py_test")
 
 # Core library: errors, logging, output, auth.
 # Phases depend on this; it has no internal deps to avoid cycles.
@@ -12,7 +12,9 @@ o_py_library(
         "output.py",
     ],
     visibility = ["//:__subpackages__"],
-    deps = [],
+    deps = [
+        "//common/python/errors:errors_lib",  # keep — errors.py imports StructuredError
+    ],
 )
 
 # Full library: core + phases + pipeline orchestrator.
@@ -29,6 +31,7 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         ":image_builder_core",  # keep
+        "//common/python/errors:errors_lib",
         "//mlody/common/image_builder/phases:phases_lib",  # keep
     ],
 )
@@ -53,5 +56,14 @@ o_py_binary(
         ":image_builder_lib",  # keep
         "//mlody/common:common_lib",
         "@pip//click",
+    ],
+)
+
+o_py_test(
+    name = "errors_test",
+    srcs = ["errors_test.py"],
+    deps = [
+        ":image_builder_core",  # keep — test imports from mlody.common.image_builder.errors
+        "//common/python/errors:errors_lib",  # keep — test imports StructuredError directly
     ],
 )

@@ -620,11 +620,10 @@ class Workspace:
                 return True
         return False
 
-    def load(self, verbose: bool = False) -> None:
+    def load(self, verbose: bool = False, *, reporter: Any = None) -> None:
         """Execute two-phase loading of pipeline definitions."""
-        # Keep the verbose parameter for API compatibility. The CLI's
-        # --verbose flag now controls logging level only; RegistryView.debug_dump()
-        # remains available for a future explicit dump attribute.
+        # verbose is kept for callers that have not yet migrated to reporter.
+        # When reporter is None, a default no-op reporter is used by WorkspaceLoader.
         _ = verbose
         loader = WorkspaceLoader(
             monorepo_root=self._monorepo_root,
@@ -642,6 +641,7 @@ class Workspace:
             convert_ports_to_structs=self._convert_ports_to_structs,
             resolve_value_sources=self._resolve_value_sources,
             after_root_discovery=self._refresh_workspace_attributes,
+            reporter=reporter,
         )
         loader.load(workspace=self)
         self._refresh_workspace_attributes()

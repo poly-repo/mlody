@@ -9,6 +9,7 @@ Public API:
     deserializer[n]             — read row n → dict[str, Any]
     deserializer[start:stop:step] → list[dict[str, Any]]
     read_file_as_rows(path)     — read all rows in one columnar pass (fast)
+    convert_arrow_value         — convert a single pyarrow scalar to Python
     register_parquet_handler    — register a custom handler for a pyarrow type
     OPAQUE_SENTINEL             — the sentinel returned for unhandled opaque types
     _clear_handlers             — test helper: reset the global registry
@@ -68,6 +69,59 @@ def _clear_handlers() -> None:
     the public API.
     """
     _HANDLER_REGISTRY.clear()
+
+
+__all__ = [
+    "OPAQUE_SENTINEL",
+    "ParquetDeserializer",
+    "convert_arrow_value",
+    "read_file_as_rows",
+    "register_parquet_handler",
+]
+
+
+def convert_arrow_value(value: object, field: pa.Field) -> Any:
+    """Convert a pyarrow scalar to a Python value using the global handler registry.
+
+    Checks the global handler registry first.  For unregistered structured
+    types (``pa.struct``, ``pa.map_``, large-binary) returns
+    ``OPAQUE_SENTINEL`` without raising.
+
+    Args:
+        value: The raw value extracted from a pyarrow Table column.
+        field: The ``pa.Field`` descriptor for the column.
+
+    Returns:
+        A Python-native value, or ``OPAQUE_SENTINEL`` for opaque types.
+    """
+    field_type = field.type
+
+    # Check extension registry first (D-5).
+    for registered_type, handler in _HANDLER_REGISTRY:
+        if field_type == registered_type:
+            return handler(value, field)
+
+    # Struct scalars: convert to Python dicts, mirroring pa.Table.to_pydict().
+    # This lets callers inspect nested fields (e.g. HuggingFace image structs
+    # which store {'bytes': <png-bytes>, 'path': None}).
+    if pa.types.is_struct(field_type):
+        if hasattr(value, "as_py"):
+            return value.as_py()  # type: ignore[union-attr]
+        return OPAQUE_SENTINEL
+
+    # Remaining opaque types (map, binary): return sentinel without conversion.
+    if (
+        pa.types.is_map(field_type)
+        or pa.types.is_large_binary(field_type)
+        or pa.types.is_binary(field_type)
+    ):
+        return OPAQUE_SENTINEL
+
+    # Primitive scalar: convert to Python via pyarrow's .as_py() if
+    # the value is a pyarrow scalar; otherwise return as-is.
+    if hasattr(value, "as_py"):
+        return value.as_py()  # type: ignore[union-attr]
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -136,47 +190,7 @@ class ParquetDeserializer:
     # ------------------------------------------------------------------
 
     def _convert_value(self, value: object, field: pa.Field) -> Any:
-        """Convert a pyarrow scalar to a Python value.
-
-        Checks the global handler registry first.  For unregistered structured
-        types (``pa.struct``, ``pa.map_``, large-binary) returns
-        ``OPAQUE_SENTINEL`` without raising.
-
-        Args:
-            value: The raw value extracted from a pyarrow Table column.
-            field: The ``pa.Field`` descriptor for the column.
-
-        Returns:
-            A Python-native value, or ``OPAQUE_SENTINEL`` for opaque types.
-        """
-        field_type = field.type
-
-        # Check extension registry first (D-5).
-        for registered_type, handler in _HANDLER_REGISTRY:
-            if field_type == registered_type:
-                return handler(value, field)
-
-        # Struct scalars: convert to Python dicts, mirroring pa.Table.to_pydict().
-        # This lets callers inspect nested fields (e.g. HuggingFace image structs
-        # which store {'bytes': <png-bytes>, 'path': None}).
-        if pa.types.is_struct(field_type):
-            if hasattr(value, "as_py"):
-                return value.as_py()  # type: ignore[union-attr]
-            return OPAQUE_SENTINEL
-
-        # Remaining opaque types (map, binary): return sentinel without conversion.
-        if (
-            pa.types.is_map(field_type)
-            or pa.types.is_large_binary(field_type)
-            or pa.types.is_binary(field_type)
-        ):
-            return OPAQUE_SENTINEL
-
-        # Primitive scalar: convert to Python via pyarrow's .as_py() if
-        # the value is a pyarrow scalar; otherwise return as-is.
-        if hasattr(value, "as_py"):
-            return value.as_py()  # type: ignore[union-attr]
-        return value
+        return convert_arrow_value(value, field)
 
     # ------------------------------------------------------------------
     # Row and slice reading  (D-7)
@@ -354,30 +368,7 @@ def read_file_as_rows(path: Path | str) -> list[dict[str, Any]]:
     col_arrays: dict[str, list] = {}
     for field in schema:
         col = table.column(field.name)
-        field_type = field.type
-
-        # Handler registry (same lookup as ParquetDeserializer._convert_value)
-        handled = False
-        for reg_type, handler in _HANDLER_REGISTRY:
-            if field_type == reg_type:
-                col_arrays[field.name] = [handler(v, field) for v in col.to_pylist()]
-                handled = True
-                break
-        if handled:
-            continue
-
-        # Struct columns: to_pylist() converts each StructScalar to a dict.
-        if pa.types.is_struct(field_type):
-            col_arrays[field.name] = col.to_pylist()
-        # Remaining opaque types → sentinel column
-        elif (
-            pa.types.is_map(field_type)
-            or pa.types.is_large_binary(field_type)
-            or pa.types.is_binary(field_type)
-        ):
-            col_arrays[field.name] = [OPAQUE_SENTINEL] * len(col)
-        else:
-            col_arrays[field.name] = col.to_pylist()
+        col_arrays[field.name] = [convert_arrow_value(v, field) for v in col]
 
     keys = list(col_arrays.keys())
     n = table.num_rows

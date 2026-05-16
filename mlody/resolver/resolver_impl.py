@@ -1,11 +1,10 @@
-"""Label → MlodyValue resolution step.
+"""Label → MlodyValue resolution implementation (mlody-refactor-phase-3 Wave 3b).
 
-This module adds the third step of the mlody show pipeline:
+This module contains the traversal strategies, engine helpers, entity lookup
+utilities, and ``resolve_label_to_value`` entry point.
 
-    parse_label(target_str)          → Label           [existing]
-    workspace.expand_wildcard_label  → [Label, ...]    [existing]
-    resolve_label_to_value(          → MlodyValue      [this module]
-        label, workspace)
+MlodyValue type definitions live in ``mlody.resolver.values.*``.  They are
+imported from there; this module contains only the resolution and traversal logic.
 
 Public entry point: ``resolve_label_to_value``.
 Re-exported from ``mlody.resolver``.
@@ -46,97 +45,29 @@ if TYPE_CHECKING:
 
 from mlody.core.type_display import format_type_label
 
-
 # ---------------------------------------------------------------------------
-# Arrow → mlody type mapping  (FR-002, spec §4)
+# Import MlodyValue types from resolver/values/
 # ---------------------------------------------------------------------------
-#
-# Populated at import time. ``pa.DataType.__eq__`` compares by value so the
-# dict lookup works correctly.  Types not in this table cause promotion to
-# return ``MlodyUnresolvedValue`` rather than a bare ``_RawAttrValue``.
-#
-# Arrow temporal and binary types (date32, timestamp, binary, etc.) are
-# explicitly out of scope for this change (FR-002 §4).
+# MlodyValue type definitions live in mlody.resolver.values.*.  This module
+# imports the full set so all traversal and resolution code has access to
+# typed value classes without circular imports.
 
-def _build_arrow_type_map() -> "dict[pa.DataType, str]":
-    """Build the Arrow-to-mlody-type-name mapping dict."""
-    import pyarrow as _pa  # noqa: PLC0415
-
-    return {
-        _pa.bool_(): "bool",
-        _pa.int8(): "integer",
-        _pa.int16(): "integer",
-        _pa.int32(): "integer",
-        _pa.int64(): "integer",
-        _pa.uint8(): "integer",
-        _pa.uint16(): "integer",
-        _pa.uint32(): "integer",
-        _pa.uint64(): "integer",
-        _pa.float16(): "float",
-        _pa.float32(): "float",
-        _pa.float64(): "float",
-        _pa.string(): "string",
-        _pa.large_string(): "string",
-    }
-
-
-# Lazily initialised on first call to avoid importing pyarrow at module level
-# on codepaths that never touch Parquet (e.g. pure-JSON or struct traversal).
-_ARROW_TO_MLODY_TYPE_NAME: "dict[pa.DataType, str] | None" = None
-
-
-def _get_arrow_type_map() -> "dict[pa.DataType, str]":
-    """Return the singleton Arrow-to-mlody-type-name mapping, building it on first call."""
-    global _ARROW_TO_MLODY_TYPE_NAME  # noqa: PLW0603
-    if _ARROW_TO_MLODY_TYPE_NAME is None:
-        _ARROW_TO_MLODY_TYPE_NAME = _build_arrow_type_map()
-    return _ARROW_TO_MLODY_TYPE_NAME
-
-
-# ---------------------------------------------------------------------------
-# Mlody primitive type struct cache  (spec §6.5)
-# ---------------------------------------------------------------------------
-#
-# These are minimal stubs — they carry enough shape for downstream type
-# inspection (``kind``, ``type``, ``name``) but do not include the full
-# validator functions from live DSL evaluation.
-
-_MLODY_PRIMITIVE_TYPE_STRUCTS: dict[str, object] = {}
-
-
-def _get_mlody_primitive_type(name: str) -> object:
-    """Return the canonical mlody type struct for a primitive type name.
-
-    Constructs and caches a minimal Struct on first call.  The returned struct
-    has ``kind="type"``, ``type=name``, ``name=name``, ``attributes={}``, and
-    ``_allowed_attrs={}``.  This is sufficient for downstream type inspection
-    and for building the ``vector(element_type=T)`` wrapper struct.
-
-    Args:
-        name: One of ``"bool"``, ``"integer"``, ``"float"``, ``"string"``.
-
-    Returns:
-        A cached Struct representing the named mlody primitive type.
-    """
-    if name not in _MLODY_PRIMITIVE_TYPE_STRUCTS:
-        from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
-
-        _root_kind_map = {
-            "bool": "bool",
-            "integer": "integer",
-            "float": "float",
-            # string inherits from aggregate in the real DSL (spec §3.3 table)
-            "string": "aggregate",
-        }
-        _MLODY_PRIMITIVE_TYPE_STRUCTS[name] = _Struct(
-            kind="type",
-            type=name,
-            name=name,
-            _root_kind=_root_kind_map.get(name, name),
-            attributes={},
-            _allowed_attrs={},
-        )
-    return _MLODY_PRIMITIVE_TYPE_STRUCTS[name]
+from mlody.resolver.values.base import MlodyValue as MlodyValue
+from mlody.resolver.values.base import TypeCatalog as TypeCatalog
+from mlody.resolver.values.base import _TYPE_CATALOG
+from mlody.resolver.values.base import _build_primitive_type_struct as _build_primitive_type_struct
+from mlody.resolver.values.base import is_registry_backed as is_registry_backed
+from mlody.resolver.values.structural import MlodyWorkspaceValue as MlodyWorkspaceValue
+from mlody.resolver.values.structural import MlodyFolderValue as MlodyFolderValue
+from mlody.resolver.values.structural import MlodySourceValue as MlodySourceValue
+from mlody.resolver.values.structural import MlodyUnresolvedValue as MlodyUnresolvedValue
+from mlody.resolver.values.structural import MlodyVectorValue as MlodyVectorValue
+from mlody.resolver.values.structural import MlodySourceRangeValue as MlodySourceRangeValue
+from mlody.resolver.values.registry_backed import MlodyTaskValue as MlodyTaskValue
+from mlody.resolver.values.registry_backed import MlodyActionValue as MlodyActionValue
+from mlody.resolver.values.registry_backed import MlodyUserValue as MlodyUserValue
+from mlody.resolver.values.registry_backed import MlodyValueValue as MlodyValueValue
+from mlody.resolver.values.internal import _RawAttrValue as _RawAttrValue
 
 
 # Python-type-to-mlody-type-name mapping for JSON-backed traversal (FR-007).
@@ -150,232 +81,7 @@ _PYTHON_TYPE_TO_MLODY_NAME: list[tuple[type, str]] = [
 
 
 # ---------------------------------------------------------------------------
-# Value type hierarchy  (tasks 1.1 – 1.6)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class MlodyValue:
-    """Base class for all resolved mlody values."""
-
-    def to_console_representation(self) -> RichDomNode:
-        return text("MlodyValue::to_console_representation")
-
-
-@dataclass(frozen=True)
-class MlodyWorkspaceValue(MlodyValue):
-    """The workspace itself (label has no entity spec).
-
-    ``name`` is the workspace name (``label.workspace``), or ``None`` for CWD.
-    ``root`` is the absolute filesystem path of the monorepo root.
-    """
-
-    name: str | None
-    root: str
-
-    def to_console_representation(self) -> RichDomNode:
-        name = self.name or "(cwd)"
-        return panel(
-            text(f"root: {self.root}"),
-            title=f"workspace: {name}",
-            border_style="blue",
-        )
-
-
-@dataclass(frozen=True)
-class MlodyFolderValue(MlodyValue):
-    """A directory on disk under the workspace.
-
-    ``path`` is workspace-relative (without leading slash), matching the label.
-    ``children`` contains the names of the immediate directory entries.
-    """
-
-    path: str
-    children: list[str]  # pyright: ignore[reportMutableClassVariable]
-
-    def to_console_representation(self) -> RichDomNode:
-        child_nodes = [text(c) for c in self.children] if self.children else [text("(empty)")]
-        return tree(f"folder: {self.path}", child_nodes)
-
-
-@dataclass(frozen=True)
-class MlodySourceValue(MlodyValue):
-    """A ``.mlody`` source file on disk.
-
-    ``path`` is the workspace-relative path **without** the ``.mlody`` suffix,
-    matching the label exactly.
-    ``abs_path`` is the absolute filesystem path to the ``.mlody`` file,
-    used for content display.
-    """
-
-    path: str
-    abs_path: Path | None = None
-
-    def to_console_representation(self) -> RichDomNode:
-        title = f"source: {self.path}.mlody"
-        if self.abs_path is not None:
-            try:
-                content = self.abs_path.read_text()
-                return panel(SyntaxNode(content, language="python"), title=title, border_style="green")
-            except Exception:
-                pass
-        return panel(text(self.path + ".mlody"), title=title, border_style="green")
-
-
-@dataclass(frozen=True)
-class MlodyTaskValue(MlodyValue):
-    """Opaque wrapper around a task registry Struct."""
-
-    struct: object
-
-    def to_console_representation(self) -> RichDomNode:
-        s = self.struct
-        name = getattr(s, "name", "?")
-
-        io_cols = ["name", "type", "source", "default"]
-        cfg_cols = ["name", "type", "source", "value"]
-
-        nodes: list[RichDomNode] = []
-
-        input_rows = _value_rows(getattr(s, "inputs", None))
-        if input_rows:
-            nodes.append(table(io_cols, input_rows, title="inputs"))
-
-        output_rows = _value_rows(getattr(s, "outputs", None))
-        if output_rows:
-            nodes.append(table(io_cols, output_rows, title="outputs"))
-
-        config_rows = _value_rows(getattr(s, "config", None))
-        if config_rows:
-            nodes.append(table(cfg_cols, config_rows, title="config"))
-
-        return panel(stack(*nodes) if nodes else text("(empty)"), title=f"task: {name}")
-
-
-@dataclass(frozen=True)
-class MlodyActionValue(MlodyValue):
-    """Opaque wrapper around an action registry Struct."""
-
-    struct: object
-
-    def to_console_representation(self) -> RichDomNode:
-        s = self.struct
-        name = getattr(s, "name", "?")
-
-        io_cols = ["name", "type", "source", "default"]
-        cfg_cols = ["name", "type", "source", "value"]
-
-        nodes: list[RichDomNode] = []
-
-        input_rows = _value_rows(getattr(s, "inputs", None))
-        if input_rows:
-            nodes.append(table(io_cols, input_rows, title="inputs"))
-
-        output_rows = _value_rows(getattr(s, "outputs", None))
-        if output_rows:
-            nodes.append(table(io_cols, output_rows, title="outputs"))
-
-        config_rows = _value_rows(getattr(s, "config", None))
-        if config_rows:
-            nodes.append(table(cfg_cols, config_rows, title="config"))
-
-        return panel(stack(*nodes) if nodes else text("(empty)"), title=f"action: {name}")
-
-
-@dataclass(frozen=True)
-class MlodyUserValue(MlodyValue):
-    """Opaque wrapper around a user registry Struct."""
-
-    struct: object
-
-    def to_console_representation(self) -> RichDomNode:
-        s = self.struct
-        name = getattr(s, "name", "?")
-        description = getattr(s, "description", "")
-        groups = getattr(s, "groups", []) or []
-        group_text = ", ".join(str(group) for group in groups) if groups else "(none)"
-
-        return panel(
-            table(
-                ["field", "value"],
-                [
-                    ["description", str(description)],
-                    ["groups", group_text],
-                ],
-            ),
-            title=f"user: {name}",
-        )
-
-
-@dataclass(frozen=True)
-class MlodyValueValue(MlodyValue):
-    """Opaque wrapper around a value registry Struct."""
-
-    struct: object
-
-    def to_console_representation(self) -> RichDomNode:
-        content = pretty_repr(_to_display_dict(self.struct), max_width=88)
-        return panel(SyntaxNode(content, language="python"), title="value")
-
-
-@dataclass(frozen=True)
-class MlodyUnresolvedValue(MlodyValue):
-    """Soft-failure sentinel.
-
-    Returned (never raised) when any resolution step cannot proceed.
-    ``reason`` is a human-readable string naming the failed step.
-    """
-
-    label: "Label"
-    reason: str
-
-    def to_console_representation(self) -> RichDomNode:
-        return panel(
-            text(self.reason),
-            title=f"unresolved: {self.label!r}",
-            border_style="red",
-        )
-
-
-@dataclass(frozen=True)
-class MlodyVectorValue(MlodyValue):
-    """A collection of ``MlodyValue`` elements produced by wildcard or recursive-descent traversal.
-
-    ``elements`` is a tuple of ``MlodyValue`` instances in deterministic order
-    (declaration order for wildcards, depth-first for recursive descent).
-    """
-
-    elements: tuple[MlodyValue, ...]
-
-
-@dataclass(frozen=True)
-class MlodySourceRangeValue(MlodyValue):
-    """A resolved source-range attribute: file path + line span."""
-
-    filepath: str
-    abs_path: Path
-    start_line: int
-    end_line: int
-
-    def to_console_representation(self) -> RichDomNode:
-        line_suffix = (
-            str(self.start_line)
-            if self.start_line == self.end_line
-            else f"{self.start_line}-{self.end_line}"
-        )
-        header = f"# {self.filepath}:{line_suffix}"
-        separator = "#"
-        try:
-            lines = self.abs_path.read_text().splitlines()
-            snippet = "\n".join(lines[self.start_line - 1 : self.end_line])
-            content = f"{header}\n{separator}\n{snippet}"
-        except Exception:
-            content = f"{header}\n{separator}\n(could not read {self.abs_path})"
-        return SyntaxNode(content, language="python")
-
-
-# ---------------------------------------------------------------------------
-# Rendering helpers shared by value-type to_console_representation() methods
+# Rendering helpers (private; canonical copy is in render.py)
 # ---------------------------------------------------------------------------
 
 
@@ -423,6 +129,33 @@ def _value_rows(container: object) -> list[list[RichDomNode]]:
             text(_fmt_default(getattr(v, "default", None))),
         ])
     return rows
+
+
+def _entity_io_panel(title: str, struct: object) -> RichDomNode:
+    """Render a task or action struct as a Rich panel with I/O tables.
+
+    Shared by MlodyTaskValue and MlodyActionValue — the two callers differ only
+    in the title prefix string ("task: ..." vs "action: ...").
+    Kept here for backward-compat test imports; the canonical copy is in render.py.
+    """
+    io_cols = ["name", "type", "source", "default"]
+    cfg_cols = ["name", "type", "source", "value"]
+
+    nodes: list[RichDomNode] = []
+
+    input_rows = _value_rows(getattr(struct, "inputs", None))
+    if input_rows:
+        nodes.append(table(io_cols, input_rows, title="inputs"))
+
+    output_rows = _value_rows(getattr(struct, "outputs", None))
+    if output_rows:
+        nodes.append(table(io_cols, output_rows, title="outputs"))
+
+    config_rows = _value_rows(getattr(struct, "config", None))
+    if config_rows:
+        nodes.append(table(cfg_cols, config_rows, title="config"))
+
+    return panel(stack(*nodes) if nodes else text("(empty)"), title=title)
 
 
 class TraversalErrorPolicy(enum.Enum):
@@ -705,17 +438,6 @@ class StructTraversalStrategy:
                 )
 
         return _RawAttrValue(value=obj, label=label)
-
-
-@dataclass(frozen=True)
-class _RawAttrValue(MlodyValue):
-    """Internal: terminal value reached after attribute-path traversal."""
-
-    value: object
-    label: "Label"
-
-    def to_console_representation(self) -> RichDomNode:
-        return text(str(self.value))
 
 
 # ---------------------------------------------------------------------------
@@ -1056,8 +778,7 @@ def _traverse_tabular_source(
                 or _pa.types.is_large_list(arrow_type)
             )
             if not is_nested:
-                type_map = _get_arrow_type_map()
-                mlody_type_name = type_map.get(arrow_type)
+                mlody_type_name = _TYPE_CATALOG.arrow_type_name(arrow_type)
                 if mlody_type_name is None:
                     return MlodyUnresolvedValue(
                         label=label,
@@ -1098,7 +819,7 @@ def _traverse_tabular_source(
                         ),
                     )
 
-                element_type = _get_mlody_primitive_type(mlody_type_name)
+                element_type = _TYPE_CATALOG.primitive_type_struct(mlody_type_name)
                 promoted = promote_scalar_leaf(
                     current,
                     last_field_name,
@@ -1284,7 +1005,7 @@ def _traverse_json_backed_value(
         _field_name = path[-1] if path else "value"
         for _py_type, _mlody_name in _PYTHON_TYPE_TO_MLODY_NAME:
             if isinstance(current, _py_type):
-                _element_type = _get_mlody_primitive_type(_mlody_name)
+                _element_type = _TYPE_CATALOG.primitive_type_struct(_mlody_name)
                 _promoted = promote_scalar_leaf(
                     current, _field_name, _element_type, label
                 )
@@ -1335,168 +1056,6 @@ def _is_record_struct(value: object) -> bool:
     )
 
 
-def _engine_index_step(
-    current: MlodyValue,
-    segment: object,
-    policy: TraversalErrorPolicy,
-    label: "Label",
-) -> MlodyValue:
-    """Apply an IndexSegment to *current*.
-
-    Supported inputs:
-    - ``MlodyVectorValue``: index into ``elements`` tuple.
-
-    Out-of-bounds and type mismatches follow the RAISE/SKIP policy.
-    """
-    from mlody.core.traversal_grammar import IndexSegment  # noqa: PLC0415
-
-    assert isinstance(segment, IndexSegment)
-    idx = segment.index
-
-    if isinstance(current, MlodyVectorValue):
-        elems = current.elements
-        try:
-            return elems[idx]
-        except IndexError:
-            return _policy_miss(
-                policy,
-                label,
-                (
-                    f"index {idx} is out of range for vector of length {len(elems)} "
-                    f"(label: {label!r})"
-                ),
-            )
-
-    if isinstance(current, _RawAttrValue) and isinstance(current.value, (list, tuple)):
-        seq = current.value
-        try:
-            return _RawAttrValue(value=seq[idx], label=label)
-        except IndexError:
-            return _policy_miss(
-                policy,
-                label,
-                (
-                    f"index {idx} is out of range for sequence of length {len(seq)} "
-                    f"(label: {label!r})"
-                ),
-            )
-
-    if isinstance(current, MlodyValueValue) and isinstance(
-        current.struct, (list, tuple)
-    ):
-        seq = current.struct
-        try:
-            return MlodyValueValue(struct=seq[idx])
-        except IndexError:
-            return _policy_miss(
-                policy,
-                label,
-                (
-                    f"index {idx} is out of range for sequence of length {len(seq)} "
-                    f"(label: {label!r})"
-                ),
-            )
-
-    return _policy_miss(
-        policy,
-        label,
-        (
-            f"IndexSegment requires a vector value but got "
-            f"{type(current).__name__} (label: {label!r})"
-        ),
-    )
-
-
-def _engine_key_step(
-    current: MlodyValue,
-    segment: object,
-    policy: TraversalErrorPolicy,
-    label: "Label",
-) -> MlodyValue:
-    """Apply a KeySegment to *current*.
-
-    Supported inputs:
-    - ``_RawAttrValue`` whose ``value`` is a Python ``dict``.
-
-    Missing keys and type mismatches follow the RAISE/SKIP policy.
-    """
-    from mlody.core.traversal_grammar import KeySegment  # noqa: PLC0415
-
-    assert isinstance(segment, KeySegment)
-    key = segment.key
-
-    d: object = None
-    if isinstance(current, _RawAttrValue) and isinstance(current.value, dict):
-        d = current.value
-    elif isinstance(current, MlodyValue):
-        # Check if the wrapped struct has a dict-like value somewhere
-        pass
-
-    if isinstance(d, dict):
-        if key in d:
-            return _wrap_raw(d[key], label)
-        return _policy_miss(
-            policy,
-            label,
-            f"key {key!r} not found in dict (label: {label!r})",
-        )
-
-    return _policy_miss(
-        policy,
-        label,
-        (
-            f"KeySegment requires a dict-backed value but got "
-            f"{type(current).__name__} (label: {label!r})"
-        ),
-    )
-
-
-def _engine_slice_step(
-    current: MlodyValue,
-    segment: object,
-    policy: TraversalErrorPolicy,
-    label: "Label",
-) -> MlodyValue:
-    """Apply a SliceSegment to *current*.
-
-    Supported inputs:
-    - ``MlodyVectorValue``: slice the ``elements`` tuple → new ``MlodyVectorValue``.
-    - ``_RawAttrValue`` whose ``value`` is a Python list or tuple → ``MlodyVectorValue``.
-    - ``MlodyValueValue`` whose ``struct`` is a Python list or tuple → ``MlodyVectorValue``.
-
-    Type mismatches follow the RAISE/SKIP policy.
-    """
-    from mlody.core.traversal_grammar import SliceSegment  # noqa: PLC0415
-
-    assert isinstance(segment, SliceSegment)
-    sl = slice(segment.start, segment.stop, segment.step)
-
-    if isinstance(current, MlodyVectorValue):
-        sliced = current.elements[sl]
-        return MlodyVectorValue(elements=tuple(sliced))
-
-    if isinstance(current, _RawAttrValue) and isinstance(current.value, (list, tuple)):
-        sliced_raw = current.value[sl]
-        return MlodyVectorValue(elements=tuple(_wrap_raw(v, label) for v in sliced_raw))
-
-    if isinstance(current, MlodyValueValue) and isinstance(
-        current.struct, (list, tuple)
-    ):
-        sliced_struct = current.struct[sl]
-        return MlodyVectorValue(
-            elements=tuple(MlodyValueValue(struct=v) for v in sliced_struct)
-        )
-
-    return _policy_miss(
-        policy,
-        label,
-        (
-            f"SliceSegment requires a vector or sequence value but got "
-            f"{type(current).__name__} (label: {label!r})"
-        ),
-    )
-
-
 def _collect_record_fields(
     value: object,
     label: "Label",
@@ -1539,152 +1098,6 @@ def _collect_record_fields(
     return children
 
 
-def _engine_wildcard_step(
-    current: MlodyValue,
-    segment: object,
-    policy: TraversalErrorPolicy,
-    label: "Label",
-) -> MlodyValue:
-    """Apply a WildcardSegment to *current*.
-
-    Supported inputs (priority order):
-    1. ``MlodyVectorValue`` → return all elements.
-    2. ``_RawAttrValue`` whose ``value`` is a Python ``dict`` → return dict values.
-    3. Record-typed Starlark Struct → return all declared fields via
-       ``_traverse_one_step``.
-
-    Non-traversable roots follow the RAISE/SKIP policy.
-    """
-    # Case 1: vector
-    if isinstance(current, MlodyVectorValue):
-        return MlodyVectorValue(elements=current.elements)
-
-    # Case 2: dict-backed
-    if isinstance(current, _RawAttrValue) and isinstance(current.value, dict):
-        children: list[MlodyValue] = [
-            _wrap_raw(v, label) for v in current.value.values()
-        ]
-        return MlodyVectorValue(elements=tuple(children))
-
-    # Case 3: record-typed Struct
-    from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
-
-    if isinstance(current, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue)):
-        struct_obj = current.struct  # type: ignore[union-attr]
-        if isinstance(struct_obj, _Struct) and _is_record_struct(struct_obj):
-            field_values = _collect_record_fields(struct_obj, label)
-            return MlodyVectorValue(elements=tuple(field_values))
-
-    # Also try the raw struct when current is MlodyValueValue and struct is a Struct
-    if isinstance(current, MlodyValueValue):
-        struct_obj = current.struct
-        if isinstance(struct_obj, _Struct) and _is_record_struct(struct_obj):
-            field_values = _collect_record_fields(struct_obj, label)
-            return MlodyVectorValue(elements=tuple(field_values))
-
-    # Fallback: check if current itself is a Struct that is record-typed
-    # (handles case where the Struct is passed directly, not wrapped)
-    if isinstance(current, _Struct) and _is_record_struct(current):  # type: ignore[arg-type]
-        field_values = _collect_record_fields(current, label)
-        return MlodyVectorValue(elements=tuple(field_values))
-
-    return _policy_miss(
-        policy,
-        label,
-        (
-            f"WildcardSegment cannot traverse {type(current).__name__}; "
-            "expected a vector, dict-backed value, or record-typed Struct "
-            f"(label: {label!r})"
-        ),
-    )
-
-
-def _engine_recursive_descent_step(
-    current: MlodyValue,
-    segment: object,
-    policy: TraversalErrorPolicy,
-    label: "Label",
-) -> MlodyValue:
-    """Apply a RecursiveDescentSegment to *current*.
-
-    Collects all descendants at any depth using depth-first traversal.
-    The current value itself is NOT included.  Recurses into:
-    - ``MlodyVectorValue`` elements
-    - ``_RawAttrValue`` wrapping a Python ``dict`` (values)
-    - Record-typed Starlark Structs (all declared fields)
-
-    Does not recurse into scalar leaves (non-Struct, non-dict, non-list).
-    Non-traversable roots follow the RAISE/SKIP policy.
-    """
-    collected: list[MlodyValue] = []
-    _visited: set[int] = set()
-
-    def _collect_children(node: object) -> list[MlodyValue]:
-        """Return the immediate MlodyValue children of *node*.
-
-        Accepts both typed ``MlodyValue`` wrappers and raw Starlark Structs so
-        the engine can be called directly with an unwrapped struct (e.g. from
-        tests or mapped-traversal intermediates) without extra wrapping.
-        """
-        from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
-
-        if isinstance(node, MlodyVectorValue):
-            return list(node.elements)
-
-        if isinstance(node, _RawAttrValue) and isinstance(node.value, dict):
-            return [_wrap_raw(v, label) for v in node.value.values()]
-
-        if isinstance(node, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue)):
-            struct_obj = node.struct  # type: ignore[union-attr]
-            if isinstance(struct_obj, _Struct) and _is_record_struct(struct_obj):
-                return _collect_record_fields(struct_obj, label)
-
-        # Raw Struct with record type — reached for the initial root or for fields
-        # produced by _collect_record_fields whose traversal rebuilt a raw Struct.
-        if isinstance(node, _Struct) and _is_record_struct(node):  # type: ignore[arg-type]
-            return _collect_record_fields(node, label)  # type: ignore[arg-type]
-
-        return []
-
-    def _dfs(node: object) -> None:
-        node_id = id(node)
-        if node_id in _visited:
-            return
-        _visited.add(node_id)
-        children = _collect_children(node)
-        for child in children:
-            collected.append(child)
-            _dfs(child)
-
-    # Check that the root is traversable (not a scalar/unresolvable leaf)
-    from common.python.starlarkish.core.struct import Struct as _Struct  # noqa: PLC0415
-
-    root_is_traversable = (
-        isinstance(current, MlodyVectorValue)
-        or (isinstance(current, _RawAttrValue) and isinstance(current.value, dict))
-        or (
-            isinstance(current, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue))
-            and isinstance(getattr(current, "struct", None), _Struct)
-            and _is_record_struct(getattr(current, "struct", None))
-        )
-        # Raw Struct with record type — reached when the engine is called directly
-        # with an unwrapped struct (e.g. from tests or mapped-traversal intermediate).
-        or (isinstance(current, _Struct) and _is_record_struct(current))  # type: ignore[arg-type]
-    )
-
-    if not root_is_traversable:
-        return _policy_miss(
-            policy,
-            label,
-            (
-                f"RecursiveDescentSegment cannot traverse {type(current).__name__}; "
-                "expected a vector, dict-backed value, or record-typed Struct "
-                f"(label: {label!r})"
-            ),
-        )
-
-    _dfs(current)
-    return MlodyVectorValue(elements=tuple(collected))
 
 
 # A sentinel label used only in error messages from _wrap_struct above.
@@ -1773,45 +1186,53 @@ def _traverse_one_step(
         segment = field_name
         effective_name = field_name.name
     elif isinstance(field_name, IndexSegment):
-        # Delegate to engine helper — current_struct must be a MlodyValue
+        # Delegate to engine — current_struct must be a MlodyValue
+        from mlody.resolver.engine import step as _engine_step  # noqa: PLC0415
+
         if isinstance(current_struct, MlodyValue):
-            return _engine_index_step(current_struct, field_name, policy, label)
-        return _engine_index_step(
+            return _engine_step(current_struct, field_name, policy, label)
+        return _engine_step(
             MlodyValueValue(struct=current_struct), field_name, policy, label
         )
     elif isinstance(field_name, KeySegment):
+        from mlody.resolver.engine import step as _engine_step  # noqa: PLC0415
+
         if isinstance(current_struct, MlodyValue):
-            return _engine_key_step(current_struct, field_name, policy, label)
-        return _engine_key_step(
+            return _engine_step(current_struct, field_name, policy, label)
+        return _engine_step(
             _RawAttrValue(value=current_struct, label=label), field_name, policy, label
         )
     elif isinstance(field_name, WildcardSegment):
         # Wildcard: expand current struct as a record-typed Struct value
+        from mlody.resolver.engine import step as _engine_step  # noqa: PLC0415
+
         if isinstance(current_struct, MlodyValue):
-            return _engine_wildcard_step(current_struct, field_name, policy, label)
+            return _engine_step(current_struct, field_name, policy, label)
         # Wrap as MlodyValueValue so engine handles it
-        return _engine_wildcard_step(
+        return _engine_step(
             MlodyValueValue(struct=current_struct), field_name, policy, label
         )
     elif isinstance(field_name, RecursiveDescentSegment):
+        from mlody.resolver.engine import step as _engine_step  # noqa: PLC0415
+
         if isinstance(current_struct, MlodyValue):
-            return _engine_recursive_descent_step(
-                current_struct, field_name, policy, label
-            )
-        return _engine_recursive_descent_step(
+            return _engine_step(current_struct, field_name, policy, label)
+        return _engine_step(
             MlodyValueValue(struct=current_struct), field_name, policy, label
         )
     elif isinstance(field_name, SliceSegment):
+        from mlody.resolver.engine import step as _engine_step  # noqa: PLC0415
+
         if isinstance(current_struct, MlodyValue):
-            return _engine_slice_step(current_struct, field_name, policy, label)
-        return _engine_slice_step(
+            return _engine_step(current_struct, field_name, policy, label)
+        return _engine_step(
             MlodyValueValue(struct=current_struct), field_name, policy, label
         )
     elif isinstance(field_name, MlodySegment):
         from mlody.core.traversal_parser import evaluate_mlody_segment  # noqa: PLC0415
 
         entity = current_struct
-        if isinstance(current_struct, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue)):
+        if is_registry_backed(current_struct):
             entity = current_struct.struct  # type: ignore[union-attr]
         elif isinstance(current_struct, _RawAttrValue):
             entity = current_struct.value
@@ -1850,7 +1271,7 @@ def _traverse_one_step(
     # record type.  This is required for mapped traversal (task 4.3): after a wildcard
     # expands elements into MlodyValueValue instances, subsequent FieldSegment steps
     # must operate on the underlying Starlark Struct, not the Python wrapper.
-    if isinstance(current_struct, (MlodyValueValue, MlodyTaskValue, MlodyActionValue, MlodyUserValue)):
+    if is_registry_backed(current_struct):
         current_struct = current_struct.struct  # type: ignore[union-attr]
     value_type = getattr(current_struct, "type", None)
     _SENTINEL = object()
@@ -2630,8 +2051,7 @@ class ParquetTraversalStrategy:
                     or _pa.types.is_large_list(_arrow_type)
                 )
                 if not _is_nested:
-                    _type_map = _get_arrow_type_map()
-                    _mlody_type_name = _type_map.get(_arrow_type)
+                    _mlody_type_name = _TYPE_CATALOG.arrow_type_name(_arrow_type)
                     if _mlody_type_name is None:
                         # Arrow type not in mapping — return MlodyUnresolvedValue (FR-002)
                         return MlodyUnresolvedValue(
@@ -2677,7 +2097,7 @@ class ParquetTraversalStrategy:
                             ),
                         )
 
-                    _element_type = _get_mlody_primitive_type(_mlody_type_name)
+                    _element_type = _TYPE_CATALOG.primitive_type_struct(_mlody_type_name)
                     _promoted = promote_scalar_leaf(
                         current, _last_field_name, _element_type, label
                     )

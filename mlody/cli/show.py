@@ -62,6 +62,7 @@ from mlody.resolver import (
     resolve_workspace,
 )
 from mlody.resolver.errors import WorkspaceResolutionError
+from mlody.resolver.render import dom_for
 
 _logger = logging.getLogger(__name__)
 
@@ -1022,7 +1023,8 @@ def _print_mlody_value(
 
     Data-backed values (parquet, derived) are rendered inline via click.echo.
     MlodyValueValue entities are rendered via the render_value multimethod when a
-    workspace is provided; all other structural values use to_console_representation.
+    workspace is provided; all other structural values are rendered via dom_for
+    from mlody.resolver.render.
     """
     dom_executor = RichDomExecutor(_console)
 
@@ -1031,7 +1033,7 @@ def _print_mlody_value(
             _print_mlody_value(elem, workspace=workspace, _has_error=_has_error)
         return
 
-    from mlody.resolver.label_value import MlodySourceRangeValue  # noqa: PLC0415
+    from mlody.resolver.values.structural import MlodySourceRangeValue  # noqa: PLC0415
 
     if isinstance(value, MlodySourceRangeValue):
         if workspace is not None:
@@ -1067,7 +1069,7 @@ def _print_mlody_value(
                     _logger.debug(
                         "render_value: no method for source-range, falling back"
                     )
-        dom_executor.render(value.to_console_representation())
+        dom_executor.render(dom_for(value))
         return
 
     if isinstance(value, MlodyValueValue):
@@ -1175,7 +1177,7 @@ def _print_mlody_value(
         ):
             return
 
-    from mlody.resolver.label_value import _RawAttrValue  # noqa: PLC0415
+    from mlody.resolver.values.internal import _RawAttrValue  # noqa: PLC0415
 
     if isinstance(value, _RawAttrValue):
         enc = _image_encoder_for_terminal()
@@ -1285,7 +1287,7 @@ def _render_mlody_value(value: MlodyValue) -> RichDomNode:
         else:
             content = _format_value(payload)
         return panel(SyntaxNode(content, language="python"), title="value")
-    return value.to_console_representation()
+    return dom_for(value)
 
 
 def _describe_mlody_value(value: MlodyValue) -> str:
@@ -1311,7 +1313,7 @@ def _describe_mlody_value(value: MlodyValue) -> str:
         if hasattr(payload, "as_mapping") or isinstance(payload, (list, dict)):
             return f"value:\n{_pretty_struct_str(payload)}"
         return f"value:\n{_format_value(payload)}"
-    from mlody.resolver.label_value import _RawAttrValue
+    from mlody.resolver.values.internal import _RawAttrValue
 
     if isinstance(value, _RawAttrValue):
         return _format_value(value.value)
