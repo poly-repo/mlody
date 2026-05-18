@@ -1945,4 +1945,8 @@ def test_mlody_descriptor_types_declare_source_range_field() -> None:
 
     workspace_descriptor = ev.registry.types.by_name["mlody-workspace"]
     workspace_fields = workspace_descriptor.attributes["fields"]  # type: ignore[attr-defined]
-    assert [field.name for field in workspace_fields] == ["_source_range", "raw", "info"]
+    assert [field.name for field in workspace_fields] == [
+        "_source_range",
+        "raw",
+        "info",
+    ]

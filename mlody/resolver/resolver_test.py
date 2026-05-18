@@ -1531,3 +1531,59 @@ def test_apply_registered_configs_hierarchical_order() -> None:
     # :lr resolves to the same file stem as each config; shallower path applies first
     assert applied_order[0] == ("//mlody/config:lr", 0.01)
     assert applied_order[1] == ("//mlody/teams/pixella/config:lr", 0.001)
+
+
+def test_apply_registered_configs_defaults_task_execution_without_overwriting_explicit_values() -> None:
+    """Task execution config rules only fill tasks that do not already set execution."""
+    from mlody.resolver.resolver import _apply_registered_configs  # noqa: PLC0415
+
+    default_execution = Struct(
+        kind="execution",
+        name="localhost",
+        type="localhost",
+    )
+    config_struct = Struct(
+        kind="config",
+        name="workspace_defaults",
+        description="",
+        rules={'//...:[@mlody _.kind == "task"].execution': default_execution},
+    )
+    fake_workspace = MagicMock()
+    fake_workspace.registry_view.configs_snapshot.return_value = [
+        ("workspace:workspace_defaults", config_struct)
+    ]
+    fake_workspace.expand_wildcard_label.return_value = [
+        '@lexica//pipeline:missing.execution[@mlody _.kind == "task"]',
+        '@lexica//pipeline:explicit.execution[@mlody _.kind == "task"]',
+    ]
+    resolved_by_label = {
+        '@lexica//pipeline:missing[@mlody _.kind == "task"]': Struct(
+            kind="task",
+            name="missing",
+            execution=None,
+        ),
+        '@lexica//pipeline:explicit[@mlody _.kind == "task"]': Struct(
+            kind="task",
+            name="explicit",
+            execution=Struct(kind="execution", name="docker", type="docker"),
+        ),
+    }
+    fake_workspace.resolve.side_effect = lambda label: resolved_by_label[label]
+
+    setf_calls: list[tuple[str, object, str]] = []
+
+    def fake_setf(label: str, value: object, *, workspace: object, source: str) -> None:
+        setf_calls.append((label, value, source))
+
+    with patch("mlody.core.setf.setf", side_effect=fake_setf):
+        import mlody.core.setf  # noqa: PLC0415
+        _apply_registered_configs(fake_workspace)
+
+    assert setf_calls == [
+        (
+            '@lexica//pipeline:missing.execution[@mlody _.kind == "task"]',
+            default_execution,
+            'CONFIG: workspace_defaults: //...:[@mlody _.kind == "task"].execution='
+            + str(default_execution),
+        )
+    ]

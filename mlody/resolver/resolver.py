@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 import os
 import pwd
@@ -435,10 +435,11 @@ def _canonicalize_config_label(label: str, registry_key: str) -> str:
     Relative forms supported:
       :name        → entity in the same file as the config
       path:name    → entity in path relative to the config's directory
+      'attribute   → returned unchanged (workspace attribute)
       //...        → returned unchanged (already absolute)
       @...         → returned unchanged (already absolute)
     """
-    if label.startswith("//") or label.startswith("@"):
+    if label.startswith("//") or label.startswith("@") or label.startswith("'"):
         return label
     config_file_stem = registry_key.rsplit(":", 1)[0]
     config_dir = str(Path(config_file_stem).parent).replace("\\", "/")
@@ -459,14 +460,45 @@ def _apply_registered_configs(workspace: Workspace) -> None:
     Called from configure_workspace after _normalize_workspace_defaults so that
     the precedence chain is correct: DEFAULT < CONFIG < COMMAND_LINE.
     """
+    from mlody.core.label import parse_label as _core_parse_label  # noqa: PLC0415
     from mlody.common.config import RegisteredConfig  # noqa: PLC0415
     from mlody.core.setf import setf  # noqa: PLC0415
+
+    def _task_execution_parent_label(ref: str) -> str | None:
+        parsed = _core_parse_label(ref)
+        entity = parsed.entity
+        if entity is None or entity.field_path != ("execution",):
+            return None
+        return replace(parsed, entity=replace(entity, field_path=())).format_inner()
 
     for registry_key, config_struct in workspace.registry_view.configs_snapshot():
         registered = RegisteredConfig(config_struct)
         for label, value in registered.rules.items():
             label = _canonicalize_config_label(label, registry_key)
             source = f"CONFIG: {registered.name}: {label}={value}"
+            parent_label = _task_execution_parent_label(label)
+            if parent_label is not None:
+                concrete_labels = workspace.expand_wildcard_label(label)
+                if not concrete_labels:
+                    setf(label, value, workspace=workspace, source=source)
+                    continue
+                for concrete_label in concrete_labels:
+                    concrete_parent_label = _task_execution_parent_label(concrete_label)
+                    if concrete_parent_label is None:
+                        setf(concrete_label, value, workspace=workspace, source=source)
+                        continue
+                    try:
+                        task_value = workspace.resolve(concrete_parent_label)
+                    except Exception:
+                        task_value = None
+                    task_struct = getattr(task_value, "struct", task_value)
+                    if getattr(task_struct, "kind", None) != "task":
+                        setf(concrete_label, value, workspace=workspace, source=source)
+                        continue
+                    if getattr(task_struct, "execution", None) is not None:
+                        continue
+                    setf(concrete_label, value, workspace=workspace, source=source)
+                continue
             try:
                 resolved = workspace.resolve(label)
             except Exception:
