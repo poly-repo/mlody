@@ -18,7 +18,7 @@ SUPPORTED_REGISTRATION_KINDS = (
     "user",
     "implementation",
     "build_ref",
-    "executor",
+    "execution",
     "generic",
     "config",
 )
@@ -84,7 +84,7 @@ class RegistryState:
     users: NamedRegistry = field(init=False)
     implementations: NamedRegistry = field(init=False)
     build_refs: NamedRegistry = field(init=False)
-    executors: NamedRegistry = field(init=False)
+    executions: NamedRegistry = field(init=False)
     generics: NamedRegistry = field(init=False)
     configs: NamedRegistry = field(init=False)
 
@@ -100,7 +100,7 @@ class RegistryState:
         self.users = self._make_registry("user")
         self.implementations = self._make_registry("implementation")
         self.build_refs = self._make_registry("build_ref")
-        self.executors = self._make_registry("executor")
+        self.executions = self._make_registry("execution")
         self.generics = self._make_registry("generic")
         self.configs = self._make_registry("config")
 
@@ -168,8 +168,8 @@ class RegistryState:
                 return self.implementations
             case "build_ref":
                 return self.build_refs
-            case "executor":
-                return self.executors
+            case "execution":
+                return self.executions
             case "generic":
                 return self.generics
             case "config":

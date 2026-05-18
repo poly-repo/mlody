@@ -157,13 +157,13 @@ def validate_attr_value(attr_name: str, value: python.Any, type_ref: python.Any)
                 )
             return
 
-        if type_ref == "executor_ref":
-            # Accepts an executor struct OR a string name (lazy ref)
+        if type_ref == "execution_ref":
+            # Accepts an execution struct OR a string name (lazy ref)
             if isinstance(value, str):
                 return
-            if type(value) != "struct" or python.getattr(value, "kind", None) != "executor":
+            if type(value) != "struct" or python.getattr(value, "kind", None) != "execution":
                 raise TypeError(
-                    f"Attribute {attr_name!r} expects an executor struct or string name, "
+                    f"Attribute {attr_name!r} expects an execution struct or string name, "
                     f"got {type(value)!r}"
                 )
             return

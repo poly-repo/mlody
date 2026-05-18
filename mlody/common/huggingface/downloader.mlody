@@ -4,7 +4,7 @@ load("//mlody/common/values.mlody")
 load("//mlody/common/locations.mlody")
 load("//mlody/common/implementation.mlody")
 load("//mlody/common/action.mlody")
-load("//mlody/common/executor.mlody")
+load("//mlody/common/execution.mlody")
 load("//mlody/common/representation.mlody", "json")
 
 typedef(
@@ -68,7 +68,7 @@ task(
             value(name="committoid", group="model"),
             value(name="releases", type = vector(element_type=string()), representation=json(), location= inline(), group="info"),
     ],
-    executor = kubernetes(),
+    execution = kubernetes(),
     action = action(
         name    = "downloader-action",
         outputs = [

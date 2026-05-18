@@ -25,7 +25,7 @@ class RegisteredTask(RegisteredStructBase):
     outputs: dict[str, RegisteredValue]
     action: object
     config: dict[str, RegisteredValue]
-    executor: object | None = None
+    execution: object | None = None
     _entity_type: object | None = None
     _source_range: object | None = None
     raw: object | None = None

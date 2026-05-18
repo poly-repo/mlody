@@ -49,15 +49,15 @@ def _task_impl(ctx):
     if config_raw == None:
         config_raw = []
     config = _validate_value_refs("config", config_raw)
-    executor_raw = python.getattr(ctx.attr, "executor", None)
-    if executor_raw != None:
-        if not isinstance(executor_raw, str):
-            if type(executor_raw) != "struct" or python.getattr(executor_raw, "kind", None) != "executor":
+    execution_raw = python.getattr(ctx.attr, "execution", None)
+    if execution_raw != None:
+        if not isinstance(execution_raw, str):
+            if type(execution_raw) != "struct" or python.getattr(execution_raw, "kind", None) != "execution":
                 raise TypeError(
-                    "executor: expected an executor struct or string name, got "
-                    + repr(type(executor_raw))
+                    "execution: expected an execution struct or string name, got "
+                    + repr(type(execution_raw))
                 )
-    executor = executor_raw
+    execution = execution_raw
 
     resolved_action = action
     if isinstance(action, str):
@@ -78,7 +78,7 @@ def _task_impl(ctx):
         "outputs": outputs,
         "action": resolved_action,
         "config": config,
-        "executor": executor,
+        "execution": execution,
     }
     methods = python.getattr(ctx.attr, "methods", None)
     if methods != None:
@@ -122,6 +122,6 @@ task = rule(
         "outputs":  attr(type="value_ref_list"),
         "action":   attr(type="action_ref"),
         "config":   attr(type="value_ref_list", mandatory=False),
-        "executor": attr(type="executor_ref",   mandatory=False, default=None),
+        "execution": attr(type="execution_ref", mandatory=False, default=None),
     },
 )

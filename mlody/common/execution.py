@@ -1,4 +1,4 @@
-"""Dataclass wrapper for registered ``executor`` structs."""
+"""Dataclass wrapper for registered ``execution`` structs."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from mlody.common.struct import Struct
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class RegisteredExecutor(RegisteredStructBase):
-    """Mirror the shape of executor descriptors and instances."""
+class RegisteredExecution(RegisteredStructBase):
+    """Mirror the shape of execution descriptors and instances."""
 
-    _KIND: ClassVar[str] = "executor"
+    _KIND: ClassVar[str] = "execution"
 
     type: str
     name: str
@@ -21,13 +21,10 @@ class RegisteredExecutor(RegisteredStructBase):
     _predicate: object | None = None
     namespace: str | None = None
     service_account: str | None = None
-    pipeline_name: str | None = None
-    experiment: str | None = None
-    workflow_template: str | None = None
     methods: object | None = None
 
     def __init__(self, value: Struct) -> None:
         populate_from_struct(self, value)
 
 
-__all__ = ["RegisteredExecutor"]
+__all__ = ["RegisteredExecution"]

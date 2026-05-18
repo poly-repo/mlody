@@ -229,7 +229,7 @@ _ENTITY_KINDS_FOR_METHOD_WRAP: frozenset[str] = frozenset(
         "user",
         "build_ref",
         "implementation",
-        "executor",
+        "execution",
         "config",
     }
 )
@@ -248,7 +248,7 @@ def _ensure_registered() -> None:
     import mlody.common.action  # noqa: PLC0415, F401
     import mlody.common.build_ref  # noqa: PLC0415, F401
     import mlody.common.config  # noqa: PLC0415, F401
-    import mlody.common.executor  # noqa: PLC0415, F401
+    import mlody.common.execution  # noqa: PLC0415, F401
     import mlody.common.freshness  # noqa: PLC0415, F401
     import mlody.common.generic  # noqa: PLC0415, F401
     import mlody.common.implementation  # noqa: PLC0415, F401
@@ -308,5 +308,4 @@ def _wrap_struct_with_wrapper(
         # Keep legacy or partially migrated shapes working until the remaining
         # callers are updated to construct the typed wrappers consistently.
         return value
-
 

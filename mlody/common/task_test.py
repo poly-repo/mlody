@@ -27,7 +27,7 @@ _LOCATIONS_MLODY = (_THIS_DIR / "locations.mlody").read_text()
 _REPRESENTATION_MLODY = (_THIS_DIR / "representation.mlody").read_text()
 _BUILD_REF_MLODY = (_THIS_DIR / "build_ref.mlody").read_text()
 _IMPLEMENTATION_MLODY = (_THIS_DIR / "implementation.mlody").read_text()
-_EXECUTOR_MLODY = (_THIS_DIR / "executor.mlody").read_text()
+_EXECUTION_MLODY = (_THIS_DIR / "execution.mlody").read_text()
 _VALUES_MLODY = (_THIS_DIR / "values.mlody").read_text()
 _ACTION_MLODY = (_THIS_DIR / "action.mlody").read_text()
 _TASK_MLODY = (_THIS_DIR / "task.mlody").read_text()
@@ -41,7 +41,7 @@ _BASE_FILES: dict[str, str] = {
     "mlody/common/representation.mlody": _REPRESENTATION_MLODY,
     "mlody/common/build_ref.mlody": _BUILD_REF_MLODY,
     "mlody/common/implementation.mlody": _IMPLEMENTATION_MLODY,
-    "mlody/common/executor.mlody": _EXECUTOR_MLODY,
+    "mlody/common/execution.mlody": _EXECUTION_MLODY,
     "mlody/common/values.mlody": _VALUES_MLODY,
     "mlody/common/action.mlody": _ACTION_MLODY,
     "mlody/common/task.mlody": _TASK_MLODY,
@@ -53,7 +53,7 @@ _PREAMBLE = (
     'load("//mlody/common/representation.mlody")\n'
     'load("//mlody/common/build_ref.mlody")\n'
     'load("//mlody/common/implementation.mlody")\n'
-    'load("//mlody/common/executor.mlody")\n'
+    'load("//mlody/common/execution.mlody")\n'
     'load("//mlody/common/values.mlody")\n'
     'load("//mlody/common/action.mlody")\n'
     'load("//mlody/common/task.mlody")\n'

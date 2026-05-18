@@ -121,8 +121,8 @@ _LEGACY_REGISTRY_ATTRS = {
     "_implementations_by_name": ("implementations", "by_name"),
     "build_refs": ("build_refs", "by_key"),
     "_build_refs_by_name": ("build_refs", "by_name"),
-    "executors": ("executors", "by_key"),
-    "_executors_by_name": ("executors", "by_name"),
+    "executions": ("executions", "by_key"),
+    "_executions_by_name": ("executions", "by_name"),
     "generics": ("generics", "by_key"),
     "_generics_by_name": ("generics", "by_name"),
     "configs": ("configs", "by_key"),
@@ -141,7 +141,7 @@ _METHOD_ENTITY_KINDS = frozenset(
         "user",
         "build_ref",
         "implementation",
-        "executor",
+        "execution",
         "config",
     }
 )
@@ -1653,8 +1653,50 @@ class Evaluator:
                 action_fields["config"] = _resolve_port_collection(
                     action_fields.get("config", [])
                 )
+                action_fields["implementation"] = _resolve_implementation(
+                    action_fields.get("implementation")
+                )
                 return self.decorate_registered_value("action", Struct(**action_fields))
             return v  # type: ignore[return-value]
+
+        def _resolve_implementation(v: object) -> object:
+            if not isinstance(v, str):
+                return v
+            try:
+                return self._lookup("implementation", v)
+            except NameError:
+                # Some tests and sandbox snippets still use opaque string
+                # implementation identifiers rather than registered refs.
+                return v
+
+        def _resolve_execution(v: object) -> object:
+            if isinstance(v, str):
+                return self._lookup("execution", v)
+            return v
+
+        def _validate_task_execution(task_fields: dict[str, object]) -> None:
+            execution = task_fields.get("execution")
+            if not hasattr(execution, "as_mapping"):
+                return
+            action = task_fields.get("action")
+            if not hasattr(action, "as_mapping"):
+                return
+            action_mapping = dict(action.as_mapping())  # type: ignore[union-attr]
+            implementation = action_mapping.get("implementation")
+            execution_type = dict(execution.as_mapping()).get("type")  # type: ignore[union-attr]
+            if execution_type not in {"docker", "kubernetes"}:
+                return
+            implementation_type = None
+            if hasattr(implementation, "as_mapping"):
+                implementation_type = dict(implementation.as_mapping()).get("type")  # type: ignore[union-attr]
+            if implementation_type == "container":
+                return
+            task_name = str(task_fields.get("name", "<unknown task>"))
+            raise ValueError(
+                f"Task {task_name!r} uses execution {execution_type!r}, "
+                f"which requires a container() implementation; got "
+                f"{implementation_type!r}."
+            )
 
         def _resolve_port_collection(values: object) -> object:
             if isinstance(values, dict):
@@ -1680,6 +1722,7 @@ class Evaluator:
             fields["inputs"] = _resolve_port_collection(fields.get("inputs", []))
             fields["outputs"] = _resolve_port_collection(fields.get("outputs", []))
             fields["config"] = _resolve_port_collection(fields.get("config", []))
+            fields["implementation"] = _resolve_implementation(fields.get("implementation"))
             new_entity = self.decorate_registered_value("action", Struct(**fields))
             self.registry.register("action", key, new_entity, replace=True)
 
@@ -1691,5 +1734,7 @@ class Evaluator:
             fields["outputs"] = _resolve_port_collection(fields.get("outputs", []))
             fields["config"] = _resolve_port_collection(fields.get("config", []))
             fields["action"] = _resolve_action(fields.get("action"))
+            fields["execution"] = _resolve_execution(fields.get("execution"))
+            _validate_task_execution(fields)
             new_entity = self.decorate_registered_value("task", Struct(**fields))
             self.registry.register("task", key, new_entity, replace=True)

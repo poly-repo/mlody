@@ -37,10 +37,9 @@ be marked explicitly.
 | `container(...)`     | Implementation factory — runs inside a container image; requires `build=bazel(...)` (from `//mlody/common/implementation.mlody`)                                            |
 | `shell_script(...)`  | Implementation factory — runs a shell script; requires exactly one of `content=` (inline) or `file=` (repo-relative path); optional `interpreter=` (from `//mlody/common/implementation.mlody`) |
 | `system_binary(...)` | Implementation factory — runs a pre-installed binary; requires `path=` as an absolute filesystem path (from `//mlody/common/implementation.mlody`)                         |
-| `host(...)`          | Executor factory — runs directly on the execution host (from `//mlody/common/executor.mlody`)                                                                               |
-| `kubernetes(...)`    | Executor factory — runs as a Kubernetes pod/job; optional `namespace=`, `service_account=` (from `//mlody/common/executor.mlody`)                                           |
-| `kubeflow(...)`      | Executor factory — runs as a Kubeflow Pipelines component; optional `pipeline_name=`, `experiment=` (from `//mlody/common/executor.mlody`)                                  |
-| `argo_workflow(...)` | Executor factory — runs as an Argo Workflows step; optional `namespace=`, `workflow_template=` (from `//mlody/common/executor.mlody`)                                       |
+| `localhost(...)`     | Execution factory — runs directly on the local host (from `//mlody/common/execution.mlody`)                                                                                  |
+| `docker(...)`        | Execution factory — runs via a local Docker engine and requires a `container(...)` implementation (from `//mlody/common/execution.mlody`)                                   |
+| `kubernetes(...)`    | Execution factory — runs as a Kubernetes pod/job; optional `namespace=`, `service_account=` and requires a `container(...)` implementation (from `//mlody/common/execution.mlody`) |
 
 `type`, file I/O, imports, and all other builtins are **not available**.
 

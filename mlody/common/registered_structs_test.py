@@ -12,7 +12,7 @@ from common.python.starlarkish.evaluator.testing import InMemoryFS
 import mlody
 from mlody.common.action import RegisteredAction
 from mlody.common.build_ref import RegisteredBuildRef
-from mlody.common.executor import RegisteredExecutor
+from mlody.common.execution import RegisteredExecution
 from mlody.common.freshness import RegisteredFreshness
 from mlody.common.generic import RegisteredGeneric
 from mlody.common.implementation import RegisteredImplementation
@@ -36,7 +36,7 @@ _LOCATIONS_MLODY = (_THIS_DIR / "locations.mlody").read_text()
 _REPRESENTATION_MLODY = (_THIS_DIR / "representation.mlody").read_text()
 _BUILD_REF_MLODY = (_THIS_DIR / "build_ref.mlody").read_text()
 _IMPLEMENTATION_MLODY = (_THIS_DIR / "implementation.mlody").read_text()
-_EXECUTOR_MLODY = (_THIS_DIR / "executor.mlody").read_text()
+_EXECUTION_MLODY = (_THIS_DIR / "execution.mlody").read_text()
 _VALUES_MLODY = (_THIS_DIR / "values.mlody").read_text()
 _ACTION_MLODY = (_THIS_DIR / "action.mlody").read_text()
 _TASK_MLODY = (_THIS_DIR / "task.mlody").read_text()
@@ -52,7 +52,7 @@ _BASE_FILES: dict[str, str] = {
     "mlody/common/representation.mlody": _REPRESENTATION_MLODY,
     "mlody/common/build_ref.mlody": _BUILD_REF_MLODY,
     "mlody/common/implementation.mlody": _IMPLEMENTATION_MLODY,
-    "mlody/common/executor.mlody": _EXECUTOR_MLODY,
+    "mlody/common/execution.mlody": _EXECUTION_MLODY,
     "mlody/common/values.mlody": _VALUES_MLODY,
     "mlody/common/action.mlody": _ACTION_MLODY,
     "mlody/common/task.mlody": _TASK_MLODY,
@@ -68,7 +68,7 @@ _PREAMBLE = dedent(
     load("//mlody/common/representation.mlody")
     load("//mlody/common/build_ref.mlody")
     load("//mlody/common/implementation.mlody")
-    load("//mlody/common/executor.mlody")
+    load("//mlody/common/execution.mlody")
     load("//mlody/common/values.mlody")
     load("//mlody/common/action.mlody")
     load("//mlody/common/task.mlody")
@@ -110,7 +110,7 @@ def _sample_registry_structs() -> dict[str, Struct]:
             "user": registry.users.by_name["agarcia"],
             "implementation": registry.implementations.by_name["shell_script"],
             "build_ref": registry.build_refs.by_name["bazel"],
-            "executor": registry.executors.by_name["host"],
+            "execution": registry.executions.by_name["localhost"],
             "generic": registry.generics.by_name["render"],
         }
 
@@ -129,7 +129,7 @@ def _sample_registry_structs() -> dict[str, Struct]:
         (RegisteredUser, "user"),
         (RegisteredImplementation, "implementation"),
         (RegisteredBuildRef, "build_ref"),
-        (RegisteredExecutor, "executor"),
+        (RegisteredExecution, "execution"),
         (RegisteredGeneric, "generic"),
     ],
     ids=[
@@ -144,7 +144,7 @@ def _sample_registry_structs() -> dict[str, Struct]:
         "user",
         "implementation",
         "build_ref",
-        "executor",
+        "execution",
         "generic",
     ],
 )
@@ -206,7 +206,7 @@ class TestRegisteredStructBaseRegistry:
         import mlody.common.action  # noqa: F401
         import mlody.common.build_ref  # noqa: F401
         import mlody.common.config  # noqa: F401
-        import mlody.common.executor  # noqa: F401
+        import mlody.common.execution  # noqa: F401
         import mlody.common.freshness  # noqa: F401
         import mlody.common.generic  # noqa: F401
         import mlody.common.implementation  # noqa: F401
@@ -240,7 +240,7 @@ class TestRegisteredStructBaseRegistry:
             "user",
             "build_ref",
             "implementation",
-            "executor",
+            "execution",
             "config",
             "generic",
         }
