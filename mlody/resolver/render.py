@@ -17,13 +17,14 @@ from rich.pretty import pretty_repr
 from common.python.console import (
     RichDomNode,
     SyntaxNode,
-    text,
     panel,
-    tree,
-    table,
     stack,
+    table,
+    text,
+    tree,
 )
 from mlody.core.type_display import format_type_label
+from mlody.resolver.entity_summary import summarize_action_struct, summarize_task_struct
 from mlody.resolver.values.base import MlodyValue
 from mlody.resolver.values.internal import _RawAttrValue
 from mlody.resolver.values.registry_backed import (
@@ -94,27 +95,55 @@ def _to_display_dict(obj: object) -> object:
 
 
 def _entity_io_panel(title: str, struct: object) -> RichDomNode:
-    """Render a task or action struct as a Rich panel with I/O tables.
-
-    Shared by MlodyTaskValue and MlodyActionValue — the two callers differ only
-    in the title prefix string ("task: ..." vs "action: ...").
-    """
-    io_cols = ["name", "type", "source", "default"]
-    cfg_cols = ["name", "type", "source", "value"]
-
+    """Render a task or action struct as a concise summary panel."""
+    kind = getattr(struct, "kind", None)
+    summary = (
+        summarize_task_struct(struct)
+        if kind == "task"
+        else summarize_action_struct(struct)
+    )
     nodes: list[RichDomNode] = []
 
-    input_rows = _value_rows(getattr(struct, "inputs", None))
-    if input_rows:
-        nodes.append(table(io_cols, input_rows, title="inputs"))
+    description = str(summary.get("description", "") or "")
+    if description:
+        nodes.append(text(description))
 
-    output_rows = _value_rows(getattr(struct, "outputs", None))
-    if output_rows:
-        nodes.append(table(io_cols, output_rows, title="outputs"))
+    attribute_rows = []
+    for attribute in summary.get("attributes", []):
+        attribute_rows.append(
+            [
+                text(str(attribute["name"])),
+                text(str(attribute["value"])),
+                text(str(attribute["detailsText"] or "-")),
+            ]
+        )
+    if attribute_rows:
+        nodes.append(
+            table(
+                ["attribute", "value", "details"],
+                attribute_rows,
+                title="attributes",
+            )
+        )
 
-    config_rows = _value_rows(getattr(struct, "config", None))
-    if config_rows:
-        nodes.append(table(cfg_cols, config_rows, title="config"))
+    for section_name in ("inputs", "outputs", "config"):
+        port_rows = []
+        for port in summary.get(section_name, []):
+            port_rows.append(
+                [
+                    text(str(port["name"])),
+                    text(str(port["type"])),
+                    text(str(port["description"] or "-")),
+                ]
+            )
+        if port_rows:
+            nodes.append(
+                table(
+                    ["name", "type", "description"],
+                    port_rows,
+                    title=section_name,
+                )
+            )
 
     return panel(stack(*nodes) if nodes else text("(empty)"), title=title)
 

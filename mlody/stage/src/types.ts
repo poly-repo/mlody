@@ -55,6 +55,34 @@ export interface StageLineageRow {
   active: boolean;
 }
 
+export interface StageTaskPort {
+  name: string;
+  type: string;
+  description: string;
+}
+
+export interface StageTaskAttributeDetail {
+  name: string;
+  value: string;
+}
+
+export interface StageTaskAttribute {
+  name: string;
+  value: string;
+  details: StageTaskAttributeDetail[];
+  detailsText: string;
+}
+
+export interface StageTaskData {
+  kind: string;
+  name: string;
+  description: string;
+  attributes: StageTaskAttribute[];
+  inputs: StageTaskPort[];
+  outputs: StageTaskPort[];
+  config: StageTaskPort[];
+}
+
 export interface StageSourceCodeData {
   path: string;
   language: string;

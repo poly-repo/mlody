@@ -74,6 +74,7 @@ def _task_impl(ctx):
     task_fields = {
         "kind": "task",
         "name": ctx.attr.name,
+        "description": ctx.attr.description,
         "inputs": inputs,
         "outputs": outputs,
         "action": resolved_action,

@@ -37,7 +37,7 @@ from mlody.cli.server import (
 from mlody.core.dag import Edge, TaskNode, ValueNode
 from mlody.core.dag_value import MlodyDagType
 from mlody.core.workspace_models import RootInfo
-from mlody.resolver import MlodyFolderValue, MlodyValueValue
+from mlody.resolver import MlodyFolderValue, MlodyTaskValue, MlodyValueValue
 from mlody.resolver.values.internal import _RawAttrValue
 from mlody.resolver.values.structural import MlodySourceRangeValue
 
@@ -664,6 +664,107 @@ class TestExecuteStageCommandResponse:
             {"name": "Ada", "salary": 120000},
             {"name": "Grace", "salary": 135000},
         ]
+
+    def test_serializes_tasks_as_dedicated_stage_task_payload(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        task_struct = Struct(
+            kind="task",
+            name="train",
+            description="Train the ranking model",
+            inputs=[
+                Struct(
+                    kind="value",
+                    name="dataset",
+                    description="Prepared training dataset",
+                    type=Struct(kind="type", type="string", name="string"),
+                )
+            ],
+            outputs=[
+                Struct(
+                    kind="value",
+                    name="model",
+                    description="Serialized model artifact",
+                    type=Struct(kind="type", type="string", name="string"),
+                )
+            ],
+            config=[
+                Struct(
+                    kind="value",
+                    name="epochs",
+                    description="Training epochs",
+                    type=Struct(kind="type", type="integer", name="integer"),
+                )
+            ],
+            action=Struct(
+                kind="action",
+                name="fit_model",
+                implementation=Struct(
+                    kind="implementation",
+                    type="container",
+                    name="container",
+                    build=Struct(
+                        kind="build_ref",
+                        type="bazel",
+                        name="bazel",
+                        target="//mlody/train:image",
+                    ),
+                ),
+            ),
+            execution=Struct(
+                kind="execution",
+                type="kubernetes",
+                name="kubernetes",
+                namespace="mlody",
+                service_account="trainer",
+            ),
+        )
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyTaskValue(struct=task_struct),
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "//mlody/train:train",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"]["type"] == "task"
+        assert response["data"]["name"] == "train"
+        assert response["data"]["description"] == "Train the ranking model"
+        assert response["data"]["inputs"] == [
+            {
+                "name": "dataset",
+                "type": "string",
+                "description": "Prepared training dataset",
+            }
+        ]
+        assert response["data"]["attributes"][1]["value"] == "container"
+        assert response["data"]["attributes"][1]["detailsText"] == (
+            "build=bazel(target=//mlody/train:image)"
+        )
+        assert response["data"]["attributes"][2]["value"] == "kubernetes"
+        assert response["data"]["attributes"][2]["detailsText"] == (
+            "namespace=mlody, service_account=trainer"
+        )
 
     def test_falls_back_to_json_when_value_has_no_tabular_source(
         self,

@@ -4,12 +4,14 @@ import type {
   StageLineageRow,
   StageResultPayload,
   StageSourceCodeData,
+  StageTaskData,
 } from "../types.js";
 import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
 import { StageDagBlock } from "./StageDagBlock.js";
 import { StageLineageBlock } from "./StageLineageBlock.js";
 import { StageScalarBlock } from "./StageScalarBlock.js";
 import { StageSourceCodeBlock } from "./StageSourceCodeBlock.js";
+import { StageTaskBlock } from "./StageTaskBlock.js";
 import { StageTableBlock } from "./StageTableBlock.js";
 
 interface StageResultBlockProps {
@@ -65,6 +67,14 @@ type StageScalarPayload = StageResultPayload & {
   data: string | number | boolean | null;
 };
 
+type StageTaskPayload = StageResultPayload & {
+  view: {
+    type: "task";
+    title?: string;
+  };
+  data: StageTaskData;
+};
+
 type StageSpecializedRenderer =
   | {
       kind: "table";
@@ -85,6 +95,10 @@ type StageSpecializedRenderer =
   | {
       kind: "scalar";
       payload: StageScalarPayload;
+    }
+  | {
+      kind: "task";
+      payload: StageTaskPayload;
     };
 
 interface DagRenderBoundaryProps {
@@ -180,6 +194,64 @@ function isScalarPayload(payload: StageResultPayload): payload is StageScalarPay
   );
 }
 
+function isTaskPortArray(value: unknown): value is StageTaskData["inputs"] {
+  return (
+    Array.isArray(value) &&
+    value.every((port) => {
+      if (port === null || typeof port !== "object" || Array.isArray(port)) {
+        return false;
+      }
+      const candidate = port as Record<string, unknown>;
+      return (
+        typeof candidate.name === "string" &&
+        typeof candidate.type === "string" &&
+        typeof candidate.description === "string"
+      );
+    })
+  );
+}
+
+function isTaskAttributeArray(value: unknown): value is StageTaskData["attributes"] {
+  return (
+    Array.isArray(value) &&
+    value.every((attribute) => {
+      if (
+        attribute === null ||
+        typeof attribute !== "object" ||
+        Array.isArray(attribute)
+      ) {
+        return false;
+      }
+      const candidate = attribute as Record<string, unknown>;
+      return (
+        typeof candidate.name === "string" &&
+        typeof candidate.value === "string" &&
+        typeof candidate.detailsText === "string" &&
+        Array.isArray(candidate.details)
+      );
+    })
+  );
+}
+
+function isStageTaskData(value: unknown): value is StageTaskData {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.name === "string" &&
+    typeof candidate.description === "string" &&
+    isTaskAttributeArray(candidate.attributes) &&
+    isTaskPortArray(candidate.inputs) &&
+    isTaskPortArray(candidate.outputs) &&
+    isTaskPortArray(candidate.config)
+  );
+}
+
+function isTaskPayload(payload: StageResultPayload): payload is StageTaskPayload {
+  return payload.view.type === "task" && isStageTaskData(payload.data);
+}
+
 function resolveSpecializedRenderer(
   payload: StageResultPayload,
 ): StageSpecializedRenderer | null {
@@ -197,6 +269,9 @@ function resolveSpecializedRenderer(
   }
   if (isScalarPayload(payload)) {
     return { kind: "scalar", payload };
+  }
+  if (isTaskPayload(payload)) {
+    return { kind: "task", payload };
   }
 
   return null;
@@ -270,6 +345,9 @@ export function StageResultBlock({
   }
   if (specializedRenderer?.kind === "scalar") {
     return <StageScalarBlock payload={specializedRenderer.payload} />;
+  }
+  if (specializedRenderer?.kind === "task") {
+    return <StageTaskBlock payload={specializedRenderer.payload} />;
   }
 
   return <JsonSyntaxBlock value={payload} />;

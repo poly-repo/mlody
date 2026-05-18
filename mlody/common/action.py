@@ -21,6 +21,7 @@ class RegisteredAction(RegisteredStructBase):
     _KIND: ClassVar[str] = "action"
 
     name: str
+    description: str = ""
     inputs: dict[str, RegisteredValue]
     outputs: dict[str, RegisteredValue]
     config: dict[str, RegisteredValue]

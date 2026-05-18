@@ -21,6 +21,7 @@ class RegisteredTask(RegisteredStructBase):
     _KIND: ClassVar[str] = "task"
 
     name: str
+    description: str = ""
     inputs: dict[str, RegisteredValue]
     outputs: dict[str, RegisteredValue]
     action: object

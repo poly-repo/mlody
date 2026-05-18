@@ -80,6 +80,16 @@ def test_action_registers_with_kind_action() -> None:
     assert a.name == "my_action"
 
 
+def test_action_preserves_description() -> None:
+    ev = _eval(
+        'action(name="describe_me", description="Process raw metrics", inputs=[], outputs=[], implementation='
+        + _CONTAINER_IMPL
+        + ')\n'
+    )
+    a = ev.registry.actions.by_name["describe_me"]
+    assert a.description == "Process raw metrics"
+
+
 # ---------------------------------------------------------------------------
 # TC-002: action stores inputs and outputs
 # ---------------------------------------------------------------------------

@@ -3340,6 +3340,7 @@ class TestEntityIoPanel:
         value_struct = Struct(
             kind="value",
             name="inp",
+            description="Training dataset",
             type=Struct(kind="type", type="integer", name="integer"),
             location=Struct(type="s3"),
             default=None,
@@ -3347,9 +3348,32 @@ class TestEntityIoPanel:
         return Struct(
             kind="task",
             name="my_task",
-            inputs={"inp": value_struct},
+            description="Train the forecasting model",
+            inputs=[value_struct],
             outputs={},
             config={},
+            action=Struct(
+                kind="action",
+                name="train_model",
+                implementation=Struct(
+                    kind="implementation",
+                    type="container",
+                    name="container",
+                    build=Struct(
+                        kind="build_ref",
+                        type="bazel",
+                        name="bazel",
+                        target="//mlody/train:image",
+                    ),
+                ),
+            ),
+            execution=Struct(
+                kind="execution",
+                type="kubernetes",
+                name="kubernetes",
+                namespace="mlody",
+                service_account="trainer",
+            ),
         )
 
     def _make_action_struct(self) -> object:
@@ -3359,6 +3383,7 @@ class TestEntityIoPanel:
         value_struct = Struct(
             kind="value",
             name="out",
+            description="Model artifact",
             type=Struct(kind="type", type="string", name="string"),
             location=Struct(type="local"),
             default=None,
@@ -3366,9 +3391,21 @@ class TestEntityIoPanel:
         return Struct(
             kind="action",
             name="my_action",
+            description="Persist the trained model",
             inputs={},
-            outputs={"out": value_struct},
+            outputs=[value_struct],
             config={},
+            implementation=Struct(
+                kind="implementation",
+                type="container",
+                name="container",
+                build=Struct(
+                    kind="build_ref",
+                    type="bazel",
+                    name="bazel",
+                    target="//mlody/train:action_image",
+                ),
+            ),
         )
 
     def test_task_dom_for_returns_rich_dom_node(self) -> None:
@@ -3424,6 +3461,26 @@ class TestEntityIoPanel:
         RichDomExecutor(console=console).render(result)
         rendered = console.export_text()
         assert "action: my_action" in rendered
+
+    def test_task_dom_for_includes_description_and_runtime_attributes(self) -> None:
+        task_value = MlodyTaskValue(struct=self._make_task_struct())
+        result = dom_for(task_value)
+        console = Console(record=True, width=120)
+        RichDomExecutor(console=console).render(result)
+        rendered = console.export_text()
+        assert "Train the forecasting model" in rendered
+        assert "implementation" in rendered
+        assert "container" in rendered
+        assert "execution" in rendered
+        assert "kubernetes" in rendered
+
+    def test_task_dom_for_lists_port_descriptions(self) -> None:
+        task_value = MlodyTaskValue(struct=self._make_task_struct())
+        result = dom_for(task_value)
+        console = Console(record=True, width=120)
+        RichDomExecutor(console=console).render(result)
+        rendered = console.export_text()
+        assert "Training dataset" in rendered
 
     def test_entity_io_panel_exists_as_module_level_function(self) -> None:
         """F1a: Only one function handles the io-panel layout.

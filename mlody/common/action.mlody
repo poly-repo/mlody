@@ -226,6 +226,7 @@ def _action_impl(ctx):
     action_fields = {
         "kind": "action",
         "name": ctx.attr.name,
+        "description": ctx.attr.description,
         "inputs": inputs,
         "outputs": outputs,
         "config": config,

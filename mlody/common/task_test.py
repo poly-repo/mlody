@@ -88,6 +88,15 @@ def test_task_registers_with_kind_task() -> None:
     assert t.name == "my_task"
 
 
+def test_task_preserves_description() -> None:
+    ev = _eval(
+        'action(name="my_action", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
+        'task(name="my_task", description="Fine-tune the classifier", inputs=[], outputs=[], action="my_action")\n'
+    )
+    t = ev.registry.tasks.by_name["my_task"]
+    assert t.description == "Fine-tune the classifier"
+
+
 def test_task_hash_is_virtual_uuid7_and_accessible_in_mlody() -> None:
     ev = _eval(
         'action(name="my_action", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'

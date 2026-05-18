@@ -346,6 +346,7 @@ def _value_impl(ctx):
     value_fields = {
         "kind": "value",
         "name": ctx.attr.name,
+        "description": ctx.attr.description,
         "type": type_ref,
         "location": loc_ref,
         "freshness": freshness_ref,

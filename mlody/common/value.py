@@ -19,6 +19,7 @@ class RegisteredValue(RegisteredStructBase):
     _KIND: ClassVar[str] = "value"
 
     name: str
+    description: str = ""
     type: object
     location: object
     freshness: object

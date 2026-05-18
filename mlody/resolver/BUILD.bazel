@@ -5,6 +5,7 @@ o_py_library(
     srcs = [
         "__init__.py",
         "cache.py",
+        "entity_summary.py",
         "errors.py",
         "git_client.py",
         "render.py",

@@ -84,6 +84,14 @@ def test_value_stores_type_and_location_name() -> None:
     assert v.location.name == "s3"
 
 
+def test_value_preserves_description() -> None:
+    ev = _eval(
+        'value(name="artifact", description="Primary model artifact", type=string(), location=s3())'
+    )
+    v = ev.registry.values.by_name["artifact"]
+    assert v.description == "Primary model artifact"
+
+
 # ---------------------------------------------------------------------------
 # TC-002: string label for type is resolved
 # ---------------------------------------------------------------------------

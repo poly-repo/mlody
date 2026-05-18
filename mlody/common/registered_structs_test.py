@@ -77,14 +77,15 @@ _PREAMBLE = dedent(
 
     builtins.register("root", struct(name="test_root", path="//mlody/common", description="shared"))
     mm.generic("render", description="Render generic")
-    value(name="inp", type=integer(), location=s3())
+    value(name="inp", description="Task input", type=integer(), location=s3())
     action(
         name="act",
+        description="Run the sample action",
         inputs=["inp"],
         outputs=[],
         implementation=shell_script(content="echo hello"),
     )
-    task(name="tsk", inputs=["inp"], outputs=[], action="act")
+    task(name="tsk", description="Execute the sample task", inputs=["inp"], outputs=[], action="act")
     user(name="agarcia", description="Ava Garcia", groups=["framera", "framera-admin"])
     """
 )
@@ -167,9 +168,11 @@ def test_registered_action_rejects_unknown_fields() -> None:
 
 def test_registered_action_normalizes_port_lists_to_named_value_map() -> None:
     action = RegisteredAction(_sample_registry_structs()["action"])
+    assert action.description == "Run the sample action"
     assert list(action.inputs) == ["inp"]
     assert isinstance(action.inputs["inp"], RegisteredValue)
     assert action.inputs["inp"].name == "inp"
+    assert action.inputs["inp"].description == "Task input"
 
 
 def test_registered_task_accepts_workspace_named_port_structs() -> None:
@@ -181,9 +184,11 @@ def test_registered_task_accepts_workspace_named_port_structs() -> None:
         config=Struct(),
     )
     task = RegisteredTask(task_struct)
+    assert task.description == "Execute the sample task"
     assert list(task.inputs) == ["inp"]
     assert isinstance(task.inputs["inp"], RegisteredValue)
     assert task.inputs["inp"].name == "inp"
+    assert task.inputs["inp"].description == "Task input"
 
 
 # ---------------------------------------------------------------------------

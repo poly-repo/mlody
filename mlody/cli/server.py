@@ -74,6 +74,7 @@ from mlody.resolver import (
     resolve_label_to_value,
     resolve_workspace,
 )
+from mlody.resolver.entity_summary import summarize_task_struct
 from mlody.resolver.values.internal import _RawAttrValue
 from mlody.resolver.values.structural import MlodySourceRangeValue
 from mlody.resolver.errors import WorkspaceResolutionError
@@ -1074,6 +1075,20 @@ def _stage_source_code_result(
     }
 
 
+def _stage_task_result(
+    title: str,
+    value: MlodyTaskValue,
+) -> dict[str, object]:
+    return {
+        "kind": "result",
+        "view": {
+            "type": "task",
+            "title": title,
+        },
+        "data": summarize_task_struct(value.struct),
+    }
+
+
 def _image_mime_type(raw: bytes) -> str | None:
     if raw.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -1409,6 +1424,9 @@ def _stage_result_for_mlody_value(
     *,
     title: str,
 ) -> dict[str, object]:
+    if isinstance(value, MlodyTaskValue):
+        return _stage_task_result(title, value)
+
     if isinstance(value, MlodySourceRangeValue):
         return _stage_source_code_result(title, value)
 
