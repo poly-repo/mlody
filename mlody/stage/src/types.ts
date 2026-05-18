@@ -64,7 +64,8 @@ export interface StageSourceCodeData {
 }
 
 export interface StageCommandLogEvent {
-  event: string;
+  event?: string;
+  kind?: string;
   requestId?: string;
   timestamp?: string;
   [key: string]: unknown;

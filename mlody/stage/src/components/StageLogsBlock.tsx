@@ -19,11 +19,22 @@ type StageLogTone =
 
 const HIDDEN_LOG_KEYS = new Set([
   "event",
+  "kind",
   "requestId",
   "timestamp",
   "message",
   "sequence",
 ]);
+
+function eventType(event: StageCommandLogEvent): string | null {
+  if (typeof event.event === "string" && event.event.trim() !== "") {
+    return event.event;
+  }
+  if (typeof event.kind === "string" && event.kind.trim() !== "") {
+    return event.kind;
+  }
+  return null;
+}
 
 function formatLogValue(value: string | number | boolean | null): string {
   if (value === null) {
@@ -49,17 +60,22 @@ function statusLabel(
 }
 
 function eventBadgeLabel(event: StageCommandLogEvent): string {
-  if (event.event === "log" && typeof event.level === "string") {
+  const type = eventType(event);
+  if (type === "log" && typeof event.level === "string") {
     return event.level;
   }
-  return event.event;
+  if (type === "chunk" && typeof event.channel === "string") {
+    return event.channel;
+  }
+  return type ?? "event";
 }
 
 function eventTone(event: StageCommandLogEvent): StageLogTone {
-  if (event.event === "error") {
+  const type = eventType(event);
+  if (type === "error") {
     return "error";
   }
-  if (event.event !== "log" || typeof event.level !== "string") {
+  if (type !== "log" || typeof event.level !== "string") {
     return "neutral";
   }
 
@@ -82,13 +98,14 @@ function eventTone(event: StageCommandLogEvent): StageLogTone {
 }
 
 function eventSummary(event: StageCommandLogEvent): string {
+  const type = eventType(event);
   if (typeof event.message === "string" && event.message.trim() !== "") {
     return event.message;
   }
-  if (event.event === "chunk" && typeof event.text === "string") {
+  if (type === "chunk" && typeof event.text === "string") {
     return event.text;
   }
-  if (event.event === "result") {
+  if (type === "result") {
     if (typeof event.target === "string") {
       return event.target;
     }
@@ -99,20 +116,29 @@ function eventSummary(event: StageCommandLogEvent): string {
       return `${event.command} result`;
     }
   }
-  if (event.event === "completed" && typeof event.status === "string") {
+  if (type === "completed" && typeof event.status === "string") {
     return `status ${event.status}`;
   }
-  if (event.event === "started") {
+  if (type === "started") {
     const command = typeof event.command === "string" ? event.command : "command";
     const argumentsText = Array.isArray(event.arguments)
       ? event.arguments.join(" ")
       : "";
     return `${command}${argumentsText ? ` ${argumentsText}` : ""}`;
   }
-  if (event.event === "error" && typeof event.message === "string") {
-    return event.message;
+  if (typeof event.text === "string" && event.text.trim() !== "") {
+    return event.text;
   }
-  return "";
+  if (typeof event.target === "string") {
+    return event.target;
+  }
+  if (typeof event.label === "string") {
+    return event.label;
+  }
+  if (typeof event.command === "string") {
+    return event.command;
+  }
+  return type ?? "";
 }
 
 function hasJsonDetails(value: unknown): boolean {
@@ -120,7 +146,7 @@ function hasJsonDetails(value: unknown): boolean {
 }
 
 function isVisibleLogEvent(event: StageCommandLogEvent): boolean {
-  return event.event === "log" || event.event === "error";
+  return eventType(event) !== null;
 }
 
 export function StageLogsBlock({
@@ -154,10 +180,13 @@ export function StageLogsBlock({
           {error ?? "Failed to load logs."}
         </div>
       ) : visibleEvents.length === 0 ? (
-        <div className="StageLogsBlock-empty">No logs were recorded for this request.</div>
+        <div className="StageLogsBlock-empty">
+          No stage events or logs were recorded for this request.
+        </div>
       ) : (
         <div className="StageLogsBlock-list">
           {visibleEvents.map((event, index) => {
+            const type = eventType(event) ?? "event";
             const detailEntries = Object.entries(event).filter(
               ([key]) => !HIDDEN_LOG_KEYS.has(key),
             );
@@ -186,7 +215,7 @@ export function StageLogsBlock({
 
             return (
               <article
-                key={`${event.event}-${event.timestamp ?? "na"}-${index}`}
+                key={`${type}-${event.timestamp ?? "na"}-${index}`}
                 className={`StageLogsBlock-event StageLogsBlock-event--${tone}`}
               >
                 {hasDetails ? (
