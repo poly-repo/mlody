@@ -2,9 +2,7 @@ load("//mlody/common/task.mlody")
 load("@common//:types.mlody", "opaque", "typedef", "string", "integer", "record", "vector")
 load("//mlody/common/values.mlody")
 load("//mlody/common/locations.mlody")
-load("//mlody/common/implementation.mlody")
 load("//mlody/common/action.mlody")
-load("//mlody/common/execution.mlody")
 load("//mlody/common/representation.mlody", "json")
 
 typedef(
@@ -68,7 +66,7 @@ task(
             value(name="committoid", group="model"),
             value(name="releases", type = vector(element_type=string()), representation=json(), location= inline(), group="info"),
     ],
-    execution = kubernetes(),
+    # execution = kubernetes(),
     action = action(
         name    = "downloader-action",
         outputs = [
@@ -90,7 +88,7 @@ task(
             value(name="workers", type=integer(min=1, max=8), location=named_arg(), default=1),
             #        value(name="workers", type=integer(min=1, max=8), default=1, location=named_arg(), effects=["no-hash-contribution"]),
         ],
-        implementation = container(build=bazel(target=":model-download")), #[":model-download"],
+        build = bazel(target=":model-download"),
         requirements = [
 	    # storage, gpu, memory, network also goes here.
             cpu_requirement(2),
@@ -100,6 +98,6 @@ task(
 	
 							       
 							       
-# implementation = container(build=bazel(target=":model-download"))
+# build = bazel(target=":model-download")  # defaults to sandbox(build=...)
 # implementation = shell()
 # implementation = binary(path=...)
