@@ -227,6 +227,7 @@ export interface ServerEndpointBinding {
 
 export interface ServerHealthStatus {
   status: string;
+  instanceId: string;
   http: ServerEndpointBinding;
   lsp: ServerEndpointBinding;
 }

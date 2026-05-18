@@ -10,11 +10,16 @@ import {
   listStageE2eScenarioNames,
   resolveStageE2eWorkspaceRoot,
 } from "../e2eTests.js";
-import { parseStagePromptCommand } from "../promptCommands.js";
+import {
+  listStagePromptCommandNames,
+  parseStagePromptCommand,
+} from "../promptCommands.js";
 import {
   createServerBootstrapController,
   fetchStageBootstrap,
+  restartStageServer,
 } from "../serverApi.js";
+import type { StageBootstrapPayload } from "../serverApi.js";
 import type {
   CommandOption,
   CommandSubmission,
@@ -186,6 +191,50 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     },
   ]);
 
+  function applyBootstrapPayload(
+    payload: StageBootstrapPayload,
+    preferredWorkspaceRoot: string | null = null,
+  ) {
+    const workspaces = payload.workspaces.some((candidate) =>
+      sameWorkspaceRoot(candidate, payload.workspace),
+    )
+      ? payload.workspaces
+      : [payload.workspace, ...payload.workspaces];
+    const selectedWorkspace =
+      preferredWorkspaceRoot === null
+        ? payload.workspace
+        : workspaces.find(
+            (candidate) => candidate.workspaceRoot === preferredWorkspaceRoot,
+          ) ?? payload.workspace;
+
+    setBootstrapWorkspace(payload.workspace);
+    setWorkspace(selectedWorkspace);
+    setAvailableWorkspaces(workspaces);
+    setAvailableUsers(payload.users);
+    setPrimedHistoryEntries(payload.history);
+    setServerStatus("connected");
+    setAdmonitions([buildServerConnectedAdmonition(payload.health)]);
+  }
+
+  function applyServerUnavailableState(message: string) {
+    setBootstrapWorkspace(null);
+    setWorkspace(null);
+    setAvailableWorkspaces([]);
+    setAvailableUsers([]);
+    setPrimedHistoryEntries(null);
+    setServerStatus("unavailable");
+    setAdmonitions([
+      {
+        id: "server-unavailable",
+        tone: "red",
+        title: "mlody server unavailable",
+        message:
+          `Stage could not load workspace or user data. ` +
+          `Checked the default server and got: ${message}`,
+      },
+    ]);
+  }
+
   useEffect(() => {
     const { controller, timeoutId } = createServerBootstrapController();
     let active = true;
@@ -193,18 +242,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     void fetchStageBootstrap(controller.signal)
       .then((payload) => {
         if (!active) return;
-        const workspaces = payload.workspaces.some((candidate) =>
-          sameWorkspaceRoot(candidate, payload.workspace),
-        )
-          ? payload.workspaces
-          : [payload.workspace, ...payload.workspaces];
-        setBootstrapWorkspace(payload.workspace);
-        setWorkspace(payload.workspace);
-        setAvailableWorkspaces(workspaces);
-        setAvailableUsers(payload.users);
-        setPrimedHistoryEntries(payload.history);
-        setServerStatus("connected");
-        setAdmonitions([buildServerConnectedAdmonition(payload.health)]);
+        applyBootstrapPayload(payload);
       })
       .catch((error: unknown) => {
         if (!active) return;
@@ -212,22 +250,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
           error instanceof Error
             ? error.message
             : "Unable to reach the mlody server.";
-        setBootstrapWorkspace(null);
-        setWorkspace(null);
-        setAvailableWorkspaces([]);
-        setAvailableUsers([]);
-        setPrimedHistoryEntries(null);
-        setServerStatus("unavailable");
-        setAdmonitions([
-          {
-            id: "server-unavailable",
-            tone: "red",
-            title: "mlody server unavailable",
-            message:
-              `Stage could not load workspace or user data. ` +
-              `Checked the default server and got: ${message}`,
-          },
-        ]);
+        applyServerUnavailableState(message);
       })
       .finally(() => {
         window.clearTimeout(timeoutId);
@@ -429,6 +452,85 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     }
   }
 
+  async function runServerCommand(
+    rawCommand: string,
+    args: string,
+    fallbackUserName: string,
+    fallbackWorkspaceRoot: string | null,
+  ): Promise<void> {
+    const trimmedArgs = args.trim();
+    if (trimmedArgs !== "restart") {
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",server",
+          commandInput: args,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async () => {
+          throw new Error(
+            "Unknown server subcommand. Currently supported: ,server restart.",
+          );
+        },
+      );
+      return;
+    }
+
+    await queueExecution(
+      {
+        id: createExecutionId(),
+        command: rawCommand,
+        commandName: ",server",
+        commandInput: args,
+        copyCommand: null,
+        runAs: fallbackUserName,
+        workspaceRoot: fallbackWorkspaceRoot,
+        submittedAt: new Date().toISOString(),
+        status: "running",
+        output: [],
+      },
+      async (onChunk) => {
+        onChunk({
+          kind: "meta",
+          text: "Restart requested. Waiting for the mlody server to come back...",
+        });
+        setServerStatus("connecting");
+        setAdmonitions([
+          {
+            id: "server-restarting",
+            tone: "gray",
+            title: "Restarting mlody server",
+            message:
+              "Stage asked the backend to restart and is waiting to reconnect.",
+          },
+        ]);
+
+        try {
+          const payload = await restartStageServer();
+          applyBootstrapPayload(payload, fallbackWorkspaceRoot);
+          onChunk({
+            kind: "meta",
+            text: "Server restarted and stage reconnected.",
+          });
+          return "done";
+        } catch (error: unknown) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Unable to reconnect to the restarted mlody server.";
+          applyServerUnavailableState(message);
+          throw error;
+        }
+      },
+    );
+  }
+
   const handleSubmit = ({
     command,
     input,
@@ -469,6 +571,16 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
         return;
       }
 
+      if (commandName === "server") {
+        void runServerCommand(
+          parsedPromptCommand.raw,
+          parsedPromptCommand.args,
+          submittedUserName,
+          submittedWorkspace?.workspaceRoot ?? null,
+        );
+        return;
+      }
+
       void queueExecution(
         {
           id: createExecutionId(),
@@ -483,8 +595,11 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
           output: [],
         },
         async () => {
+          const supportedCommands = listStagePromptCommandNames()
+            .map((name) => `,${name}`)
+            .join(", ");
           throw new Error(
-            `Unknown stage command ',${commandName}'. Currently supported: ,e2e.`,
+            `Unknown stage command ',${commandName}'. Currently supported: ${supportedCommands}.`,
           );
         },
       );
@@ -514,7 +629,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
           onChunk,
         ),
     );
-  };;
+  };
 
   return (
     <Layout>

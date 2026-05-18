@@ -25,6 +25,7 @@ from mlody.cli.server import (
     ServerConfig,
     ServerCommandRequest,
     _history_prompt_and_breadcrumb,
+    _spawn_restart_watcher,
     _stage_json_data,
     collect_command_response,
     create_http_server,
@@ -1644,6 +1645,7 @@ class TestServerStartupErrors:
                 payload = json.loads(response.read().decode("utf-8"))
 
             assert payload["status"] == "ok"
+            assert payload["instanceId"] == http_server.server_config.instance_id
             assert payload["http"]["port"] == http_server.server_port
             assert payload["lsp"]["port"] == 8766
             assert payload["workspace"]["workspaceRoot"] == ""
@@ -1651,6 +1653,83 @@ class TestServerStartupErrors:
             http_server.shutdown()
             http_server.server_close()
             server_thread.join(timeout=5)
+
+    def test_restart_endpoint_returns_accepted_and_schedules_restart(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        http_server = create_http_server(_server_config(tmp_path))
+        restart_calls: list[bool] = []
+
+        def _fake_request_restart() -> str:
+            restart_calls.append(True)
+            return http_server.server_config.instance_id
+
+        http_server.request_restart = _fake_request_restart  # type: ignore[method-assign]
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            request = Request(
+                f"http://127.0.0.1:{http_server.server_port}/api/server/restart",
+                data=json.dumps({}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            assert response.status == HTTPStatus.ACCEPTED
+            assert payload == {
+                "status": "restarting",
+                "previousInstanceId": http_server.server_config.instance_id,
+            }
+            assert restart_calls == [True]
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_restart_watcher_uses_original_cwd_and_argv(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        restart_cwd = tmp_path / "launch"
+        restart_cwd.mkdir()
+        config = ServerConfig(
+            monorepo_root=tmp_path,
+            workspace_root=tmp_path,
+            roots=None,
+            verbose=False,
+            full_workspace=False,
+            http_host="127.0.0.1",
+            http_port=0,
+            lsp_host="127.0.0.1",
+            lsp_port=8766,
+            restart_cwd=restart_cwd,
+            restart_argv=("mlody", "--server", "--server-port", "8765"),
+            instance_id="server-instance",
+        )
+        popen_calls: list[tuple[list[str], dict[str, object]]] = []
+
+        def _fake_popen(argv: list[str], **kwargs: object) -> SimpleNamespace:
+            popen_calls.append((argv, dict(kwargs)))
+            return SimpleNamespace()
+
+        monkeypatch.setattr("mlody.cli.server.subprocess.Popen", _fake_popen)
+
+        _spawn_restart_watcher(config, parent_pid=4321)
+
+        assert len(popen_calls) == 1
+        launcher_argv, launcher_kwargs = popen_calls[0]
+        assert launcher_argv[1] == "-c"
+        assert launcher_argv[3] == "4321"
+        assert launcher_argv[4] == str(restart_cwd)
+        assert json.loads(launcher_argv[5]) == list(config.restart_argv)
+        assert launcher_kwargs["cwd"] == str(restart_cwd)
+        assert launcher_kwargs["close_fds"] is True
+        assert launcher_kwargs["start_new_session"] is True
 
     def test_stream_endpoint_emits_ndjson(self, tmp_path: Path) -> None:
         def _fake_event_source(config: ServerConfig, request) -> list[dict[str, object]]:

@@ -14,7 +14,7 @@ from __future__ import annotations
 import base64
 from collections import OrderedDict
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import errno
 import itertools
@@ -24,7 +24,9 @@ import mimetypes
 import os
 import shlex
 import socket
+import subprocess
 import threading
+import time
 from urllib.parse import unquote
 import uuid
 from http import HTTPStatus
@@ -102,6 +104,56 @@ _STATIC_TEXT_CONTENT_TYPES = {
 _RUNFILES_MANIFEST: dict[str, Path] | None = None
 _MAX_STAGE_REQUEST_LOGS = 200
 
+_RESTART_WATCHER_SCRIPT = """
+import json
+import os
+import subprocess
+import sys
+import time
+
+parent_pid = int(sys.argv[1])
+cwd = sys.argv[2]
+argv = json.loads(sys.argv[3])
+
+while True:
+    try:
+        os.kill(parent_pid, 0)
+    except ProcessLookupError:
+        break
+    time.sleep(0.1)
+
+subprocess.Popen(argv, cwd=cwd, close_fds=True, start_new_session=True)
+"""
+
+
+def _default_restart_argv() -> tuple[str, ...]:
+    original_argv = tuple(getattr(sys, "orig_argv", ()) or ())
+    if original_argv:
+        return original_argv
+    return (sys.executable, *sys.argv)
+
+
+def _spawn_restart_watcher(
+    config: "ServerConfig",
+    *,
+    parent_pid: int | None = None,
+) -> None:
+    effective_parent_pid = os.getpid() if parent_pid is None else parent_pid
+    subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            _RESTART_WATCHER_SCRIPT,
+            str(effective_parent_pid),
+            str(config.restart_cwd),
+            json.dumps(list(config.restart_argv)),
+        ],
+        cwd=str(config.restart_cwd),
+        env=os.environ.copy(),
+        close_fds=True,
+        start_new_session=True,
+    )
+
 
 @dataclass(frozen=True)
 class ServerConfig:
@@ -116,6 +168,9 @@ class ServerConfig:
     http_port: int
     lsp_host: str
     lsp_port: int
+    restart_cwd: Path = field(default_factory=Path.cwd)
+    restart_argv: tuple[str, ...] = field(default_factory=_default_restart_argv)
+    instance_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
 @dataclass(frozen=True)
@@ -1821,6 +1876,8 @@ class MlodyApiServer(ThreadingHTTPServer):
         self.event_source = event_source
         self._stage_request_logs: OrderedDict[str, list[CommandEvent]] = OrderedDict()
         self._stage_request_logs_lock = threading.Lock()
+        self._restart_lock = threading.Lock()
+        self._restart_requested = False
         super().__init__(server_address, MlodyApiRequestHandler)
 
     def store_stage_request_logs(
@@ -1849,6 +1906,29 @@ class MlodyApiServer(ThreadingHTTPServer):
                 return None
             return [dict(event) for event in events]
 
+    def request_restart(self) -> str:
+        with self._restart_lock:
+            if self._restart_requested:
+                return self.server_config.instance_id
+            self._restart_requested = True
+
+        try:
+            _spawn_restart_watcher(self.server_config)
+        except Exception:
+            with self._restart_lock:
+                self._restart_requested = False
+            raise
+        threading.Thread(
+            target=self._shutdown_after_restart_request,
+            name="mlody-server-restart",
+            daemon=True,
+        ).start()
+        return self.server_config.instance_id
+
+    def _shutdown_after_restart_request(self) -> None:
+        time.sleep(0.15)
+        self.shutdown()
+
 
 class MlodyApiRequestHandler(BaseHTTPRequestHandler):
     """Serve the HTTP JSON API for stage and other local clients."""
@@ -1870,6 +1950,7 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 {
                     "status": "ok",
+                    "instanceId": self.server.server_config.instance_id,
                     "http": {
                         "host": self.server.server_address[0],
                         "port": self.server.server_port,
@@ -2075,6 +2156,24 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                 self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001
                 _logger.exception("Failed to load stage autocomplete payload")
+                self._write_json_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": str(exc)},
+                )
+            return
+
+        if path == "/api/server/restart":
+            try:
+                previous_instance_id = self.server.request_restart()
+                self._write_json_response(
+                    HTTPStatus.ACCEPTED,
+                    {
+                        "status": "restarting",
+                        "previousInstanceId": previous_instance_id,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Failed to schedule mlody server restart")
                 self._write_json_response(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": str(exc)},

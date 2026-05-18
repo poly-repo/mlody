@@ -52,11 +52,33 @@ function completeE2eArgs(args: string): StagePromptAutocompleteResult | null {
   };
 }
 
+function completeServerArgs(args: string): StagePromptAutocompleteResult | null {
+  if (/\s/.test(args)) {
+    return null;
+  }
+
+  return {
+    from: ",server ".length,
+    options: [
+      {
+        label: "restart",
+        detail: "Restart the backend with its original cwd and argv.",
+      },
+    ],
+    validFor: STAGE_PROMPT_COMMAND_VALID_FOR,
+  };
+}
+
 const STAGE_PROMPT_COMMANDS: readonly StagePromptCommandDefinition[] = [
   {
     name: "e2e",
     description: "Run a named client-side end-to-end scenario.",
     completeArgs: completeE2eArgs,
+  },
+  {
+    name: "server",
+    description: "Manage the local stage backend.",
+    completeArgs: completeServerArgs,
   },
 ];
 

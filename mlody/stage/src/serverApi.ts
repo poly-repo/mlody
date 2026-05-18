@@ -11,6 +11,8 @@ import type {
 const DEFAULT_SERVER_BASE_URL = "http://127.0.0.1:8765";
 const STANDALONE_STAGE_PORTS = new Set(["8000", "8001"]);
 const SERVER_TIMEOUT_MS = 8000;
+const SERVER_RESTART_TIMEOUT_MS = 30000;
+const SERVER_RESTART_POLL_MS = 250;
 
 export interface StageBootstrapPayload {
   health: ServerHealthStatus;
@@ -18,6 +20,11 @@ export interface StageBootstrapPayload {
   workspace: WorkspaceSummary;
   workspaces: WorkspaceSummary[];
   history: CommandHistoryEntry[];
+}
+
+interface ServerRestartPayload {
+  status: string;
+  previousInstanceId: string;
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
@@ -152,6 +159,12 @@ async function readErrorMessage(response: Response, path: string): Promise<strin
   return fallbackMessage;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 export async function fetchStageBootstrap(
   signal: AbortSignal,
 ): Promise<StageBootstrapPayload> {
@@ -190,6 +203,52 @@ export function createServerBootstrapController(): {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), SERVER_TIMEOUT_MS);
   return { controller, timeoutId };
+}
+
+async function waitForRestartedServer(previousInstanceId: string): Promise<void> {
+  const deadline = Date.now() + SERVER_RESTART_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${resolveServerBaseUrl()}/healthz`, {
+        headers: {
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+      if (response.ok) {
+        const health = (await response.json()) as ServerHealthStatus;
+        if (
+          health.status === "ok" &&
+          health.instanceId.trim() !== "" &&
+          health.instanceId !== previousInstanceId
+        ) {
+          return;
+        }
+      }
+    } catch {
+      // Expected while the server is shutting down or still rebinding.
+    }
+
+    await delay(SERVER_RESTART_POLL_MS);
+  }
+
+  throw new Error("Timed out waiting for the restarted mlody server to come back.");
+}
+
+export async function restartStageServer(): Promise<StageBootstrapPayload> {
+  const payload = await postJson<ServerRestartPayload>("/api/server/restart", {});
+  if (payload.status !== "restarting") {
+    throw new Error("Server restart request was not accepted.");
+  }
+
+  await waitForRestartedServer(payload.previousInstanceId);
+  const { controller, timeoutId } = createServerBootstrapController();
+  try {
+    return await fetchStageBootstrap(controller.signal);
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export async function executeStageCommand(
