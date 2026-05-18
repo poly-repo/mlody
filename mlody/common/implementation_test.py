@@ -186,12 +186,59 @@ def test_container_non_struct_build_raises_type_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-008: shell_script(content="echo hi") returns valid struct
+# TC-008: sandbox(build=bazel(...)) returns correct struct fields
+# ---------------------------------------------------------------------------
+
+
+def test_sandbox_returns_struct_with_kind_implementation() -> None:
+    """TC-008: sandbox(build=bazel(...)) returns kind='implementation'."""
+    ev = _eval('result = sandbox(build=bazel(target="//x:y"))')
+    assert _get(ev, "result").kind == "implementation"  # type: ignore[union-attr]
+
+
+def test_sandbox_returns_struct_with_type_sandbox() -> None:
+    """TC-008: sandbox(build=bazel(...)) returns type='sandbox'."""
+    ev = _eval('result = sandbox(build=bazel(target="//x:y"))')
+    assert _get(ev, "result").type == "sandbox"  # type: ignore[union-attr]
+
+
+def test_sandbox_stores_build_ref_struct() -> None:
+    """TC-008: sandbox stores the build_ref struct in the build field."""
+    ev = _eval('result = sandbox(build=bazel(target="//x:y"))')
+    build = _get(ev, "result").build  # type: ignore[union-attr]
+    assert build.kind == "build_ref"  # type: ignore[union-attr]
+    assert build.type == "bazel"  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# TC-009: sandbox() with no build argument raises TypeError
+# ---------------------------------------------------------------------------
+
+
+def test_sandbox_no_args_raises_type_error() -> None:
+    """TC-009: sandbox() raises TypeError because build is mandatory."""
+    with pytest.raises(TypeError):
+        _eval("result = sandbox()")
+
+
+# ---------------------------------------------------------------------------
+# TC-010: sandbox(build="not-a-struct") raises TypeError
+# ---------------------------------------------------------------------------
+
+
+def test_sandbox_non_struct_build_raises_type_error() -> None:
+    """TC-010: sandbox(build='not-a-struct') raises TypeError."""
+    with pytest.raises(TypeError):
+        _eval('result = sandbox(build="not-a-struct")')
+
+
+# ---------------------------------------------------------------------------
+# TC-011: shell_script(content="echo hi") returns valid struct
 # ---------------------------------------------------------------------------
 
 
 def test_shell_script_with_content_returns_valid_struct() -> None:
-    """TC-008: shell_script(content='echo hi') returns kind='implementation'."""
+    """TC-011: shell_script(content='echo hi') returns kind='implementation'."""
     ev = _eval('result = shell_script(content="echo hi")')
     r = _get(ev, "result")
     assert r.kind == "implementation"  # type: ignore[union-attr]
@@ -199,18 +246,18 @@ def test_shell_script_with_content_returns_valid_struct() -> None:
 
 
 def test_shell_script_with_content_has_file_none() -> None:
-    """TC-008: shell_script(content='echo hi') has file=None."""
+    """TC-011: shell_script(content='echo hi') has file=None."""
     ev = _eval('result = shell_script(content="echo hi")')
     assert _get(ev, "result").file is None  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------
-# TC-009: shell_script(file="scripts/run.sh") returns valid struct
+# TC-012: shell_script(file="scripts/run.sh") returns valid struct
 # ---------------------------------------------------------------------------
 
 
 def test_shell_script_with_file_returns_valid_struct() -> None:
-    """TC-009: shell_script(file='scripts/run.sh') returns kind='implementation'."""
+    """TC-012: shell_script(file='scripts/run.sh') returns kind='implementation'."""
     ev = _eval('result = shell_script(file="scripts/run.sh")')
     r = _get(ev, "result")
     assert r.kind == "implementation"  # type: ignore[union-attr]
@@ -218,73 +265,73 @@ def test_shell_script_with_file_returns_valid_struct() -> None:
 
 
 def test_shell_script_with_file_has_content_none() -> None:
-    """TC-009: shell_script(file='scripts/run.sh') has content=None."""
+    """TC-012: shell_script(file='scripts/run.sh') has content=None."""
     ev = _eval('result = shell_script(file="scripts/run.sh")')
     assert _get(ev, "result").content is None  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------
-# TC-010: shell_script(content="...", file="...") raises ValueError
+# TC-013: shell_script(content="...", file="...") raises ValueError
 # ---------------------------------------------------------------------------
 
 
 def test_shell_script_both_content_and_file_raises_value_error() -> None:
-    """TC-010: providing both content and file raises ValueError."""
+    """TC-013: providing both content and file raises ValueError."""
     with pytest.raises(ValueError):
         _eval('result = shell_script(content="echo hi", file="run.sh")')
 
 
 # ---------------------------------------------------------------------------
-# TC-011: shell_script() with neither content nor file raises ValueError
+# TC-014: shell_script() with neither content nor file raises ValueError
 # ---------------------------------------------------------------------------
 
 
 def test_shell_script_no_content_no_file_raises_value_error() -> None:
-    """TC-011: shell_script() with neither content nor file raises ValueError."""
+    """TC-014: shell_script() with neither content nor file raises ValueError."""
     with pytest.raises(ValueError):
         _eval("result = shell_script()")
 
 
 # ---------------------------------------------------------------------------
-# TC-012: shell_script(content="...", interpreter="/bin/bash") stores interpreter
+# TC-015: shell_script(content="...", interpreter="/bin/bash") stores interpreter
 # ---------------------------------------------------------------------------
 
 
 def test_shell_script_stores_interpreter() -> None:
-    """TC-012: shell_script with interpreter stores it correctly."""
+    """TC-015: shell_script with interpreter stores it correctly."""
     ev = _eval('result = shell_script(content="echo hi", interpreter="/bin/bash")')
     assert _get(ev, "result").interpreter == "/bin/bash"  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------
-# TC-013: shell_script(file="/absolute/path.sh") raises ValueError
+# TC-016: shell_script(file="/absolute/path.sh") raises ValueError
 # ---------------------------------------------------------------------------
 
 
 def test_shell_script_absolute_file_raises_value_error() -> None:
-    """TC-013: shell_script with absolute file path raises ValueError."""
+    """TC-016: shell_script with absolute file path raises ValueError."""
     with pytest.raises(ValueError):
         _eval('result = shell_script(file="/absolute/path.sh")')
 
 
 # ---------------------------------------------------------------------------
-# TC-014: shell_script(file="../escape.sh") raises ValueError
+# TC-017: shell_script(file="../escape.sh") raises ValueError
 # ---------------------------------------------------------------------------
 
 
 def test_shell_script_parent_traversal_in_file_raises_value_error() -> None:
-    """TC-014: shell_script with '..' component in file raises ValueError."""
+    """TC-017: shell_script with '..' component in file raises ValueError."""
     with pytest.raises(ValueError):
         _eval('result = shell_script(file="../escape.sh")')
 
 
 # ---------------------------------------------------------------------------
-# TC-015: system_binary(path="/usr/bin/ffmpeg") returns struct with absolute path
+# TC-018: system_binary(path="/usr/bin/ffmpeg") returns struct with absolute path
 # ---------------------------------------------------------------------------
 
 
 def test_system_binary_with_absolute_path_returns_struct() -> None:
-    """TC-015: system_binary(path='/usr/bin/ffmpeg') returns kind='implementation'."""
+    """TC-018: system_binary(path='/usr/bin/ffmpeg') returns kind='implementation'."""
     ev = _eval('result = system_binary(path="/usr/bin/ffmpeg")')
     r = _get(ev, "result")
     assert r.kind == "implementation"  # type: ignore[union-attr]
@@ -293,34 +340,34 @@ def test_system_binary_with_absolute_path_returns_struct() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-016: system_binary(path="relative/bin") raises ValueError
+# TC-019: system_binary(path="relative/bin") raises ValueError
 # ---------------------------------------------------------------------------
 
 
 def test_system_binary_relative_path_raises_value_error() -> None:
-    """TC-016: system_binary with relative path raises ValueError."""
+    """TC-019: system_binary with relative path raises ValueError."""
     with pytest.raises(ValueError):
         _eval('result = system_binary(path="relative/bin")')
 
 
 # ---------------------------------------------------------------------------
-# TC-017: system_binary(path="//bazel:target") raises ValueError
+# TC-020: system_binary(path="//bazel:target") raises ValueError
 # ---------------------------------------------------------------------------
 
 
 def test_system_binary_bazel_label_raises_value_error() -> None:
-    """TC-017: system_binary with Bazel label raises ValueError (not an abs path)."""
+    """TC-020: system_binary with Bazel label raises ValueError (not an abs path)."""
     with pytest.raises(ValueError):
         _eval('result = system_binary(path="//bazel:target")')
 
 
 # ---------------------------------------------------------------------------
-# TC-018: action(implementation=container(...)) stores implementation struct
+# TC-021: action(implementation=container(...)) stores implementation struct
 # ---------------------------------------------------------------------------
 
 
 def test_action_with_container_implementation_stores_struct() -> None:
-    """TC-018: action implementation field holds a container struct."""
+    """TC-021: action implementation field holds a container struct."""
     ev = _eval_with_action(
         'value(name="out", type=integer(), location=s3())\n'
         'action(\n'
@@ -335,12 +382,32 @@ def test_action_with_container_implementation_stores_struct() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-019: action(implementation=["old", "string", "list"]) raises TypeError
+# TC-022: action(implementation=sandbox(...)) stores implementation struct
+# ---------------------------------------------------------------------------
+
+
+def test_action_with_sandbox_implementation_stores_struct() -> None:
+    """TC-022: action implementation field holds a sandbox struct."""
+    ev = _eval_with_action(
+        'value(name="out", type=integer(), location=s3())\n'
+        'action(\n'
+        '  name="train",\n'
+        '  outputs=["out"],\n'
+        '  implementation=sandbox(build=bazel(target="//x:img")),\n'
+        ')\n'
+    )
+    a = ev.registry.actions.by_name["train"]
+    assert a.implementation.kind == "implementation"
+    assert a.implementation.type == "sandbox"
+
+
+# ---------------------------------------------------------------------------
+# TC-023: action(implementation=["old", "string", "list"]) raises TypeError
 # ---------------------------------------------------------------------------
 
 
 def test_action_with_string_list_implementation_raises_type_error() -> None:
-    """TC-019: passing a string_list for implementation raises TypeError."""
+    """TC-023: passing a string_list for implementation raises TypeError."""
     with pytest.raises(TypeError):
         _eval_with_action(
             'value(name="out", type=integer(), location=s3())\n'

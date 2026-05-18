@@ -321,7 +321,26 @@ modelled on `locations_test.py`.
 - Validation: `build` must be a struct with `kind="build_ref"`.
 - Priority: Must Have
 
-### 6.4 `shell_script` Kind
+### 6.4 `sandbox` Kind
+
+**FR-006a: `sandbox` implementation kind**
+
+- Description: Declares that an action runs inside a sandbox image. The image
+  is specified via a mandatory `build` attribute holding a build-ref struct.
+  Like `container`, the image itself encodes the command and entrypoint.
+- Defined via `implementation(name="sandbox", attrs={...})` inside
+  `implementation.mlody`.
+- Attributes:
+
+  | Attr name | Type               | Mandatory | Description                                             |
+  | --------- | ------------------ | --------- | ------------------------------------------------------- |
+  | `build`   | `build_ref` struct | Yes       | A build-ref kind struct, e.g. `bazel(target="//x:img")` |
+
+- Factory: `sandbox(build=...)` injected into scope.
+- Validation: `build` must be a struct with `kind="build_ref"`.
+- Priority: Must Have
+
+### 6.5 `shell_script` Kind
 
 **FR-007: `shell_script` implementation kind**
 
@@ -346,7 +365,7 @@ modelled on `locations_test.py`.
 - Factory: `shell_script(...)` injected into scope.
 - Priority: Must Have
 
-### 6.5 `system_binary` Kind
+### 6.6 `system_binary` Kind
 
 **FR-008: `system_binary` implementation kind**
 

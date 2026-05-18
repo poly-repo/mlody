@@ -95,18 +95,26 @@ implementation = rule(
 
 
 # ---------------------------------------------------------------------------
-# container: runs inside a container image referenced by a build_ref struct
+# build-backed implementations: require a build_ref struct
 # ---------------------------------------------------------------------------
 
-def _container_predicate(kwargs):
+def _require_build_ref(implementation_name, kwargs):
     build = kwargs.get("build", None)
     # python.getattr is an audited python.* escape for reading kind off a struct.
     build_kind = python.getattr(build, "kind", None) if build != None else None
     if build_kind != "build_ref":
         raise TypeError(
-            "container() build must be a build_ref struct (e.g. bazel(...)), "
+            implementation_name + "() build must be a build_ref struct (e.g. bazel(...)), "
             "got " + repr(build)
         )
+
+
+# ---------------------------------------------------------------------------
+# container: runs inside a container image referenced by a build_ref struct
+# ---------------------------------------------------------------------------
+
+def _container_predicate(kwargs):
+    _require_build_ref("container", kwargs)
 
 
 implementation(
@@ -117,6 +125,25 @@ implementation(
         "build": attr(type=None, mandatory=True),
     },
     predicate=_container_predicate,
+)
+
+
+# ---------------------------------------------------------------------------
+# sandbox: runs inside a sandbox image referenced by a build_ref struct
+# ---------------------------------------------------------------------------
+
+def _sandbox_predicate(kwargs):
+    _require_build_ref("sandbox", kwargs)
+
+
+implementation(
+    name="sandbox",
+    attrs={
+        # type=None: build holds a build_ref Struct; validate_attr_value is skipped
+        # for None types and the predicate handles the kind check.
+        "build": attr(type=None, mandatory=True),
+    },
+    predicate=_sandbox_predicate,
 )
 
 

@@ -35,6 +35,7 @@ be marked explicitly.
 | Standard builtins    | `abs`, `all`, `any`, `bool`, `dict`, `enumerate`, `float`, `int`, `len`, `list`, `max`, `min`, `print`, `range`, `repr`, `reversed`, `set`, `sorted`, `str`, `tuple`, `zip` |
 | `bazel(...)`         | Build-ref factory — references a Bazel target producing a container image; requires `target=` starting with `//` or `:` (from `//mlody/common/build_ref.mlody`)             |
 | `container(...)`     | Implementation factory — runs inside a container image; requires `build=bazel(...)` (from `//mlody/common/implementation.mlody`)                                            |
+| `sandbox(...)`       | Implementation factory — runs inside a sandbox image; requires `build=bazel(...)` (from `//mlody/common/implementation.mlody`)                                              |
 | `shell_script(...)`  | Implementation factory — runs a shell script; requires exactly one of `content=` (inline) or `file=` (repo-relative path); optional `interpreter=` (from `//mlody/common/implementation.mlody`) |
 | `system_binary(...)` | Implementation factory — runs a pre-installed binary; requires `path=` as an absolute filesystem path (from `//mlody/common/implementation.mlody`)                         |
 | `localhost(...)`     | Execution factory — runs directly on the local host (from `//mlody/common/execution.mlody`)                                                                                  |
