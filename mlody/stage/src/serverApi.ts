@@ -203,7 +203,7 @@ export async function executeStageCommand(
     input,
     options: {
       runAs: currentUserName,
-      ...(workspaceRoot ? { workspaceRoot } : {}),
+      ...(workspaceRoot !== null ? { workspaceRoot } : {}),
     },
   });
 }

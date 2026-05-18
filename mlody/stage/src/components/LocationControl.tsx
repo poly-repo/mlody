@@ -57,23 +57,8 @@ function getRootsFileLabel(workspace: WorkspaceSummary | null): string {
   return workspace.rootsFile;
 }
 
-function normalizePath(value: string): string {
-  return value.replace(/\/+$/, "");
-}
-
 function getWorkspaceTopdir(workspace: WorkspaceSummary): string {
-  const monorepoRoot = normalizePath(workspace.monorepoRoot);
-  const workspaceRoot = normalizePath(workspace.workspaceRoot);
-
-  if (workspaceRoot === monorepoRoot) {
-    return "/";
-  }
-
-  if (workspaceRoot.startsWith(`${monorepoRoot}/`)) {
-    return workspaceRoot.slice(monorepoRoot.length + 1);
-  }
-
-  return workspace.workspaceRoot;
+  return workspace.workspaceRoot === "" ? "/" : workspace.workspaceRoot;
 }
 
 function renderLocationPiece(piece: LocationPiece, crumbId: string) {
@@ -106,30 +91,25 @@ export function LocationControl({
   const runUser = getRecordValue(workspace?.context?.run ?? null, "user");
   const stateLabel = getWorkspaceStateLabel(workspace);
   const workspaceChoices = useMemo(() => {
-    const selectedRoot = workspace ? normalizePath(workspace.workspaceRoot) : null;
     const seen = new Set<string>();
     const ordered: WorkspaceSummary[] = [];
 
     if (workspace) {
       ordered.push(workspace);
-      seen.add(selectedRoot ?? workspace.workspaceRoot);
+      seen.add(workspace.workspaceRoot);
     }
 
     const remaining = availableWorkspaces
       .filter((candidate) => {
-        const key = normalizePath(candidate.workspaceRoot);
-        if (seen.has(key)) {
+        if (seen.has(candidate.workspaceRoot)) {
           return false;
         }
-        seen.add(key);
+        seen.add(candidate.workspaceRoot);
         return true;
       })
-      .sort((left, right) => {
-        return (
-          getWorkspaceTopdir(left).localeCompare(getWorkspaceTopdir(right)) ||
-          left.workspaceRoot.localeCompare(right.workspaceRoot)
-        );
-      });
+      .sort((left, right) =>
+        left.workspaceRoot.localeCompare(right.workspaceRoot),
+      );
 
     return [...ordered, ...remaining];
   }, [availableWorkspaces, workspace]);
@@ -222,7 +202,7 @@ export function LocationControl({
             ref={workspaceButtonRef}
             type="button"
             className="LocationControl-topdirButton"
-            title={workspace?.workspaceRoot ?? topdir}
+            title={workspace ? getWorkspaceTopdir(workspace) : topdir}
             aria-label="Choose workspace"
             aria-haspopup="dialog"
             aria-expanded={workspacePickerOpen}
@@ -257,11 +237,7 @@ export function LocationControl({
               </div>
               <div className="LocationControl-metaRow">
                 <dt>Workspace</dt>
-                <dd>{workspace.workspaceRoot}</dd>
-              </div>
-              <div className="LocationControl-metaRow">
-                <dt>Monorepo</dt>
-                <dd>{workspace.monorepoRoot}</dd>
+                <dd>{getWorkspaceTopdir(workspace)}</dd>
               </div>
               <div className="LocationControl-metaRow">
                 <dt>Roots</dt>
@@ -328,8 +304,7 @@ export function LocationControl({
                 const candidateTopdir = getWorkspaceTopdir(candidate);
                 const isSelected =
                   workspace !== null &&
-                  normalizePath(workspace.workspaceRoot) ===
-                    normalizePath(candidate.workspaceRoot);
+                  workspace.workspaceRoot === candidate.workspaceRoot;
                 const candidateSha = getRecordValue(candidate.info ?? null, "sha");
 
                 return (
@@ -349,7 +324,7 @@ export function LocationControl({
                       </span>
                     </span>
                     <span className="LocationControl-workspacePickerPath">
-                      {candidate.workspaceRoot}
+                      {getWorkspaceTopdir(candidate)}
                     </span>
                   </button>
                 );

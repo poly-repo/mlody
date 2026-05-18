@@ -66,12 +66,12 @@ export function resolveStageE2eWorkspaceRoot(
     return workspace?.workspaceRoot ?? null;
   }
   if (typeof target === "string" && target.startsWith(LAUNCH_WORKSPACE_PREFIX)) {
-    const launchWorkspaceRoot = workspace?.workspaceRoot;
-    if (!launchWorkspaceRoot) {
+    const launchRoot = workspace?.workspaceRoot;
+    if (launchRoot === undefined) {
       return null;
     }
-    const relativePath = target.slice(LAUNCH_WORKSPACE_PREFIX.length);
-    return `${launchWorkspaceRoot.replace(/\/$/, "")}/${relativePath}`;
+    const suffix = target.slice(LAUNCH_WORKSPACE_PREFIX.length);
+    return launchRoot === "" ? suffix : `${launchRoot}/${suffix}`;
   }
 
   return target;

@@ -175,7 +175,10 @@ export interface WorkspaceRootInfo {
 }
 
 export interface WorkspaceSummary {
-  monorepoRoot: string;
+  /**
+   * Path of the workspace root relative to the server's monorepo root.
+   * Empty string denotes the monorepo root itself.
+   */
   workspaceRoot: string;
   rootsFile: string | null;
   fullWorkspace: boolean;

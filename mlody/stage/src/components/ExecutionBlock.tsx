@@ -52,7 +52,7 @@ function shellQuote(value: string): string {
 
 function buildCopyCommand(record: ExecutionRecord): string {
   const segments = [COPY_COMMAND_PREFIX];
-  if (record.workspaceRoot !== null) {
+  if (record.workspaceRoot !== null && record.workspaceRoot !== "") {
     segments.push(`--workspace ${shellQuote(record.workspaceRoot)}`);
   }
   segments.push(record.commandName);

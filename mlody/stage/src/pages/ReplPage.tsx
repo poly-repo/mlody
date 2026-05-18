@@ -141,10 +141,6 @@ function buildServerConnectedAdmonition(
   };
 }
 
-function normalizePath(value: string): string {
-  return value.replace(/\/+$/, "");
-}
-
 function sameWorkspaceRoot(
   left: WorkspaceSummary | null,
   right: WorkspaceSummary | null,
@@ -153,7 +149,7 @@ function sameWorkspaceRoot(
     return left === right;
   }
 
-  return normalizePath(left.workspaceRoot) === normalizePath(right.workspaceRoot);
+  return left.workspaceRoot === right.workspaceRoot;
 }
 
 function getWorkspaceTopdir(workspace: WorkspaceSummary | null): string {
@@ -161,18 +157,7 @@ function getWorkspaceTopdir(workspace: WorkspaceSummary | null): string {
     return INITIAL_TOPDIR;
   }
 
-  const monorepoRoot = normalizePath(workspace.monorepoRoot);
-  const workspaceRoot = normalizePath(workspace.workspaceRoot);
-
-  if (workspaceRoot === monorepoRoot) {
-    return "/";
-  }
-
-  if (workspaceRoot.startsWith(`${monorepoRoot}/`)) {
-    return workspaceRoot.slice(monorepoRoot.length + 1);
-  }
-
-  return workspace.workspaceRoot;
+  return workspace.workspaceRoot === "" ? "/" : workspace.workspaceRoot;
 }
 
 export function ReplPage({ executor = serverExecutor }: ReplPageProps) {

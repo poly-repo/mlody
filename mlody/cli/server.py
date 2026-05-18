@@ -410,39 +410,68 @@ def _read_string_list_option(
     return []
 
 
+def _workspace_root_to_relative(workspace_root: Path, monorepo_root: Path) -> str:
+    """Encode *workspace_root* as a path relative to *monorepo_root*.
+
+    Returns ``""`` when *workspace_root* is the monorepo root itself, or a
+    POSIX-style relative path otherwise. Both inputs must already lie inside
+    the same monorepo — the caller is responsible for that invariant.
+    """
+    relative = workspace_root.resolve().relative_to(monorepo_root.resolve())
+    relative_str = relative.as_posix()
+    return "" if relative_str == "." else relative_str
+
+
 def _workspace_root_from_request(
     config: ServerConfig,
     request: ServerCommandRequest,
 ) -> Path:
-    raw_workspace_root = _read_string_option(
-        request.options,
-        "workspaceRoot",
-        "workspace_root",
-        default=str(config.workspace_root),
-    ).strip()
-    if raw_workspace_root == "":
-        return config.workspace_root
+    """Resolve ``workspaceRoot`` to an absolute path inside the monorepo.
 
-    candidate = Path(raw_workspace_root).expanduser()
-    if not candidate.is_absolute():
-        candidate = (config.monorepo_root / candidate).resolve()
-    else:
-        candidate = candidate.resolve()
+    The wire protocol carries ``workspaceRoot`` as a path relative to the
+    server's monorepo root (``""`` denotes the monorepo root itself). Absolute
+    paths and any ``..`` escape are rejected. A missing or ``null`` option
+    falls back to the server's launch-time workspace root.
+    """
+    raw = request.options.get("workspaceRoot", request.options.get("workspace_root"))
+    if raw is None:
+        return config.workspace_root.resolve()
+    if not isinstance(raw, str):
+        raise ServerRequestError("Workspace root must be a string or null.")
+
+    raw_workspace_root = raw.strip()
+    if raw_workspace_root == "":
+        return config.monorepo_root.resolve()
+
+    candidate = Path(raw_workspace_root)
+    if candidate.is_absolute() or candidate.expanduser() != candidate:
+        raise ServerRequestError(
+            "Workspace root must be relative to the monorepo root."
+        )
+    if ".." in candidate.parts:
+        raise ServerRequestError(
+            "Workspace root must not escape the monorepo root."
+        )
 
     monorepo_root = config.monorepo_root.resolve()
+    resolved = (monorepo_root / candidate).resolve()
     try:
-        candidate.relative_to(monorepo_root)
+        resolved.relative_to(monorepo_root)
     except ValueError as exc:
         raise ServerRequestError(
             "Workspace root must stay within the current monorepo."
         ) from exc
 
-    if not candidate.exists():
-        raise ServerRequestError(f"Workspace root does not exist: {candidate}")
-    if not candidate.is_dir():
-        raise ServerRequestError(f"Workspace root is not a directory: {candidate}")
+    if not resolved.exists():
+        raise ServerRequestError(
+            f"Workspace root does not exist: {raw_workspace_root}"
+        )
+    if not resolved.is_dir():
+        raise ServerRequestError(
+            f"Workspace root is not a directory: {raw_workspace_root}"
+        )
 
-    return candidate
+    return resolved
 
 
 def _available_workspace_roots(config: ServerConfig) -> tuple[Path, ...]:
@@ -758,8 +787,9 @@ def _workspace_summary_payload(
 ) -> dict[str, object]:
     effective_workspace_root = workspace_root or config.workspace_root
     return {
-        "monorepoRoot": str(config.monorepo_root),
-        "workspaceRoot": str(effective_workspace_root),
+        "workspaceRoot": _workspace_root_to_relative(
+            effective_workspace_root, config.monorepo_root
+        ),
         "rootsFile": str(config.roots) if config.roots is not None else None,
         "fullWorkspace": config.full_workspace,
         "info": _runtime_json_data(getattr(workspace, "info", None)),
@@ -775,8 +805,9 @@ def _default_workspace_summary_payload(
 ) -> dict[str, object]:
     effective_workspace_root = workspace_root or config.workspace_root
     return {
-        "monorepoRoot": str(config.monorepo_root),
-        "workspaceRoot": str(effective_workspace_root),
+        "workspaceRoot": _workspace_root_to_relative(
+            effective_workspace_root, config.monorepo_root
+        ),
         "rootsFile": str(config.roots) if config.roots is not None else None,
         "fullWorkspace": config.full_workspace,
         "info": None,
@@ -1831,8 +1862,10 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                         "transport": "tcp",
                     },
                     "workspace": {
-                        "monorepoRoot": str(self.server.server_config.monorepo_root),
-                        "workspaceRoot": str(self.server.server_config.workspace_root),
+                        "workspaceRoot": _workspace_root_to_relative(
+                            self.server.server_config.workspace_root,
+                            self.server.server_config.monorepo_root,
+                        ),
                         "roots": str(self.server.server_config.roots)
                         if self.server.server_config.roots is not None
                         else None,

@@ -269,5 +269,5 @@ export function describeCommandHistoryWorkspace(
     typeof entry.workspace.info?.sha === "string"
       ? entry.workspace.info.sha.slice(0, 8)
       : null;
-  return sha ?? entry.workspace.workspaceRoot;
+  return sha ?? (entry.workspace.workspaceRoot === "" ? "/" : entry.workspace.workspaceRoot);
 }

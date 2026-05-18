@@ -72,10 +72,7 @@ function sameWorkspaceRoot(
     return left === right;
   }
 
-  return (
-    left.workspaceRoot.replace(/\/+$/, "") ===
-    right.workspaceRoot.replace(/\/+$/, "")
-  );
+  return left.workspaceRoot === right.workspaceRoot;
 }
 
 export function InputBar({

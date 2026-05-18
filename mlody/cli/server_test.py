@@ -255,7 +255,7 @@ class TestStageAutocompleteResponse:
         response = execute_stage_autocomplete_response(
             _server_config(tmp_path),
             StageAutocompleteRequest(
-                workspace_root=str(workspace_root),
+                workspace_root="sandboxes/exp1",
                 breadcrumb=(),
                 prompt="",
             ),
@@ -277,7 +277,7 @@ class TestStageAutocompleteResponse:
         response = execute_stage_autocomplete_response(
             _server_config(tmp_path),
             StageAutocompleteRequest(
-                workspace_root=str(workspace_root),
+                workspace_root="sandboxes/exp1",
                 breadcrumb=(),
                 prompt="@p",
             ),
@@ -299,7 +299,7 @@ class TestStageAutocompleteResponse:
         response = execute_stage_autocomplete_response(
             _server_config(tmp_path),
             StageAutocompleteRequest(
-                workspace_root=str(workspace_root),
+                workspace_root="sandboxes/exp1",
                 breadcrumb=("//",),
                 prompt="fo",
             ),
@@ -321,7 +321,7 @@ class TestStageAutocompleteResponse:
         response = execute_stage_autocomplete_response(
             _server_config(tmp_path),
             StageAutocompleteRequest(
-                workspace_root=str(workspace_root),
+                workspace_root="sandboxes/exp1",
                 breadcrumb=("//",),
                 prompt="pr",
             ),
@@ -345,7 +345,7 @@ class TestStageAutocompleteResponse:
         response = execute_stage_autocomplete_response(
             _server_config(tmp_path),
             StageAutocompleteRequest(
-                workspace_root=str(workspace_root),
+                workspace_root="sandboxes/exp1",
                 breadcrumb=("//", "projects:"),
                 prompt="o",
             ),
@@ -370,7 +370,7 @@ class TestStageAutocompleteResponse:
         response = execute_stage_autocomplete_response(
             _server_config(tmp_path),
             StageAutocompleteRequest(
-                workspace_root=str(workspace_root),
+                workspace_root="sandboxes/exp1",
                 breadcrumb=("@pixelle", "//", "datasets:"),
                 prompt="ce",
             ),
@@ -410,7 +410,7 @@ class TestStageAutocompleteResponse:
         response = execute_stage_autocomplete_response(
             _server_config(tmp_path),
             StageAutocompleteRequest(
-                workspace_root=str(workspace_root),
+                workspace_root="sandboxes/exp1",
                 breadcrumb=("//", "projects:", "omega"),
                 prompt=".na",
             ),
@@ -436,7 +436,7 @@ class TestStageAutocompleteResponse:
         response = execute_stage_autocomplete_response(
             _server_config(tmp_path),
             StageAutocompleteRequest(
-                workspace_root=str(workspace_root),
+                workspace_root="sandboxes/exp1",
                 breadcrumb=("//", "projects:", "omega"),
                 prompt="|next",
             ),
@@ -507,7 +507,7 @@ class TestExecuteVerbatimCommandResponse:
                 "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
                 "options": {
                     "runAs": "agarcia",
-                    "workspaceRoot": str(workspace_root),
+                    "workspaceRoot": "sandboxes/exp1",
                 },
             }
         )
@@ -515,7 +515,7 @@ class TestExecuteVerbatimCommandResponse:
 
         assert captured["args"] == [
             "--workspace",
-            str(workspace_root),
+            str(workspace_root.resolve()),
             "show",
             "--as",
             "agarcia",
@@ -611,13 +611,13 @@ class TestExecuteStageCommandResponse:
             {
                 "command": "show",
                 "input": "@pixelle//datasets:celebA-dataset.train[@sql limit 2]",
-                "options": {"workspaceRoot": str(workspace_root)},
+                "options": {"workspaceRoot": "sandboxes/exp1"},
             }
         )
         execute_stage_command_response(_server_config(tmp_path), request)
 
         assert captured["target"] == "@pixelle//datasets:celebA-dataset.train[@sql limit 2]"
-        assert captured["workspace_root"] == workspace_root
+        assert captured["workspace_root"] == workspace_root.resolve()
 
     def test_serializes_raw_tabular_results_as_stage_table(
         self,
@@ -1545,7 +1545,7 @@ class TestServerStartupErrors:
             assert payload["status"] == "ok"
             assert payload["http"]["port"] == http_server.server_port
             assert payload["lsp"]["port"] == 8766
-            assert payload["workspace"]["monorepoRoot"] == str(tmp_path)
+            assert payload["workspace"]["workspaceRoot"] == ""
         finally:
             http_server.shutdown()
             http_server.server_close()
@@ -1954,7 +1954,7 @@ class TestServerStartupErrors:
 
             payload = json.loads(excinfo.value.read().decode("utf-8"))
             assert excinfo.value.code == HTTPStatus.BAD_REQUEST
-            assert payload["error"] == "Workspace root must stay within the current monorepo."
+            assert payload["error"] == "Workspace root must be relative to the monorepo root."
         finally:
             http_server.shutdown()
             http_server.server_close()
@@ -2021,7 +2021,7 @@ class TestServerStartupErrors:
                         "input": "@pixelle//datasets:celebA-dataset.train",
                         "options": {
                             "runAs": "agarcia",
-                            "workspaceRoot": str(selected_workspace_root),
+                            "workspaceRoot": "sandboxes/exp1",
                         },
                     }
                 ).encode("utf-8"),
@@ -2044,10 +2044,9 @@ class TestServerStartupErrors:
             ]
             assert payload[0]["currentUserName"] == "agarcia"
             assert payload[0]["workspace"]["info"]["sha"] == "abc123"
-            assert payload[0]["workspace"]["workspaceRoot"] == str(
-                selected_workspace_root
-            )
-            assert captured_workspace_roots == [selected_workspace_root]
+            assert payload[0]["workspace"]["workspaceRoot"] == "sandboxes/exp1"
+            assert "monorepoRoot" not in payload[0]["workspace"]
+            assert captured_workspace_roots == [selected_workspace_root.resolve()]
         finally:
             http_server.shutdown()
             http_server.server_close()
@@ -2117,7 +2116,7 @@ class TestServerStartupErrors:
                         "prompt": ".summary",
                         "breadcrumb": ["projects", "omega"],
                         "currentUserName": "mav",
-                        "workspace": {"workspaceRoot": str(tmp_path)},
+                        "workspace": {"workspaceRoot": ""},
                     }
                 ]
             ),
@@ -2189,10 +2188,11 @@ class TestServerStartupErrors:
                 payload = json.loads(response.read().decode("utf-8"))
 
             assert [item["workspaceRoot"] for item in payload] == [
-                str(tmp_path),
-                str(workspace_root),
+                "",
+                "sandboxes/exp1",
             ]
             assert payload[1]["info"]["path"] == str(workspace_root)
+            assert "monorepoRoot" not in payload[0]
         finally:
             http_server.shutdown()
             http_server.server_close()
@@ -2290,8 +2290,8 @@ class TestResponseWriters:
             ) as response:
                 payload = json.loads(response.read().decode("utf-8"))
 
-            assert payload["monorepoRoot"] == str(tmp_path)
-            assert payload["workspaceRoot"] == str(tmp_path / "sandboxes" / "exp1")
+            assert "monorepoRoot" not in payload
+            assert payload["workspaceRoot"] == "sandboxes/exp1"
             assert payload["rootsFile"] == str(tmp_path / "mlody" / "custom-roots.mlody")
             assert payload["fullWorkspace"] is True
             assert payload["info"]["branch"] == "main"
