@@ -1,6 +1,7 @@
 load("//mlody/core/rule.mlody", "rule")
 load("//mlody/common/attrs.mlody", "attr")
 load("//mlody/common/types.mlody", "typedef")
+load("//mlody/common/build_ref.mlody")  # ensures bazel() is available for build=
 
 
 def _validate_value_refs(attr_name, items):
@@ -194,6 +195,17 @@ def gpu_requirement(count, type="*"):
     )
 
 
+def _validate_build_ref(value):
+    if value == None:
+        return None
+    if type(value) != "struct" or python.getattr(value, "kind", None) != "build_ref":
+        raise TypeError(
+            "build: expected a build_ref struct (e.g. bazel(...)), got "
+            + repr(type(value))
+        )
+    return value
+
+
 def _action_impl(ctx):
     inputs_raw = python.getattr(ctx.attr, "inputs", [])
     if inputs_raw == None:
@@ -209,14 +221,19 @@ def _action_impl(ctx):
         requirements_raw = []
     requirements = _validate_requirements("requirements", requirements_raw)
     # Validate implementation: must be an implementation struct or a string (lazy ref).
-    implementation_raw = ctx.attr.implementation
-    if not isinstance(implementation_raw, str):
+    implementation_raw = python.getattr(ctx.attr, "implementation", None)
+    if implementation_raw != None and not isinstance(implementation_raw, str):
         if type(implementation_raw) != "struct" or python.getattr(implementation_raw, "kind", None) != "implementation":
             raise TypeError(
                 "implementation: expected an implementation struct or string name, got "
                 + repr(type(implementation_raw))
             )
     implementation = implementation_raw
+    build = _validate_build_ref(python.getattr(ctx.attr, "build", None))
+    if implementation == None and build == None:
+        raise ValueError(
+            "action() requires either implementation=... or build=bazel(...)"
+        )
     entity_type = None
     try:
         entity_type = builtins.lookup("type", "mlody-action")
@@ -232,6 +249,7 @@ def _action_impl(ctx):
         "config": config,
         "requirements": requirements,
         "implementation": implementation,
+        "build": build,
     }
     methods = python.getattr(ctx.attr, "methods", None)
     if methods != None:
@@ -252,6 +270,7 @@ action = rule(
         "outputs": attr(type="value_ref_list"),
         "config":  attr(type="value_ref_list", mandatory=False),
         "requirements": attr(mandatory=False),
-        "implementation": attr(type="implementation_ref"),
+        "implementation": attr(type="implementation_ref", mandatory=False, default=None),
+        "build": attr(type=None, mandatory=False, default=None),
     },
 )

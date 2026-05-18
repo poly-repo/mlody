@@ -317,11 +317,11 @@ def _coerce_config_value(type_ref: object, value: str, raw: str) -> object:
     return value
 
 
-def _registry_value_label(
+def _registry_entity_label(
     workspace: Workspace,
     key: tuple[object, object, object],
 ) -> str | None:
-    """Return a concrete label for a registry value key when one can be derived."""
+    """Return a concrete label for a registry entity key when one can be derived."""
     _, stem, name = key
     if not isinstance(stem, str) or not isinstance(name, str):
         return None
@@ -405,7 +405,7 @@ def _normalize_workspace_defaults(workspace: Workspace) -> Workspace:
             source = f"DEFAULT: {_format_quantity_string(default_value, unit_ref)}"
         else:
             source = f"DEFAULT: {default_value}"
-        label = _registry_value_label(workspace, key)
+        label = _registry_entity_label(workspace, key)
         if label is not None:
             setf(
                 f"{label}.location",
@@ -426,6 +426,60 @@ def _normalize_workspace_defaults(workspace: Workspace) -> Workspace:
         )
         updated_value = append_lineage(updated_value, event, mode="inplace")
         workspace.registry_view.set_registry_entity(key, updated_value)
+    return workspace
+
+
+def _default_sandbox_implementation(build: object) -> object:
+    """Return the synthesized sandbox implementation for a build-backed action."""
+    from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
+
+    return Struct(
+        kind="implementation",
+        type="sandbox",
+        name="sandbox",
+        build=build,
+    )
+
+
+def _normalize_action_implementations(workspace: Workspace) -> Workspace:
+    """Populate missing action implementations from declared build refs."""
+    from mlody.core.setf import setf  # noqa: PLC0415
+
+    for key, value in workspace.registry_view.iter_registry_items():
+        if not isinstance(key, tuple) or len(key) != 3:
+            continue
+        label = _registry_entity_label(workspace, key)
+        if label is None:
+            continue
+
+        if key[0] == "action":
+            implementation = getattr(value, "implementation", None)
+            build = getattr(value, "build", None)
+            if implementation is None and build is not None:
+                synthesized = _default_sandbox_implementation(build)
+                setf(
+                    f"{label}.implementation",
+                    synthesized,
+                    workspace=workspace,
+                    source=f"DEFAULT: {synthesized}",
+                )
+            continue
+
+        if key[0] != "task":
+            continue
+        action = getattr(value, "action", None)
+        if getattr(action, "kind", None) != "action":
+            continue
+        implementation = getattr(action, "implementation", None)
+        build = getattr(action, "build", None)
+        if implementation is None and build is not None:
+            synthesized = _default_sandbox_implementation(build)
+            setf(
+                f"{label}.action.implementation",
+                synthesized,
+                workspace=workspace,
+                source=f"DEFAULT: {synthesized}",
+            )
     return workspace
 
 
@@ -520,11 +574,13 @@ def build_baseline_workspace(workspace: Workspace) -> Workspace:
     """Apply defaults and registered config rules exactly once on a loaded workspace."""
     if not isinstance(workspace, _WORKSPACE_TYPE):
         _normalize_workspace_defaults(workspace)
+        _normalize_action_implementations(workspace)
         _apply_registered_configs(workspace)
         return workspace
 
     if workspace.state_kind is WorkspaceStateKind.LOADED:
         _normalize_workspace_defaults(workspace)
+        _normalize_action_implementations(workspace)
         _apply_registered_configs(workspace)
         workspace.mark_baseline()
     return workspace

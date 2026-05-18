@@ -26,7 +26,8 @@ class RegisteredAction(RegisteredStructBase):
     outputs: dict[str, RegisteredValue]
     config: dict[str, RegisteredValue]
     requirements: list[object]
-    implementation: object
+    implementation: object | None = None
+    build: object | None = None
     _entity_type: object | None = None
     _source_range: object | None = None
     raw: object | None = None

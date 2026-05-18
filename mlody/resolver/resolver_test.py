@@ -277,6 +277,7 @@ class TestConfigureWorkspace:
 
         with (
             patch("mlody.resolver.resolver._normalize_workspace_defaults") as mock_normalize,
+            patch("mlody.resolver.resolver._normalize_action_implementations") as mock_impls,
             patch("mlody.resolver.resolver._apply_registered_configs") as mock_configs,
             patch(
                 "mlody.resolver.resolver.apply_request_overrides",
@@ -287,6 +288,7 @@ class TestConfigureWorkspace:
 
         assert result is request_workspace
         mock_normalize.assert_called_once_with(workspace)
+        mock_impls.assert_called_once_with(workspace)
         mock_configs.assert_called_once_with(workspace)
         workspace.mark_baseline.assert_called_once_with()
         workspace.fork_request.assert_called_once_with()
@@ -1587,3 +1589,96 @@ def test_apply_registered_configs_defaults_task_execution_without_overwriting_ex
             + str(default_execution),
         )
     ]
+
+
+def test_normalize_action_implementations_defaults_build_backed_actions() -> None:
+    """Missing implementations are synthesized as sandbox(build=...) defaults."""
+    from mlody.resolver.resolver import _normalize_action_implementations  # noqa: PLC0415
+
+    build_ref = Struct(
+        kind="build_ref",
+        name="bazel",
+        type="bazel",
+        target=":model-download",
+    )
+    action_struct = Struct(
+        kind="action",
+        name="downloader-action",
+        implementation=None,
+        build=build_ref,
+    )
+    task_struct = Struct(
+        kind="task",
+        name="downloader",
+        action=action_struct,
+    )
+    fake_workspace = MagicMock()
+    fake_workspace.root_infos = {}
+    fake_workspace._workspace_root = Path("/repo")
+    fake_workspace._monorepo_root = Path("/repo")
+    fake_workspace.registry_view.iter_registry_items.return_value = [
+        (("action", "mlody/common/huggingface/downloader", "downloader-action"), action_struct),
+        (("task", "mlody/common/huggingface/downloader", "downloader"), task_struct),
+    ]
+
+    setf_calls: list[tuple[str, object, str]] = []
+
+    def fake_setf(label: str, value: object, *, workspace: object, source: str) -> None:
+        setf_calls.append((label, value, source))
+
+    with patch("mlody.core.setf.setf", side_effect=fake_setf):
+        import mlody.core.setf  # noqa: PLC0415
+        _normalize_action_implementations(fake_workspace)
+
+    assert [call[0] for call in setf_calls] == [
+        "//mlody/common/huggingface/downloader:downloader-action.implementation",
+        "//mlody/common/huggingface/downloader:downloader.action.implementation",
+    ]
+    for _label, value, source in setf_calls:
+        assert getattr(value, "kind", None) == "implementation"
+        assert getattr(value, "type", None) == "sandbox"
+        assert getattr(getattr(value, "build", None), "target", None) == ":model-download"
+        assert source == f"DEFAULT: {value}"
+
+
+def test_normalize_action_implementations_preserves_explicit_implementations() -> None:
+    """Explicit implementations win over build-backed sandbox defaults."""
+    from mlody.resolver.resolver import _normalize_action_implementations  # noqa: PLC0415
+
+    build_ref = Struct(
+        kind="build_ref",
+        name="bazel",
+        type="bazel",
+        target=":model-download",
+    )
+    explicit_impl = Struct(
+        kind="implementation",
+        name="shell_script",
+        type="shell_script",
+        content="echo hi",
+    )
+    action_struct = Struct(
+        kind="action",
+        name="downloader-action",
+        implementation=explicit_impl,
+        build=build_ref,
+    )
+    task_struct = Struct(
+        kind="task",
+        name="downloader",
+        action=action_struct,
+    )
+    fake_workspace = MagicMock()
+    fake_workspace.root_infos = {}
+    fake_workspace._workspace_root = Path("/repo")
+    fake_workspace._monorepo_root = Path("/repo")
+    fake_workspace.registry_view.iter_registry_items.return_value = [
+        (("action", "mlody/common/huggingface/downloader", "downloader-action"), action_struct),
+        (("task", "mlody/common/huggingface/downloader", "downloader"), task_struct),
+    ]
+
+    with patch("mlody.core.setf.setf") as mock_setf:
+        import mlody.core.setf  # noqa: PLC0415
+        _normalize_action_implementations(fake_workspace)
+
+    mock_setf.assert_not_called()

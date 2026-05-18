@@ -136,17 +136,40 @@ def test_action_empty_inputs_and_outputs_allowed() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-005: implementation is mandatory
+# TC-005: action requires implementation or build metadata
 # ---------------------------------------------------------------------------
 
 
-def test_action_implementation_is_mandatory() -> None:
-    with pytest.raises(ValueError, match="Missing mandatory argument"):
+def test_action_requires_implementation_or_build() -> None:
+    with pytest.raises(
+        ValueError,
+        match="requires either implementation=... or build=bazel\\(\\.\\.\\.\\)",
+    ):
         _eval('action(name="a", inputs=[], outputs=[])\n')
 
 
 # ---------------------------------------------------------------------------
-# TC-006: config stores value refs when provided
+# TC-006: build-only actions preserve the build_ref for default sandboxing
+# ---------------------------------------------------------------------------
+
+
+def test_action_build_only_stores_build_ref() -> None:
+    ev = _eval(
+        'action(name="a", inputs=[], outputs=[], build=bazel(target="//mlody/common:action_lib"))\n'
+    )
+    a = ev.registry.actions.by_name["a"]
+    assert a.implementation is None
+    assert a.build.kind == "build_ref"
+    assert a.build.type == "bazel"
+
+
+def test_action_invalid_build_raises_type_error() -> None:
+    with pytest.raises(TypeError, match="build: expected a build_ref struct"):
+        _eval('action(name="a", inputs=[], outputs=[], build="not-a-build")\n')
+
+
+# ---------------------------------------------------------------------------
+# TC-007: config stores value refs when provided
 # ---------------------------------------------------------------------------
 
 
@@ -161,7 +184,7 @@ def test_action_config_value_refs_stored() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-007: unknown value label raises NameError
+# TC-008: unknown value label raises NameError
 # ---------------------------------------------------------------------------
 
 
@@ -171,7 +194,7 @@ def test_action_unknown_value_label_raises_name_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-008: wrong type in inputs raises TypeError
+# TC-009: wrong type in inputs raises TypeError
 # ---------------------------------------------------------------------------
 
 
@@ -181,7 +204,7 @@ def test_action_wrong_type_in_inputs_raises_type_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-009: implementation rejects a list (now requires implementation_ref)
+# TC-010: implementation rejects a list (now requires implementation_ref)
 # ---------------------------------------------------------------------------
 
 
@@ -192,7 +215,7 @@ def test_action_implementation_rejects_list() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-010: implementation stores a container struct
+# TC-011: implementation stores a container struct
 # ---------------------------------------------------------------------------
 
 
@@ -211,7 +234,7 @@ def test_action_implementation_stores_container_struct() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-011: implementation rejects a list with non-string entries
+# TC-012: implementation rejects a list with non-string entries
 # ---------------------------------------------------------------------------
 
 
@@ -222,7 +245,7 @@ def test_action_implementation_non_string_list_raises_type_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-012: requirements default to empty list when omitted
+# TC-013: requirements default to empty list when omitted
 # ---------------------------------------------------------------------------
 
 
@@ -235,7 +258,7 @@ def test_action_requirements_default_to_empty_list() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-013: requirements stores declared resource requirements
+# TC-014: requirements stores declared resource requirements
 # ---------------------------------------------------------------------------
 
 

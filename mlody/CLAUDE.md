@@ -44,6 +44,8 @@ be marked explicitly.
 
 `type`, file I/O, imports, and all other builtins are **not available**.
 
+`action(...)` can now omit `implementation=` when it declares `build=bazel(...)`; baseline resolution will synthesize `sandbox(build=...)` for that action, while explicit `implementation=` still wins when both are present.
+
 ### Communicating back to Python
 
 ```starlark
