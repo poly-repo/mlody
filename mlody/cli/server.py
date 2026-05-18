@@ -168,6 +168,8 @@ class ServerConfig:
     http_port: int
     lsp_host: str
     lsp_port: int
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    started_monotonic: float = field(default_factory=time.monotonic)
     restart_cwd: Path = field(default_factory=Path.cwd)
     restart_argv: tuple[str, ...] = field(default_factory=_default_restart_argv)
     instance_id: str = field(default_factory=lambda: uuid.uuid4().hex)
@@ -1930,6 +1932,69 @@ class MlodyApiServer(ThreadingHTTPServer):
         self.shutdown()
 
 
+def _server_workspace_payload(config: ServerConfig) -> dict[str, object]:
+    return {
+        "workspaceRoot": _workspace_root_to_relative(
+            config.workspace_root,
+            config.monorepo_root,
+        ),
+        "roots": str(config.roots) if config.roots is not None else None,
+        "fullWorkspace": config.full_workspace,
+    }
+
+
+def _server_health_payload(server: MlodyApiServer) -> dict[str, object]:
+    return {
+        "status": "ok",
+        "instanceId": server.server_config.instance_id,
+        "http": {
+            "host": server.server_address[0],
+            "port": server.server_port,
+        },
+        "lsp": {
+            "host": server.server_config.lsp_host,
+            "port": server.server_config.lsp_port,
+            "transport": "tcp",
+        },
+        "workspace": _server_workspace_payload(server.server_config),
+    }
+
+
+def _server_status_payload(server: MlodyApiServer) -> dict[str, object]:
+    with server._stage_request_logs_lock:
+        retained_stage_request_count = len(server._stage_request_logs)
+    with server._restart_lock:
+        restart_pending = server._restart_requested
+
+    config = server.server_config
+    workspace_payload = dict(_server_workspace_payload(config))
+    workspace_payload["monorepoRoot"] = str(config.monorepo_root)
+
+    return {
+        **_server_health_payload(server),
+        "pid": os.getpid(),
+        "startedAt": config.started_at.isoformat().replace("+00:00", "Z"),
+        "uptimeSeconds": round(
+            max(0.0, time.monotonic() - config.started_monotonic),
+            3,
+        ),
+        "currentCwd": os.getcwd(),
+        "launchCwd": str(config.restart_cwd),
+        "launchArgv": list(config.restart_argv),
+        "pythonExecutable": sys.executable,
+        "pythonVersion": sys.version.split()[0],
+        "platform": sys.platform,
+        "threadCount": threading.active_count(),
+        "workspace": workspace_payload,
+        "logging": {
+            "verbose": config.verbose,
+            "retainedStageRequestCount": retained_stage_request_count,
+            "retainedStageRequestCapacity": _MAX_STAGE_REQUEST_LOGS,
+        },
+        "restartPending": restart_pending,
+    }
+
+
 class MlodyApiRequestHandler(BaseHTTPRequestHandler):
     """Serve the HTTP JSON API for stage and other local clients."""
 
@@ -1946,32 +2011,11 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
         if path == "/healthz":
-            self._write_json_response(
-                HTTPStatus.OK,
-                {
-                    "status": "ok",
-                    "instanceId": self.server.server_config.instance_id,
-                    "http": {
-                        "host": self.server.server_address[0],
-                        "port": self.server.server_port,
-                    },
-                    "lsp": {
-                        "host": self.server.server_config.lsp_host,
-                        "port": self.server.server_config.lsp_port,
-                        "transport": "tcp",
-                    },
-                    "workspace": {
-                        "workspaceRoot": _workspace_root_to_relative(
-                            self.server.server_config.workspace_root,
-                            self.server.server_config.monorepo_root,
-                        ),
-                        "roots": str(self.server.server_config.roots)
-                        if self.server.server_config.roots is not None
-                        else None,
-                        "fullWorkspace": self.server.server_config.full_workspace,
-                    },
-                },
-            )
+            self._write_json_response(HTTPStatus.OK, _server_health_payload(self.server))
+            return
+
+        if path == "/api/server/status":
+            self._write_json_response(HTTPStatus.OK, _server_status_payload(self.server))
             return
 
         if path == "/api/users":

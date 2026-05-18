@@ -22,6 +22,31 @@ export interface StageBootstrapPayload {
   history: CommandHistoryEntry[];
 }
 
+export interface ServerRuntimeStatusPayload extends ServerHealthStatus {
+  pid: number;
+  startedAt: string;
+  uptimeSeconds: number;
+  currentCwd: string;
+  launchCwd: string;
+  launchArgv: string[];
+  pythonExecutable: string;
+  pythonVersion: string;
+  platform: string;
+  threadCount: number;
+  workspace: {
+    workspaceRoot: string;
+    roots: string | null;
+    fullWorkspace: boolean;
+    monorepoRoot: string;
+  };
+  logging: {
+    verbose: boolean;
+    retainedStageRequestCount: number;
+    retainedStageRequestCapacity: number;
+  };
+  restartPending: boolean;
+}
+
 interface ServerRestartPayload {
   status: string;
   previousInstanceId: string;
@@ -249,6 +274,14 @@ export async function restartStageServer(): Promise<StageBootstrapPayload> {
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+export async function fetchServerStatus(): Promise<ServerRuntimeStatusPayload> {
+  const payload = await fetchJson<ServerRuntimeStatusPayload>("/api/server/status");
+  if (payload.status !== "ok") {
+    throw new Error("Server status check did not report ok");
+  }
+  return payload;
 }
 
 export async function executeStageCommand(

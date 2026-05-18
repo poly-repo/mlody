@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import functools
 import http.server
 import socket
 import json
 import logging
+import os
 import threading
 from http import HTTPStatus
 from pathlib import Path
@@ -1649,6 +1651,79 @@ class TestServerStartupErrors:
             assert payload["http"]["port"] == http_server.server_port
             assert payload["lsp"]["port"] == 8766
             assert payload["workspace"]["workspaceRoot"] == ""
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
+    def test_server_status_reports_runtime_details(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        launch_cwd = tmp_path / "launch"
+        launch_cwd.mkdir()
+        config = ServerConfig(
+            monorepo_root=tmp_path,
+            workspace_root=tmp_path,
+            roots=None,
+            verbose=True,
+            full_workspace=False,
+            http_host="127.0.0.1",
+            http_port=0,
+            lsp_host="127.0.0.1",
+            lsp_port=8766,
+            started_at=datetime(2026, 5, 18, 12, 0, tzinfo=timezone.utc),
+            started_monotonic=100.0,
+            restart_cwd=launch_cwd,
+            restart_argv=("mlody", "--server", "--server-port", "8765"),
+            instance_id="server-instance",
+        )
+        monkeypatch.setattr("mlody.cli.server.time.monotonic", lambda: 160.25)
+        monkeypatch.setattr("mlody.cli.server.os.getcwd", lambda: str(tmp_path))
+        monkeypatch.setattr("mlody.cli.server.threading.active_count", lambda: 7)
+        http_server = create_http_server(config)
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            with urlopen(
+                f"http://127.0.0.1:{http_server.server_port}/api/server/status",
+                timeout=5,
+            ) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            assert payload["status"] == "ok"
+            assert payload["instanceId"] == "server-instance"
+            assert payload["pid"] == os.getpid()
+            assert payload["startedAt"] == "2026-05-18T12:00:00Z"
+            assert payload["uptimeSeconds"] == pytest.approx(60.25)
+            assert payload["currentCwd"] == str(tmp_path)
+            assert payload["launchCwd"] == str(launch_cwd)
+            assert payload["launchArgv"] == [
+                "mlody",
+                "--server",
+                "--server-port",
+                "8765",
+            ]
+            assert payload["pythonExecutable"]
+            assert payload["pythonVersion"]
+            assert payload["platform"]
+            assert payload["threadCount"] == 7
+            assert payload["http"]["port"] == http_server.server_port
+            assert payload["lsp"]["port"] == 8766
+            assert payload["workspace"] == {
+                "workspaceRoot": "",
+                "roots": None,
+                "fullWorkspace": False,
+                "monorepoRoot": str(tmp_path),
+            }
+            assert payload["logging"] == {
+                "verbose": True,
+                "retainedStageRequestCount": 0,
+                "retainedStageRequestCapacity": 200,
+            }
+            assert payload["restartPending"] is False
         finally:
             http_server.shutdown()
             http_server.server_close()

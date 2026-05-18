@@ -61,6 +61,10 @@ function completeServerArgs(args: string): StagePromptAutocompleteResult | null 
     from: ",server ".length,
     options: [
       {
+        label: "status",
+        detail: "Show live backend runtime details.",
+      },
+      {
         label: "restart",
         detail: "Restart the backend with its original cwd and argv.",
       },

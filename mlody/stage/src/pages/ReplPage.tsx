@@ -16,10 +16,14 @@ import {
 } from "../promptCommands.js";
 import {
   createServerBootstrapController,
+  fetchServerStatus,
   fetchStageBootstrap,
   restartStageServer,
 } from "../serverApi.js";
-import type { StageBootstrapPayload } from "../serverApi.js";
+import type {
+  ServerRuntimeStatusPayload,
+  StageBootstrapPayload,
+} from "../serverApi.js";
 import type {
   CommandOption,
   CommandSubmission,
@@ -144,6 +148,62 @@ function buildServerConnectedAdmonition(
       `Everything is good. REST ${restEndpoint} · ` +
       `LSP ${lspEndpoint}.`,
   };
+}
+
+function formatUptimeSeconds(totalSeconds: number): string {
+  const clampedSeconds = Math.max(0, Math.floor(totalSeconds));
+  const days = Math.floor(clampedSeconds / 86_400);
+  const hours = Math.floor((clampedSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((clampedSeconds % 3_600) / 60);
+  const seconds = clampedSeconds % 60;
+  const parts: string[] = [];
+
+  if (days > 0) {
+    parts.push(`${days}d`);
+  }
+  if (hours > 0 || parts.length > 0) {
+    parts.push(`${hours}h`);
+  }
+  if (minutes > 0 || parts.length > 0) {
+    parts.push(`${minutes}m`);
+  }
+  parts.push(`${seconds}s`);
+  return parts.join(" ");
+}
+
+function formatCommandLineArg(arg: string): string {
+  return /\s/.test(arg) ? JSON.stringify(arg) : arg;
+}
+
+function formatServerStatusLines(payload: ServerRuntimeStatusPayload): string[] {
+  const workspaceRoot =
+    payload.workspace.workspaceRoot === "" ? "/" : payload.workspace.workspaceRoot;
+  const workingDirectoryLines =
+    payload.currentCwd === payload.launchCwd
+      ? [`Working directory: ${payload.launchCwd}`]
+      : [
+          `Current CWD: ${payload.currentCwd}`,
+          `Launch CWD: ${payload.launchCwd}`,
+        ];
+
+  return [
+    `Instance ID: ${payload.instanceId}`,
+    `PID: ${payload.pid}`,
+    `Uptime: ${formatUptimeSeconds(payload.uptimeSeconds)} (started ${payload.startedAt})`,
+    `HTTP API: ${formatServerEndpoint("http", payload.http)}`,
+    `LSP: ${formatServerEndpoint(payload.lsp.transport ?? "tcp", payload.lsp)}`,
+    ...workingDirectoryLines,
+    `Launch argv: ${payload.launchArgv.map(formatCommandLineArg).join(" ")}`,
+    `Workspace root: ${workspaceRoot}`,
+    `Monorepo root: ${payload.workspace.monorepoRoot}`,
+    `Visible roots: ${payload.workspace.roots ?? "all configured roots"}`,
+    `Verbose logging: ${payload.logging.verbose ? "enabled" : "disabled"}`,
+    `Full workspace: ${payload.workspace.fullWorkspace ? "enabled" : "disabled"}`,
+    `Cached stage logs: ${payload.logging.retainedStageRequestCount}/${payload.logging.retainedStageRequestCapacity}`,
+    `Restart pending: ${payload.restartPending ? "yes" : "no"}`,
+    `Python: ${payload.pythonVersion} via ${payload.pythonExecutable} (${payload.platform})`,
+    `Threads: ${payload.threadCount}`,
+  ];
 }
 
 function sameWorkspaceRoot(
@@ -459,6 +519,46 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     fallbackWorkspaceRoot: string | null,
   ): Promise<void> {
     const trimmedArgs = args.trim();
+    if (trimmedArgs === "status") {
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",server",
+          commandInput: args,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async (onChunk) => {
+          try {
+            const payload = await fetchServerStatus();
+            setServerStatus("connected");
+            setAdmonitions([buildServerConnectedAdmonition(payload)]);
+            onChunk({
+              kind: "meta",
+              text: "Fetched live status from the mlody server.",
+            });
+            for (const line of formatServerStatusLines(payload)) {
+              onChunk({ kind: "stdout", text: line });
+            }
+            return "done";
+          } catch (error: unknown) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Unable to load mlody server status.";
+            applyServerUnavailableState(message);
+            throw error;
+          }
+        },
+      );
+      return;
+    }
+
     if (trimmedArgs !== "restart") {
       await queueExecution(
         {
@@ -475,7 +575,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
         },
         async () => {
           throw new Error(
-            "Unknown server subcommand. Currently supported: ,server restart.",
+            "Unknown server subcommand. Currently supported: ,server status, ,server restart.",
           );
         },
       );
