@@ -327,10 +327,11 @@ class TestServerFlag:
 class TestLoggingConfiguration:
     """Requirement: Global CLI options — logging setup.
 
-    The root logger level must match the --verbose flag so that the debug
-    output from workspace.py and evaluator.py reaches the console only when
-    explicitly requested.  The LSP server has its own LSPLogHandler and is
-    unaffected by this configuration.
+    The root logger level must match the active CLI mode so that the debug
+    output from workspace.py and evaluator.py reaches stage request capture
+    in server mode, while console verbosity only increases when explicitly
+    requested. The LSP server has its own LSPLogHandler and is unaffected by
+    this configuration.
     """
 
     def test_verbose_sets_debug_level(
@@ -346,6 +347,13 @@ class TestLoggingConfiguration:
         monkeypatch.setattr(logging.getLogger(), "level", logging.NOTSET)
         _configure_logging(verbose=False)
         assert logging.getLogger().level == logging.WARNING
+
+    def test_server_mode_sets_debug_level_without_verbose(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(logging.getLogger(), "level", logging.NOTSET)
+        _configure_logging(verbose=False, server_mode=True)
+        assert logging.getLogger().level == logging.DEBUG
 
     def test_verbose_exposes_workspace_debug_logs(
         self,

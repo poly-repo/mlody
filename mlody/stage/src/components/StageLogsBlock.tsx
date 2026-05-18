@@ -1,3 +1,5 @@
+import { useId, useState } from "react";
+
 import type { StageCommandLogEvent } from "../types.js";
 import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
 
@@ -17,6 +19,24 @@ type StageLogTone =
   | "critical"
   | "neutral";
 
+type StageLogMinimumLevel = "debug" | "info" | "warning" | "error" | "critical";
+
+const LOG_LEVEL_OPTIONS: readonly StageLogMinimumLevel[] = [
+  "debug",
+  "info",
+  "warning",
+  "error",
+  "critical",
+];
+
+const LOG_LEVEL_RANK: Record<StageLogMinimumLevel, number> = {
+  debug: 10,
+  info: 20,
+  warning: 30,
+  error: 40,
+  critical: 50,
+};
+
 const HIDDEN_LOG_KEYS = new Set([
   "event",
   "kind",
@@ -34,6 +54,28 @@ function eventType(event: StageCommandLogEvent): string | null {
     return event.kind;
   }
   return null;
+}
+
+function normalizedLogLevel(value: unknown): StageLogMinimumLevel | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  switch (value.toLowerCase()) {
+    case "debug":
+      return "debug";
+    case "info":
+      return "info";
+    case "warn":
+    case "warning":
+      return "warning";
+    case "error":
+      return "error";
+    case "critical":
+    case "fatal":
+      return "critical";
+    default:
+      return null;
+  }
 }
 
 function formatLogValue(value: string | number | boolean | null): string {
@@ -97,6 +139,17 @@ function eventTone(event: StageCommandLogEvent): StageLogTone {
   }
 }
 
+function eventMinimumLevel(event: StageCommandLogEvent): StageLogMinimumLevel | null {
+  const type = eventType(event);
+  if (type === "error") {
+    return "error";
+  }
+  if (type !== "log") {
+    return null;
+  }
+  return normalizedLogLevel(event.level);
+}
+
 function eventSummary(event: StageCommandLogEvent): string {
   const type = eventType(event);
   if (typeof event.message === "string" && event.message.trim() !== "") {
@@ -149,6 +202,17 @@ function isVisibleLogEvent(event: StageCommandLogEvent): boolean {
   return eventType(event) !== null;
 }
 
+function passesMinimumLogLevel(
+  event: StageCommandLogEvent,
+  minimumLevel: StageLogMinimumLevel,
+): boolean {
+  const eventLevel = eventMinimumLevel(event);
+  if (eventLevel === null) {
+    return true;
+  }
+  return LOG_LEVEL_RANK[eventLevel] >= LOG_LEVEL_RANK[minimumLevel];
+}
+
 export function StageLogsBlock({
   title,
   requestId,
@@ -156,7 +220,16 @@ export function StageLogsBlock({
   events = [],
   error,
 }: StageLogsBlockProps) {
-  const visibleEvents = events.filter(isVisibleLogEvent);
+  const filterId = useId();
+  const [minimumLogLevel, setMinimumLogLevel] =
+    useState<StageLogMinimumLevel>("debug");
+  const hasRecordedEvents = events.some(isVisibleLogEvent);
+  const visibleEvents = events.filter(
+    (event) => isVisibleLogEvent(event) && passesMinimumLogLevel(event, minimumLogLevel),
+  );
+  const emptyMessage = hasRecordedEvents
+    ? "No stage events or logs match the current filter."
+    : "No stage events or logs were recorded for this request.";
   return (
     <section className="StageLogsBlock">
       <div className="StageLogsBlock-header">
@@ -165,6 +238,27 @@ export function StageLogsBlock({
           <h3 className="StageLogsBlock-title">{title ?? requestId}</h3>
         </div>
         <div className="StageLogsBlock-meta">
+          <div className="StageLogsBlock-filterGroup">
+            <label className="StageLogsBlock-filterLabel" htmlFor={filterId}>
+              Min level
+            </label>
+            <select
+              id={filterId}
+              className="StageLogsBlock-filterSelect"
+              value={minimumLogLevel}
+              onChange={(event) => {
+                setMinimumLogLevel(
+                  normalizedLogLevel(event.target.value) ?? "debug",
+                );
+              }}
+            >
+              {LOG_LEVEL_OPTIONS.map((level) => (
+                <option key={level} value={level}>
+                  {level.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </div>
           <span className="StageLogsBlock-requestId" title={requestId}>
             {requestId}
           </span>
@@ -180,9 +274,7 @@ export function StageLogsBlock({
           {error ?? "Failed to load logs."}
         </div>
       ) : visibleEvents.length === 0 ? (
-        <div className="StageLogsBlock-empty">
-          No stage events or logs were recorded for this request.
-        </div>
+        <div className="StageLogsBlock-empty">{emptyMessage}</div>
       ) : (
         <div className="StageLogsBlock-list">
           {visibleEvents.map((event, index) => {

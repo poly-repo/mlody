@@ -11,7 +11,7 @@ import click
 from rich.logging import RichHandler
 
 
-def _configure_logging(verbose: bool) -> None:
+def _configure_logging(verbose: bool, *, server_mode: bool = False) -> None:
     """Configure console logging for the CLI.
 
     Sets the root logger level on every invocation so that --verbose takes
@@ -20,14 +20,21 @@ def _configure_logging(verbose: bool) -> None:
     production the root logger starts empty; in tests pytest has already
     installed its own capture handler which we leave in place.
 
+    Server mode lowers the root logger threshold to DEBUG so the per-request
+    stage log collector can retain debug/info records for the web UI. The
+    console handler remains at WARNING unless --verbose was requested.
+
     Rich is used unconditionally for now; conditionality (TTY detection,
     availability check) will be added in a follow-up.
     """
-    level = logging.DEBUG if verbose else logging.WARNING
+    level = logging.DEBUG if (verbose or server_mode) else logging.WARNING
+    console_level = logging.DEBUG if verbose else logging.WARNING
     root = logging.getLogger()
     root.setLevel(level)
     if not root.handlers:
-        root.addHandler(RichHandler(rich_tracebacks=True, show_path=False))
+        handler = RichHandler(rich_tracebacks=True, show_path=False)
+        handler.setLevel(console_level)
+        root.addHandler(handler)
 
 
 def verify_monorepo_root() -> Path:
@@ -119,7 +126,7 @@ def cli(
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["full_workspace"] = full_workspace
-    _configure_logging(verbose)
+    _configure_logging(verbose, server_mode=server_mode)
 
     # Allow tests to inject pre-built context objects without triggering
     # filesystem verification. Tests may inject either workspace (legacy) or

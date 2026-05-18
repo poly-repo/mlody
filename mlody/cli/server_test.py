@@ -1882,6 +1882,88 @@ class TestServerStartupErrors:
             http_server.server_close()
             server_thread.join(timeout=5)
 
+    def test_stage_execute_logs_endpoint_captures_debug_logger_output(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        root_logger = logging.getLogger()
+        logger = logging.getLogger("mlody.core.assets.http_asset")
+        previous_root_level = root_logger.level
+        previous_logger_level = logger.level
+        root_logger.setLevel(logging.DEBUG)
+        logger.setLevel(logging.NOTSET)
+
+        def _event_source(_config: ServerConfig, request: ServerCommandRequest):
+            logger.debug(
+                "Using cached remote metadata for %s",
+                "https://example.com/data.csv",
+            )
+            yield {
+                "requestId": request.request_id,
+                "event": "result",
+                "command": "show",
+                "stageResult": {
+                    "kind": "result",
+                    "view": {"type": "json", "title": "Stub"},
+                    "data": {"ok": True},
+                },
+            }
+            yield {
+                "requestId": request.request_id,
+                "event": "completed",
+                "status": "done",
+                "resultCount": 1,
+                "errorCount": 0,
+            }
+
+        http_server = create_http_server(
+            _server_config(tmp_path),
+            event_source=_event_source,
+        )
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            execute_request = Request(
+                f"http://127.0.0.1:{http_server.server_port}/api/execute/stage",
+                data=json.dumps(
+                    {
+                        "command": "show",
+                        "input": "//pipeline:raw-employees-remote",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(execute_request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            logs_url = (
+                f"http://127.0.0.1:{http_server.server_port}"
+                f"/api/execute/stage/logs/{payload['requestId']}"
+            )
+            with urlopen(logs_url, timeout=5) as response:
+                logs_payload = json.loads(response.read().decode("utf-8"))
+
+            log_events = [
+                event
+                for event in logs_payload["events"]
+                if event.get("event") == "log"
+            ]
+            assert len(log_events) == 1
+            assert log_events[0]["level"] == "DEBUG"
+            assert log_events[0]["logger"] == "mlody.core.assets.http_asset"
+            assert (
+                log_events[0]["message"]
+                == "Using cached remote metadata for https://example.com/data.csv"
+            )
+        finally:
+            root_logger.setLevel(previous_root_level)
+            logger.setLevel(previous_logger_level)
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
     def test_stage_autocomplete_endpoint_returns_json_payload_and_headers(
         self,
         tmp_path: Path,
