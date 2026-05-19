@@ -19,6 +19,12 @@ Run from the monorepo root (where `MODULE.bazel` exists).
 - `bazel run //mlody/cli:mlody -- --help`: run CLI locally.
 - `bazel run //mlody/lsp:lsp_server`: run the LSP server binary.
 
+## Show Action Graph Notes
+- The structural/pruned action graph for `show` and `.agraph` is planned in `core/action_graph.py`.
+- The action graph is executed in `cli/show_execution.py`, in `execute_show_action_graph(...)`.
+- The terminal show-time work (force virtual values, derive display payloads, build previews) lives in `prepare_show_value(...)` in `cli/show_execution.py`.
+- Console `show` calls this path from `cli/show.py`; stage/server `show` calls it from `cli/server.py`.
+
 ## Coding Style & Naming Conventions
 - Python: 4-space indentation, type hints, and concise docstrings on public functions.
 - Naming: `snake_case` for modules/functions, `PascalCase` for classes, `UPPER_SNAKE_CASE` for constants.
