@@ -149,6 +149,66 @@ def test_task_stores_action_inputs_outputs() -> None:
     assert t.outputs["out"].name == "out"
 
 
+def test_task_grouped_actions_resolve_by_output_group() -> None:
+    ev = _eval(
+        'value(name="model", type=string(), location=s3(), group="model")\n'
+        'value(name="release_notes", type=string(), location=inline(), group="info")\n'
+        'action(name="train", inputs=[], outputs=[], implementation=shell_script(content="train"))\n'
+        'action(name="summarize", inputs=[], outputs=[], implementation=shell_script(content="summarize"))\n'
+        'task(name="t", inputs=[], outputs=["model", "release_notes"], action={"model": "train", "info": "summarize"})\n'
+    )
+    t = ev.registry.tasks.by_name["t"]
+    assert isinstance(t.action, dict)
+    assert sorted(t.action) == ["info", "model"]
+    assert t.action["model"].name == "train"
+    assert t.action["info"].name == "summarize"
+
+
+def test_task_grouped_actions_support_forward_references() -> None:
+    ev = _eval(
+        'value(name="model", type=string(), location=s3(), group="model")\n'
+        'value(name="release_notes", type=string(), location=inline(), group="info")\n'
+        'task(name="t", inputs=[], outputs=["model", "release_notes"], action={"model": ":train", "info": ":summarize"})\n'
+        'action(name="train", inputs=[], outputs=[], implementation=shell_script(content="train"))\n'
+        'action(name="summarize", inputs=[], outputs=[], implementation=shell_script(content="summarize"))\n'
+    )
+    t = ev.registry.tasks.by_name["t"]
+    assert t.action["model"].name == "train"
+    assert t.action["info"].name == "summarize"
+
+
+def test_task_grouped_actions_require_exhaustive_output_groups() -> None:
+    with pytest.raises(ValueError, match="missing groups"):
+        _eval(
+            'value(name="model", type=string(), location=s3(), group="model")\n'
+            'value(name="release_notes", type=string(), location=inline(), group="info")\n'
+            'action(name="train", inputs=[], outputs=[], implementation=shell_script(content="train"))\n'
+            'task(name="t", inputs=[], outputs=["model", "release_notes"], action={"model": "train"})\n'
+        )
+
+
+def test_task_grouped_actions_require_grouped_outputs() -> None:
+    with pytest.raises(ValueError, match="every task output to declare a non-empty group"):
+        _eval(
+            'value(name="model", type=string(), location=s3(), group="model")\n'
+            'value(name="release_notes", type=string(), location=inline())\n'
+            'action(name="train", inputs=[], outputs=[], implementation=shell_script(content="train"))\n'
+            'action(name="summarize", inputs=[], outputs=[], implementation=shell_script(content="summarize"))\n'
+            'task(name="t", inputs=[], outputs=["model", "release_notes"], action={"model": "train", "info": "summarize"})\n'
+        )
+
+
+def test_grouped_task_actions_still_enforce_execution_constraints() -> None:
+    with pytest.raises(ValueError, match="action group 'model'"):
+        _eval(
+            'value(name="model", type=string(), location=s3(), group="model")\n'
+            'value(name="release_notes", type=string(), location=inline(), group="info")\n'
+            'action(name="train", inputs=[], outputs=[], implementation=shell_script(content="train"))\n'
+            'action(name="summarize", inputs=[], outputs=[], implementation=shell_script(content="summarize"))\n'
+            'task(name="t", inputs=[], outputs=["model", "release_notes"], action={"model": "train", "info": "summarize"}, execution=docker())\n'
+        )
+
+
 # ---------------------------------------------------------------------------
 # TC-004: config defaults to empty list
 # ---------------------------------------------------------------------------

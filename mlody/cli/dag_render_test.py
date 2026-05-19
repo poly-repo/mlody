@@ -183,6 +183,21 @@ def test_format_action_cell_renders_aggregate_type_labels() -> None:
     assert "point:point (tuple[float, float])" in rendered
 
 
+def test_format_action_cell_renders_grouped_actions() -> None:
+    rendered = format_action_cell(
+        {
+            "model": _make_action("train_action", outputs=["model"]),
+            "info": _make_action("summarize_action", config=["summary"]),
+        },
+        "fallback",
+    )
+
+    assert "[model]" in rendered
+    assert "train_action" in rendered
+    assert "[info]" in rendered
+    assert "summarize_action" in rendered
+
+
 def test_build_dag_table_renders_dependency_rows() -> None:
     dag = _make_graph()
     table = build_dag_table(dag, "Workspace DAG")

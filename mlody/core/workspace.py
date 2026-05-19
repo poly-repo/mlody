@@ -447,14 +447,25 @@ class Workspace:
         Raises ``ValueError`` if any element lacks a ``name`` or if duplicate
         names appear within the same list.
         """
-        # Recursively convert an embedded action entity before reconstructing
-        # the outer entity, so that task.action.outputs.X traversal works.
+        # Recursively convert embedded action entities before reconstructing
+        # the outer entity, so that task.action.outputs.X and
+        # task.action["group"].outputs.X traversal both work.
         action_field = getattr(entity, "action", None)
         if (
             is_struct_like(action_field)
             and getattr(action_field, "kind", None) == "action"
         ):
             action_field = Workspace._convert_single_entity(action_field)
+        elif isinstance(action_field, dict):
+            action_field = {
+                str(group_name): (
+                    Workspace._convert_single_entity(action_value)
+                    if is_struct_like(action_value)
+                    and getattr(action_value, "kind", None) == "action"
+                    else action_value
+                )
+                for group_name, action_value in action_field.items()
+            }
 
         entity_kind = getattr(entity, "kind", "<unknown>")
         entity_name = getattr(entity, "name", "<unknown>")
@@ -589,11 +600,22 @@ class Workspace:
                 ):
                     _resolve_one(rv)
                 action = entity.action
+                action_values: tuple[RegisteredAction, ...]
                 if isinstance(action, RegisteredAction):
+                    action_values = (action,)
+                elif isinstance(action, dict):
+                    action_values = tuple(
+                        candidate
+                        for candidate in action.values()
+                        if isinstance(candidate, RegisteredAction)
+                    )
+                else:
+                    action_values = ()
+                for action_value in action_values:
                     for rv in (
-                        *action.inputs.values(),
-                        *action.outputs.values(),
-                        *action.config.values(),
+                        *action_value.inputs.values(),
+                        *action_value.outputs.values(),
+                        *action_value.config.values(),
                     ):
                         _resolve_one(rv)
 

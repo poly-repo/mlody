@@ -182,8 +182,19 @@ def collect_context_restricted_value_violations_from_entities(
             container=task,
         )
 
-        action = getattr(task, "action", None)
-        if is_struct_like(action) and getattr(action, "kind", None) == "action":
+        raw_action = getattr(task, "action", None)
+        if is_struct_like(raw_action) and getattr(raw_action, "kind", None) == "action":
+            task_actions = (raw_action,)
+        elif isinstance(raw_action, dict):
+            task_actions = tuple(
+                action
+                for action in raw_action.values()
+                if is_struct_like(action) and getattr(action, "kind", None) == "action"
+            )
+        else:
+            task_actions = ()
+
+        for action in task_actions:
             _record_bindings(
                 observed_by_value_key,
                 policy_values,

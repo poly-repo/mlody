@@ -191,6 +191,20 @@ def test_registered_task_accepts_workspace_named_port_structs() -> None:
     assert task.inputs["inp"].description == "Task input"
 
 
+def test_registered_task_wraps_grouped_actions() -> None:
+    task_struct = _sample_registry_structs()["task"]
+    action_struct = _sample_registry_structs()["action"]
+    task_struct = task_struct.updated(
+        action={"bundle": action_struct},
+        outputs=Struct(),
+        config=Struct(),
+    )
+    task = RegisteredTask(task_struct)
+    assert isinstance(task.action, dict)
+    assert isinstance(task.action["bundle"], RegisteredAction)
+    assert task.action["bundle"].name == "act"
+
+
 # ---------------------------------------------------------------------------
 # F1b — __init_subclass__ registry  (task 3.12)
 # ---------------------------------------------------------------------------

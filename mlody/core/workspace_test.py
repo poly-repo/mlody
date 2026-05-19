@@ -1261,6 +1261,34 @@ builtins.register("task", Struct(
         assert isinstance(el, Struct)
         assert getattr(el, "name", None) == "weights"
 
+    def test_grouped_embedded_action_outputs_accessible_by_group_key(
+        self, fs: FakeFilesystem
+    ) -> None:
+        entity_mlody = """\
+w = Struct(kind="value", name="weights", location=Struct(kind="location", type="path", name="w_loc", path="/w"))
+out = Struct(kind="value", name="model_weights", group="model", location=Struct(kind="location", type="path", name="out_loc", path="/out"))
+emb_action = Struct(kind="action", name="finetune", inputs=[], outputs=[w], config=[])
+builtins.register("task", Struct(
+    kind="task",
+    name="finetune_task",
+    inputs=[],
+    outputs=[out],
+    config=[],
+    action={"model": emb_action},
+))
+"""
+        root = _make_port_project(fs, entity_mlody)
+        ws = Workspace(monorepo_root=root)
+        ws.load()
+
+        action_groups = ws.resolve("@bert//entity:finetune_task.action")
+        assert isinstance(action_groups, dict)
+        grouped_action = action_groups["model"]
+        assert isinstance(grouped_action, Struct)
+        el = getattr(grouped_action, "outputs", {})["weights"]
+        assert isinstance(el, Struct)
+        assert getattr(el, "name", None) == "weights"
+
     # TC-007 — empty list becomes empty Struct
     def test_empty_port_list_becomes_empty_struct(
         self, fs: FakeFilesystem

@@ -1639,7 +1639,12 @@ class Evaluator:
                 # string literals rather than value labels.
                 return v
 
-        def _resolve_action(v: object) -> Named:
+        def _resolve_action(v: object) -> object:
+            if isinstance(v, dict):
+                return {
+                    str(name): _resolve_action(action_value)
+                    for name, action_value in v.items()
+                }
             if isinstance(v, str):
                 return self._lookup("action", v)
             if hasattr(v, "as_mapping"):
@@ -1657,7 +1662,7 @@ class Evaluator:
                     action_fields.get("implementation")
                 )
                 return self.decorate_registered_value("action", Struct(**action_fields))
-            return v  # type: ignore[return-value]
+            return v
 
         def _resolve_implementation(v: object) -> object:
             if not isinstance(v, str):
@@ -1674,29 +1679,90 @@ class Evaluator:
                 return self._lookup("execution", v)
             return v
 
+        def _iter_named_entities(values: object) -> list[tuple[str, object]]:
+            if isinstance(values, dict):
+                return [(str(name), value) for name, value in values.items()]
+            if isinstance(values, Struct):
+                return [(str(name), value) for name, value in values.as_mapping().items()]
+            if isinstance(values, (list, tuple)):
+                named: list[tuple[str, object]] = []
+                for index, value in enumerate(values):
+                    name = getattr(value, "name", None)
+                    named.append((str(name) if isinstance(name, str) and name else str(index), value))
+                return named
+            return []
+
+        def _validate_grouped_task_actions(task_fields: dict[str, object]) -> None:
+            action = task_fields.get("action")
+            if not isinstance(action, dict):
+                return
+
+            declared_groups: list[str] = []
+            missing_output_groups: list[str] = []
+            for fallback_name, output in _iter_named_entities(task_fields.get("outputs", [])):
+                group_name = getattr(output, "group", None)
+                output_name = getattr(output, "name", fallback_name)
+                if not isinstance(group_name, str) or group_name == "":
+                    missing_output_groups.append(str(output_name))
+                    continue
+                if group_name not in declared_groups:
+                    declared_groups.append(group_name)
+
+            if missing_output_groups:
+                raise ValueError(
+                    "Grouped task actions require every task output to declare a non-empty group; "
+                    f"missing group for outputs {sorted(missing_output_groups)!r}"
+                )
+
+            missing_groups = [group for group in declared_groups if group not in action]
+            extra_groups = [str(group) for group in action if group not in declared_groups]
+            if missing_groups or extra_groups:
+                problems: list[str] = []
+                if missing_groups:
+                    problems.append(f"missing groups {sorted(missing_groups)!r}")
+                if extra_groups:
+                    problems.append(f"unexpected groups {sorted(extra_groups)!r}")
+                raise ValueError(
+                    "Grouped task action keys must exactly match task output groups: "
+                    + "; ".join(problems)
+                )
+
         def _validate_task_execution(task_fields: dict[str, object]) -> None:
             execution = task_fields.get("execution")
             if not hasattr(execution, "as_mapping"):
                 return
-            action = task_fields.get("action")
-            if not hasattr(action, "as_mapping"):
-                return
-            action_mapping = dict(action.as_mapping())  # type: ignore[union-attr]
-            implementation = action_mapping.get("implementation")
             execution_type = dict(execution.as_mapping()).get("type")  # type: ignore[union-attr]
             if execution_type not in {"docker", "kubernetes"}:
                 return
-            implementation_type = None
-            if hasattr(implementation, "as_mapping"):
-                implementation_type = dict(implementation.as_mapping()).get("type")  # type: ignore[union-attr]
-            if implementation_type == "container":
-                return
+
+            raw_action = task_fields.get("action")
+            if isinstance(raw_action, dict):
+                action_items = [(str(group_name), action) for group_name, action in raw_action.items()]
+            else:
+                action_items = [(None, raw_action)]
+
             task_name = str(task_fields.get("name", "<unknown task>"))
-            raise ValueError(
-                f"Task {task_name!r} uses execution {execution_type!r}, "
-                f"which requires a container() implementation; got "
-                f"{implementation_type!r}."
-            )
+            for group_name, action in action_items:
+                if not hasattr(action, "as_mapping"):
+                    continue
+                action_mapping = dict(action.as_mapping())  # type: ignore[union-attr]
+                implementation = action_mapping.get("implementation")
+                implementation_type = None
+                if hasattr(implementation, "as_mapping"):
+                    implementation_type = dict(implementation.as_mapping()).get("type")  # type: ignore[union-attr]
+                if implementation_type == "container":
+                    continue
+                if group_name is None:
+                    raise ValueError(
+                        f"Task {task_name!r} uses execution {execution_type!r}, "
+                        f"which requires a container() implementation; got "
+                        f"{implementation_type!r}."
+                    )
+                raise ValueError(
+                    f"Task {task_name!r} uses execution {execution_type!r} for action group {group_name!r}, "
+                    f"which requires a container() implementation; got "
+                    f"{implementation_type!r}."
+                )
 
         def _resolve_port_collection(values: object) -> object:
             if isinstance(values, dict):
@@ -1735,6 +1801,7 @@ class Evaluator:
             fields["config"] = _resolve_port_collection(fields.get("config", []))
             fields["action"] = _resolve_action(fields.get("action"))
             fields["execution"] = _resolve_execution(fields.get("execution"))
+            _validate_grouped_task_actions(fields)
             _validate_task_execution(fields)
             new_entity = self.decorate_registered_value("task", Struct(**fields))
             self.registry.register("task", key, new_entity, replace=True)

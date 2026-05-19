@@ -166,6 +166,38 @@ class TestDomForTask:
         rendered = _render(dom_for(v))
         assert "task: training_run" in rendered
 
+    def test_grouped_actions_render_group_names_and_action_names(self) -> None:
+        from mlody.resolver.values.registry_backed import MlodyTaskValue
+
+        v = MlodyTaskValue(
+            struct=_make_struct(
+                kind="task",
+                name="training_run",
+                inputs={},
+                outputs={},
+                config={},
+                action={
+                    "model": _make_struct(
+                        kind="action",
+                        name="train_model",
+                        inputs={},
+                        outputs={},
+                        config={},
+                    ),
+                    "info": _make_struct(
+                        kind="action",
+                        name="summarize_run",
+                        inputs={},
+                        outputs={},
+                        config={},
+                    ),
+                },
+            )
+        )
+        rendered = _render(dom_for(v))
+        assert "model=train_model" in rendered
+        assert "info=summarize_run" in rendered
+
 
 # ---------------------------------------------------------------------------
 # MlodyActionValue

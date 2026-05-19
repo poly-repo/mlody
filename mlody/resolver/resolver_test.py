@@ -1641,6 +1641,71 @@ def test_normalize_action_implementations_defaults_build_backed_actions() -> Non
         assert source == f"DEFAULT: {value}"
 
 
+def test_normalize_action_implementations_populates_grouped_task_actions() -> None:
+    """Grouped task actions inherit sandbox defaults from build-backed actions."""
+    from mlody.resolver.resolver import _normalize_action_implementations  # noqa: PLC0415
+
+    model_build = Struct(
+        kind="build_ref",
+        name="bazel",
+        type="bazel",
+        target=":model-download",
+    )
+    info_build = Struct(
+        kind="build_ref",
+        name="bazel",
+        type="bazel",
+        target=":metadata-export",
+    )
+    grouped_actions = {
+        "model": Struct(
+            kind="action",
+            name="download-model",
+            implementation=None,
+            build=model_build,
+        ),
+        "info": Struct(
+            kind="action",
+            name="export-metadata",
+            implementation=None,
+            build=info_build,
+        ),
+    }
+    task_struct = Struct(
+        kind="task",
+        name="downloader",
+        action=grouped_actions,
+    )
+    fake_workspace = MagicMock()
+    fake_workspace.root_infos = {}
+    fake_workspace._workspace_root = Path("/repo")
+    fake_workspace._monorepo_root = Path("/repo")
+    fake_workspace.registry_view.iter_registry_items.return_value = [
+        (("task", "mlody/common/huggingface/downloader", "downloader"), task_struct),
+    ]
+
+    setf_calls: list[tuple[str, object, str]] = []
+
+    def fake_setf(label: str, value: object, *, workspace: object, source: str) -> None:
+        setf_calls.append((label, value, source))
+
+    with patch("mlody.core.setf.setf", side_effect=fake_setf):
+        import mlody.core.setf  # noqa: PLC0415
+        _normalize_action_implementations(fake_workspace)
+
+    assert [call[0] for call in setf_calls] == [
+        '//mlody/common/huggingface/downloader:downloader.action["model"].implementation',
+        '//mlody/common/huggingface/downloader:downloader.action["info"].implementation',
+    ]
+    assert [getattr(getattr(call[1], "build", None), "target", None) for call in setf_calls] == [
+        ":model-download",
+        ":metadata-export",
+    ]
+    assert all(getattr(call[1], "type", None) == "sandbox" for call in setf_calls)
+    assert all(call[2] == f"DEFAULT: {call[1]}" for call in setf_calls)
+
+
+
 def test_normalize_action_implementations_preserves_explicit_implementations() -> None:
     """Explicit implementations win over build-backed sandbox defaults."""
     from mlody.resolver.resolver import _normalize_action_implementations  # noqa: PLC0415

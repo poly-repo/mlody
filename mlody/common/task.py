@@ -10,6 +10,7 @@ from mlody.common._registered_struct import (
     coerce_named_struct_collection,
     populate_from_struct,
 )
+from mlody.common.action import RegisteredAction
 from mlody.common.struct import Struct
 from mlody.common.value import RegisteredValue
 
@@ -54,6 +55,24 @@ class RegisteredTask(RegisteredStructBase):
                 field_name="RegisteredTask.outputs",
             ),
         )
+        raw_action = self.action
+        if isinstance(raw_action, Struct):
+            object.__setattr__(self, "action", RegisteredAction(raw_action))
+        elif isinstance(raw_action, dict):
+            object.__setattr__(
+                self,
+                "action",
+                {
+                    str(group_name): (
+                        action_value
+                        if isinstance(action_value, RegisteredAction)
+                        else RegisteredAction(action_value)
+                        if isinstance(action_value, Struct)
+                        else action_value
+                    )
+                    for group_name, action_value in raw_action.items()
+                },
+            )
         object.__setattr__(
             self,
             "config",

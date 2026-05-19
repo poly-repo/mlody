@@ -14,12 +14,72 @@ def _validate_value_refs(attr_name, items):
     return list(items)
 
 
+def _is_action_ref(value):
+    return isinstance(value, str) or (type(value) == "struct" and python.getattr(value, "kind", None) == "action")
+
+
+
 def _validate_action_ref(value):
-    if not isinstance(value, str) and not (type(value) == "struct" and python.getattr(value, "kind", None) == "action"):
+    if not _is_action_ref(value):
         raise TypeError(
             "Expected an action struct or string name, got " + repr(type(value))
         )
     return value
+
+
+
+def _validate_grouped_action_map(value):
+    mapping = _as_dict_or_none(value)
+    if mapping == None:
+        raise TypeError(
+            "Expected an action struct, string name, or dict of output-group -> action ref, got "
+            + repr(type(value))
+        )
+
+    normalized = {}
+    for group_name, action_ref in mapping.items():
+        if not isinstance(group_name, str) or group_name == "":
+            raise TypeError(
+                "action: grouped action keys must be non-empty strings, got "
+                + repr(group_name)
+            )
+        if not _is_action_ref(action_ref):
+            raise TypeError(
+                "action["
+                + repr(group_name)
+                + "]: expected an action struct or string name, got "
+                + repr(type(action_ref))
+            )
+        normalized[group_name] = action_ref
+    return normalized
+
+
+
+def _validate_task_action(value):
+    if _is_action_ref(value):
+        return _validate_action_ref(value)
+    return _validate_grouped_action_map(value)
+
+
+
+def _resolve_action_ref(value):
+    if not isinstance(value, str):
+        return value
+    try:
+        return builtins.lookup("action", value)
+    except:
+        return value
+
+
+
+def _resolve_task_action(value):
+    if isinstance(value, dict):
+        return {
+            group_name: _resolve_action_ref(action_ref)
+            for group_name, action_ref in value.items()
+        }
+    return _resolve_action_ref(value)
+
 
 
 def _is_value_struct(v):
@@ -31,6 +91,12 @@ def _as_dict_or_none(v):
         return None
     if isinstance(v, dict):
         return v
+    as_mapping = python.getattr(v, "as_mapping", None)
+    if callable(as_mapping):
+        try:
+            return dict(as_mapping())
+        except:
+            return None
     try:
         return dict(v)
     except:
@@ -44,7 +110,7 @@ def _task_impl(ctx):
         inputs_raw = []
     inputs  = _validate_value_refs("inputs", inputs_raw)
     outputs = _validate_value_refs("outputs", ctx.attr.outputs)
-    action  = _validate_action_ref(ctx.attr.action)
+    action  = _validate_task_action(ctx.attr.action)
     config_raw = python.getattr(ctx.attr, "config", [])
     if config_raw == None:
         config_raw = []
@@ -59,12 +125,7 @@ def _task_impl(ctx):
                 )
     execution = execution_raw
 
-    resolved_action = action
-    if isinstance(action, str):
-        try:
-            resolved_action = builtins.lookup("action", action)
-        except:
-            resolved_action = action
+    resolved_action = _resolve_task_action(action)
     entity_type = None
     try:
         entity_type = builtins.lookup("type", "mlody-task")
@@ -107,10 +168,23 @@ def _task_impl(ctx):
         _register_scoped_value(task_prefix, v)
 
     # Register action-scoped values: {action}.{port}
-    if type(resolved_action) == "struct" and python.getattr(resolved_action, "kind", None) == "action":
-        action_prefix = python.getattr(resolved_action, "name", "")
-        for v in python.getattr(resolved_action, "inputs", []) + python.getattr(resolved_action, "outputs", []):
+    registered_action_names = {}
+
+    def _register_action_ports(action_value):
+        if type(action_value) != "struct" or python.getattr(action_value, "kind", None) != "action":
+            return
+        action_prefix = python.getattr(action_value, "name", "")
+        if action_prefix in registered_action_names:
+            return
+        registered_action_names[action_prefix] = True
+        for v in python.getattr(action_value, "inputs", []) + python.getattr(action_value, "outputs", []):
             _register_scoped_value(action_prefix, v)
+
+    if isinstance(resolved_action, dict):
+        for action_value in resolved_action.values():
+            _register_action_ports(action_value)
+    else:
+        _register_action_ports(resolved_action)
 
     return task_struct
 
@@ -121,7 +195,7 @@ task = rule(
     attrs          = {
         "inputs":   attr(type="value_ref_list", mandatory=False),
         "outputs":  attr(type="value_ref_list"),
-        "action":   attr(type="action_ref"),
+        "action":   attr(),
         "config":   attr(type="value_ref_list", mandatory=False),
         "execution": attr(type="execution_ref", mandatory=False, default=None),
     },

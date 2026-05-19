@@ -145,18 +145,76 @@ def summarize_attribute(
     }
 
 
+def _grouped_action_details(actions: object) -> list[dict[str, str]]:
+    if not isinstance(actions, Mapping):
+        return []
+    details: list[dict[str, str]] = []
+    for group_name, action_value in actions.items():
+        details.append(
+            {
+                "name": str(group_name),
+                "value": str(
+                    getattr(action_value, "name", None)
+                    or getattr(action_value, "kind", None)
+                    or action_value
+                ),
+            }
+        )
+    return details
+
+
+
+def _grouped_implementation_details(actions: object) -> list[dict[str, str]]:
+    if not isinstance(actions, Mapping):
+        return []
+    details: list[dict[str, str]] = []
+    for group_name, action_value in actions.items():
+        implementation = getattr(action_value, "implementation", None)
+        if implementation is None:
+            continue
+        details.append(
+            {
+                "name": str(group_name),
+                "value": _summary_text(implementation),
+            }
+        )
+    return details
+
+
+
+def _grouped_attribute(name: str, details: list[dict[str, str]]) -> dict[str, Any] | None:
+    if not details:
+        return None
+    return {
+        "name": name,
+        "value": "grouped",
+        "details": details,
+        "detailsText": ", ".join(
+            f"{detail['name']}={detail['value']}" for detail in details
+        ),
+    }
+
+
+
 def summarize_task_struct(task_struct: object) -> dict[str, Any]:
     action = getattr(task_struct, "action", None)
     attributes: list[dict[str, Any]] = []
 
-    action_summary = summarize_attribute("action", action, include_details=False)
+    if isinstance(action, Mapping):
+        action_summary = _grouped_attribute("action", _grouped_action_details(action))
+        implementation_summary = _grouped_attribute(
+            "implementation",
+            _grouped_implementation_details(action),
+        )
+    else:
+        action_summary = summarize_attribute("action", action, include_details=False)
+        implementation_summary = summarize_attribute(
+            "implementation",
+            getattr(action, "implementation", None),
+        )
+
     if action_summary is not None:
         attributes.append(action_summary)
-
-    implementation_summary = summarize_attribute(
-        "implementation",
-        getattr(action, "implementation", None),
-    )
     if implementation_summary is not None:
         attributes.append(implementation_summary)
 

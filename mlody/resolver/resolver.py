@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import json
 import logging
 import os
 import pwd
@@ -468,18 +469,34 @@ def _normalize_action_implementations(workspace: Workspace) -> Workspace:
         if key[0] != "task":
             continue
         action = getattr(value, "action", None)
-        if getattr(action, "kind", None) != "action":
+        if getattr(action, "kind", None) == "action":
+            implementation = getattr(action, "implementation", None)
+            build = getattr(action, "build", None)
+            if implementation is None and build is not None:
+                synthesized = _default_sandbox_implementation(build)
+                setf(
+                    f"{label}.action.implementation",
+                    synthesized,
+                    workspace=workspace,
+                    source=f"DEFAULT: {synthesized}",
+                )
             continue
-        implementation = getattr(action, "implementation", None)
-        build = getattr(action, "build", None)
-        if implementation is None and build is not None:
-            synthesized = _default_sandbox_implementation(build)
-            setf(
-                f"{label}.action.implementation",
-                synthesized,
-                workspace=workspace,
-                source=f"DEFAULT: {synthesized}",
-            )
+        if not isinstance(action, dict):
+            continue
+        for group_name, grouped_action in action.items():
+            if getattr(grouped_action, "kind", None) != "action":
+                continue
+            implementation = getattr(grouped_action, "implementation", None)
+            build = getattr(grouped_action, "build", None)
+            if implementation is None and build is not None:
+                synthesized = _default_sandbox_implementation(build)
+                group_selector = json.dumps(str(group_name))
+                setf(
+                    f"{label}.action[{group_selector}].implementation",
+                    synthesized,
+                    workspace=workspace,
+                    source=f"DEFAULT: {synthesized}",
+                )
     return workspace
 
 

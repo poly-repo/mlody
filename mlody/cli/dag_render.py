@@ -48,8 +48,7 @@ def format_value_list(values: object) -> str:
     return ", ".join(rendered)
 
 
-def format_action_cell(action_obj: object, fallback_name: str) -> str:
-    """Format action name plus AIn/AOut/ACfg summaries."""
+def _format_single_action_cell(action_obj: object, fallback_name: str) -> str:
     if action_obj is None:
         return fallback_name
 
@@ -66,6 +65,18 @@ def format_action_cell(action_obj: object, fallback_name: str) -> str:
         f"AOut: {action_outputs}\n"
         f"ACfg: {action_config}"
     )
+
+
+
+def format_action_cell(action_obj: object, fallback_name: str) -> str:
+    """Format action name plus AIn/AOut/ACfg summaries."""
+    if isinstance(action_obj, dict):
+        rendered_groups = [
+            f"[{group_name}]\n{_format_single_action_cell(group_action, fallback_name)}"
+            for group_name, group_action in action_obj.items()
+        ]
+        return "\n\n".join(rendered_groups) if rendered_groups else fallback_name
+    return _format_single_action_cell(action_obj, fallback_name)
 
 
 def build_dag_table(display_graph: networkx.MultiDiGraph, title: str) -> Table:
@@ -363,11 +374,20 @@ def _stage_task_node(
             continue
         outputs.append(_port_entry(edge.src_port, side="output", kind="output"))
 
+    action = getattr(task_struct, "action", None)
+    if isinstance(action, dict):
+        subtitle = ", ".join(
+            f"{group_name}:{getattr(group_action, 'name', '?')}"
+            for group_name, group_action in action.items()
+        ) or None
+    else:
+        subtitle = getattr(action, "name", None)
+
     return {
         "id": node_id,
         "kind": "task",
         "title": task_node.name,
-        "subtitle": getattr(getattr(task_struct, "action", None), "name", None),
+        "subtitle": subtitle,
         "address": node_id,
         "position": position,
         "ports": inputs + config + outputs,
