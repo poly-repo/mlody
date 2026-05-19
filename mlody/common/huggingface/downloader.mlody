@@ -67,35 +67,7 @@ task(
             value(name="releases", type = vector(element_type=string()), representation=json(), location= inline(), group="info"),
     ],
     # execution = kubernetes(),
-    action = {
-        "info": action(
-            name    = "downloader-action-info",
-            outputs = [
-            # present code add the sha in the code
-	    # NOTE: depending on what we decide, the type might end up be a run-time quantity
-                value(name="model", type=":hf-model", location = posix(path="{vendor}/{model}/{sha}")),
-                value(name="committoid", location = inline()),
-                value(name="releases", type = vector(element_type=string()), representation=json(), location= inline()),
-            ],
-        # NOTE: we don't have them here, but we need a way to specify positional args and their order
-        # actually, we could use that as an example for accepting "vendor/model" as a single argument as that is what you copy from hugginface
-        # Also, in the present code we actually pass a base directory and the sha addition is hardwired
-            config = [
-            # say that vendor and model are required, sha is optional
-                value(name="vendor", type=string(), location=named_arg()), # defaults to a --vendor arg because of name
-                value(name="model", type=string(), location=named_arg()),
-                value(name="sha", type=string(), location=named_arg()), # should be a different type, maybe a commit-sha or a committoid
-            # effects should be more precise and say which outputs are not affected and other things
-                value(name="workers", type=integer(min=1, max=8), location=named_arg(), default=1),
-            #        value(name="workers", type=integer(min=1, max=8), default=1, location=named_arg(), effects=["no-hash-contribution"]),
-            ],
-            build = bazel(target=":model-download"),
-            requirements = [
-	        # storage, gpu, memory, network also goes here.
-                cpu_requirement(2),
-            ],
-        ),
-        "model": action(
+    action = action(
             name    = "downloader-action",
             outputs = [
             # present code add the sha in the code
@@ -122,7 +94,6 @@ task(
                 cpu_requirement(2),
             ],
         ),
-    }   
 )
 	
 							       
