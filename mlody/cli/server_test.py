@@ -37,6 +37,8 @@ from mlody.cli.server import (
     parse_command_request,
     parse_verbatim_command_request,
 )
+from mlody.core.action_graph import MlodyActionGraphNode
+from mlody.core.action_graph_value import MlodyActionGraphType
 from mlody.core.dag import Edge, TaskNode, ValueNode
 from mlody.core.dag_value import MlodyDagType
 from mlody.core.workspace_models import RootInfo
@@ -1441,6 +1443,112 @@ class TestExecuteStageCommandResponse:
                 "typeLabel": "dataset",
             },
         ]
+
+    def test_serializes_action_graph_values_as_stage_action_graph_payload(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        graph = networkx.DiGraph()
+        graph.add_node(
+            "struct:task/test:cleanup",
+            action=MlodyActionGraphNode(
+                node_id="struct:task/test:cleanup",
+                executor="mlody",
+                operation="structural-task",
+                title="Task Context",
+                detail="cleanup",
+                description="Loads the task node selected from the pruned task/value graph.",
+                executor_detail="Runs in-process Python in the current mlody CLI/server runtime.",
+                structural_node_id="task/test:cleanup",
+            ),
+        )
+        graph.add_node(
+            "prepare://pipeline:cleanup.outputs.employees-table",
+            action=MlodyActionGraphNode(
+                node_id="prepare://pipeline:cleanup.outputs.employees-table",
+                executor="mlody",
+                operation="prepare-show-value",
+                title="Prepare Display",
+                detail="//pipeline:cleanup.outputs.employees-table",
+                description="Consumes the already-resolved requested value and runs show-time preparation: force virtual values, derive the display payload, and build a tabular preview when applicable.",
+                executor_detail="Runs in-process Python in the current mlody CLI/server runtime.",
+            ),
+        )
+        graph.add_edge(
+            "struct:task/test:cleanup",
+            "prepare://pipeline:cleanup.outputs.employees-table",
+        )
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyValueValue(
+                struct=Struct(
+                    kind="value",
+                    name="employees-table",
+                    label="//pipeline:cleanup.outputs.employees-table.agraph",
+                    type=MlodyActionGraphType(),
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server._display_payload",
+            lambda _value: graph,
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "//pipeline:cleanup.outputs.employees-table.agraph",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"] == {
+            "type": "action-graph",
+            "title": "Action Graph — plan for '//pipeline:cleanup.outputs.employees-table'",
+            "nodeCount": 2,
+            "edgeCount": 1,
+        }
+
+        data = response["data"]
+        assert data["edges"] == [
+            {
+                "id": "edge-0",
+                "sourceNodeId": "struct:task/test:cleanup",
+                "targetNodeId": "prepare://pipeline:cleanup.outputs.employees-table",
+            },
+        ]
+
+        task_node = next(
+            node
+            for node in data["nodes"]
+            if node["id"] == "struct:task/test:cleanup"
+        )
+        assert task_node == {
+            "id": "struct:task/test:cleanup",
+            "kind": "task",
+            "title": "Task Context",
+            "subtitle": "cleanup",
+            "description": "Loads the task node selected from the pruned task/value graph.",
+            "executor": "mlody",
+            "executorDetail": "Runs in-process Python in the current mlody CLI/server runtime.",
+            "operation": "structural-task",
+            "structuralNodeId": "task/test:cleanup",
+            "position": task_node["position"],
+        }
 
     def test_serializes_source_range_values_as_stage_source_code_payload(
         self,

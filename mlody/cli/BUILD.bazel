@@ -4,6 +4,7 @@ o_py_library(
     name = "cli_lib",
     srcs = [
         "__init__.py",
+        "action_graph_render.py",
         "autocomplete.py",
         "asset_render.py",
         "dag_gui.py",
@@ -13,6 +14,7 @@ o_py_library(
         "server.py",
         "shell.py",
         "show.py",
+        "show_execution.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [

@@ -45,13 +45,17 @@ from mlody.cli.autocomplete import (
     parse_stage_autocomplete_request,
     stage_autocomplete_payload,
 )
+from mlody.cli.action_graph_render import build_stage_action_graph_data
 from mlody.cli.asset_render import asset_metadata_payload
 from mlody.cli.dag_render import build_stage_dag_data
 from mlody.cli.lineage_render import is_lineage_type, lineage_rows_from_payload
+from mlody.cli.show_execution import PreparedShowValue, execute_show_action_graph
 from mlody.cli.show import (
+    _action_graph_title_for_value,
     _dag_title_for_value,
     _describe_mlody_value,
     _display_payload,
+    _is_action_graph_value,
     _is_dag_value,
     _parse_inner,
     _selected_show_user,
@@ -1118,6 +1122,25 @@ def _stage_dag_result(
     }
 
 
+def _stage_action_graph_result(
+    title: str,
+    graph: networkx.DiGraph,
+) -> dict[str, object]:
+    action_graph_data = build_stage_action_graph_data(graph)
+    nodes = cast(list[object], action_graph_data["nodes"])
+    edges = cast(list[object], action_graph_data["edges"])
+    return {
+        "kind": "result",
+        "view": {
+            "type": "action-graph",
+            "title": title,
+            "nodeCount": len(nodes),
+            "edgeCount": len(edges),
+        },
+        "data": action_graph_data,
+    }
+
+
 def _stage_source_code_result(
     title: str,
     value: MlodySourceRangeValue,
@@ -1383,14 +1406,20 @@ def _stage_result_for_resolved_value(
     value: MlodyValue,
     *,
     title: str,
+    prepared: PreparedShowValue | None = None,
 ) -> dict[str, object]:
     stage_result = _stage_dispatched_result(
         workspace,
         value,
         title=title,
+        prepared=prepared,
     )
     if stage_result is None:
-        stage_result = _stage_result_for_mlody_value(value, title=title)
+        stage_result = _stage_result_for_mlody_value(
+            value,
+            title=title,
+            prepared=prepared,
+        )
     return _attach_stage_value_type(
         stage_result,
         workspace=workspace,
@@ -1403,17 +1432,38 @@ def _stage_dispatched_result(
     value: MlodyValue,
     *,
     title: str,
+    prepared: PreparedShowValue | None = None,
 ) -> dict[str, object] | None:
     from common.python.starlarkish.core.struct import Struct  # noqa: PLC0415
 
     if isinstance(value, MlodyValueValue):
         if _is_dag_value(value):
-            graph = _display_payload(value)
+            graph = (
+                prepared.display_payload
+                if prepared is not None
+                else _display_payload(value)
+            )
             if isinstance(graph, networkx.MultiDiGraph):
                 return _stage_dag_result(_dag_title_for_value(value), graph)
             return None
+        if _is_action_graph_value(value):
+            graph = (
+                prepared.display_payload
+                if prepared is not None
+                else _display_payload(value)
+            )
+            if isinstance(graph, networkx.DiGraph):
+                return _stage_action_graph_result(
+                    _action_graph_title_for_value(value),
+                    graph,
+                )
+            return None
 
-        display_payload = _display_payload(value)
+        display_payload = (
+            prepared.display_payload
+            if prepared is not None
+            else _display_payload(value)
+        )
         if is_lineage_type(getattr(value.struct, "type", None)):
             lineage_rows = lineage_rows_from_payload(display_payload)
             if lineage_rows is not None:
@@ -1430,28 +1480,36 @@ def _stage_dispatched_result(
         if render_dispatch_value is None or not hasattr(display_payload, "as_mapping"):
             return None
 
-        try:
-            tabular_source = source_from_value(display_payload)
-        except ValueError:
-            return None
-        if tabular_source is None:
-            return None
+        if prepared is not None:
+            if prepared.preview_table is None:
+                return None
+            preview_table = prepared.preview_table
+            preview_total_rows = prepared.preview_total_rows or prepared.preview_table.num_rows
+        else:
+            try:
+                tabular_source = source_from_value(display_payload)
+            except ValueError:
+                return None
+            if tabular_source is None:
+                return None
+            try:
+                preview = tabular_source.preview(50)
+            except (
+                DerivedValueShapeError,
+                MlodyQueryError,
+                TypeError,
+                ValueError,
+            ):
+                return None
+            preview_table = preview.table
+            preview_total_rows = preview.total_rows
 
-        try:
-            preview = tabular_source.preview(50)
-        except (
-            DerivedValueShapeError,
-            MlodyQueryError,
-            TypeError,
-            ValueError,
-        ):
-            return None
         dispatch_struct = Struct(
             **{
                 **render_dispatch_value.as_mapping(),
                 "_stage_preview": _stage_preview_from_pyarrow_table(
-                    preview.table,
-                    total_rows=preview.total_rows,
+                    preview_table,
+                    total_rows=preview_total_rows,
                 ),
             }
         )
@@ -1509,6 +1567,7 @@ def _stage_result_for_mlody_value(
     value: MlodyValue,
     *,
     title: str,
+    prepared: PreparedShowValue | None = None,
 ) -> dict[str, object]:
     if isinstance(value, MlodyTaskValue):
         return _stage_task_result(title, value)
@@ -1544,6 +1603,7 @@ def _stage_result_for_mlody_value(
         return _stage_json_result(title, raw_value)
 
     if isinstance(value, MlodyVectorValue):
+        prepared_children = prepared.children if prepared is not None else ()
         return _stage_result_list_result(
             title,
             [
@@ -1554,14 +1614,40 @@ def _stage_result_for_mlody_value(
                         if isinstance(element, (MlodyTaskValue, MlodyActionValue))
                         else _describe_mlody_value(element)
                     ),
+                    prepared=(
+                        prepared_children[index]
+                        if index < len(prepared_children)
+                        else None
+                    ),
                 )
-                for element in value.elements
+                for index, element in enumerate(value.elements)
             ],
         )
 
     if isinstance(value, MlodyValueValue):
-        display_payload = _display_payload(value)
-        if hasattr(display_payload, "as_mapping"):
+        display_payload = (
+            prepared.display_payload
+            if prepared is not None
+            else _display_payload(value)
+        )
+        if prepared is not None:
+            if prepared.preview_table is not None:
+                return _stage_table_result(
+                    title,
+                    column_names=list(prepared.preview_table.column_names),
+                    rows=prepared.preview_table.to_pylist(),
+                    total_rows=prepared.preview_total_rows
+                    or prepared.preview_table.num_rows,
+                )
+            if prepared.preview_failure is not None and prepared.preview_failure.fatal:
+                return _stage_json_result(
+                    title,
+                    {
+                        "error": prepared.preview_failure.message,
+                        "value": _serialize_mlody_value(value),
+                    },
+                )
+        elif hasattr(display_payload, "as_mapping"):
             try:
                 tabular_source = source_from_value(display_payload)
             except ValueError:
@@ -1635,7 +1721,14 @@ def _execute_show_command(
                     f"{committoid}|{expanded_inner}" if committoid else expanded_inner
                 )
                 concrete_label = _concrete_show_label(committoid, expanded_inner)
-                mlody_value = resolve_label_to_value(concrete_label, workspace)
+                execution = execute_show_action_graph(
+                    workspace,
+                    expanded_inner,
+                    concrete_label,
+                    resolve_label=resolve_label_to_value,
+                    display_value=_display_payload,
+                )
+                mlody_value = execution.prepared_value.value
                 if isinstance(mlody_value, MlodyUnresolvedValue):
                     yield _event(
                         request,
@@ -1658,6 +1751,7 @@ def _execute_show_command(
                         workspace,
                         mlody_value,
                         title=full_label,
+                        prepared=execution.prepared_value,
                     ),
                 )
         except (

@@ -326,31 +326,58 @@ class StructTraversalStrategy:
                 if field_decl is not None:
                     terminal_field_name = field_name
                     continue
-                # DAG virtual attribute: synthesize when segment is "dag" on a
-                # kind="value" struct and a workspace is available via kwargs.
+                # Graph virtual attributes: synthesize when segment is "dag" or
+                # "agraph" on a kind="value" struct and a workspace is available.
                 _ws = kwargs.get("workspace")
                 if (
                     isinstance(field_name, str)
-                    and field_name == "dag"
+                    and field_name in {"dag", "agraph"}
                     and _ws is not None
                     and getattr(obj, "kind", None) == "value"
                 ):
-                    from mlody.core.dag_value import (  # noqa: PLC0415
-                        MlodyDagType,
-                        make_dag_virtual_value,
+                    _port_name = _dag_target_name(obj)
+                    _parent_label = (
+                        getattr(obj, "label", None)
+                        or getattr(obj, "_resolved_label", None)
+                        or ""
                     )
+                    if field_name == "dag":
+                        from mlody.core.dag_value import (  # noqa: PLC0415
+                            MlodyDagType,
+                            make_dag_virtual_value,
+                        )
 
-                    if not isinstance(getattr(obj, "type", None), MlodyDagType):
-                        _port_name = _dag_target_name(obj)
-                        _parent_label = (
-                            getattr(obj, "label", None)
-                            or getattr(obj, "_resolved_label", None)
-                            or ""
+                        if not isinstance(getattr(obj, "type", None), MlodyDagType):
+                            _dag_label = (
+                                f"{_parent_label}.dag" if _parent_label else "dag"
+                            )
+                            return MlodyValueValue(
+                                struct=make_dag_virtual_value(
+                                    _ws,
+                                    _port_name,
+                                    _dag_label,
+                                )
+                            )
+                    else:
+                        from mlody.core.action_graph_value import (  # noqa: PLC0415
+                            MlodyActionGraphType,
+                            make_action_graph_virtual_value,
                         )
-                        _dag_label = f"{_parent_label}.dag" if _parent_label else "dag"
-                        return MlodyValueValue(
-                            struct=make_dag_virtual_value(_ws, _port_name, _dag_label)
-                        )
+
+                        if not isinstance(
+                            getattr(obj, "type", None),
+                            MlodyActionGraphType,
+                        ):
+                            _agraph_label = (
+                                f"{_parent_label}.agraph" if _parent_label else "agraph"
+                            )
+                            return MlodyValueValue(
+                                struct=make_action_graph_virtual_value(
+                                    _ws,
+                                    _port_name,
+                                    _agraph_label,
+                                )
+                            )
                 traversed = "".join(str(s) for s in path[:i])
                 parent = f" on '{traversed}'" if traversed else ""
                 return MlodyUnresolvedValue(
@@ -1550,26 +1577,53 @@ class ValueTraversalStrategy:
                         obj = raw_value
                         continue
                 if (
-                    segment == "dag"
+                    segment in {"dag", "agraph"}
                     and workspace is not None
                     and getattr(obj, "kind", None) == "value"
                 ):
-                    from mlody.core.dag_value import (  # noqa: PLC0415
-                        MlodyDagType,
-                        make_dag_virtual_value,
+                    _port_name = _dag_target_name(obj)
+                    _parent_label = (
+                        getattr(obj, "label", None)
+                        or getattr(obj, "_resolved_label", None)
+                        or ""
                     )
+                    if segment == "dag":
+                        from mlody.core.dag_value import (  # noqa: PLC0415
+                            MlodyDagType,
+                            make_dag_virtual_value,
+                        )
 
-                    if not isinstance(getattr(obj, "type", None), MlodyDagType):
-                        _port_name = _dag_target_name(obj)
-                        _parent_label = (
-                            getattr(obj, "label", None)
-                            or getattr(obj, "_resolved_label", None)
-                            or ""
+                        if not isinstance(getattr(obj, "type", None), MlodyDagType):
+                            _dag_label = (
+                                f"{_parent_label}.dag" if _parent_label else "dag"
+                            )
+                            return MlodyValueValue(
+                                struct=make_dag_virtual_value(
+                                    workspace,
+                                    _port_name,
+                                    _dag_label,
+                                )
+                            )
+                    else:
+                        from mlody.core.action_graph_value import (  # noqa: PLC0415
+                            MlodyActionGraphType,
+                            make_action_graph_virtual_value,
                         )
-                        _dag_label = f"{_parent_label}.dag" if _parent_label else "dag"
-                        return MlodyValueValue(
-                            struct=make_dag_virtual_value(workspace, _port_name, _dag_label)
-                        )
+
+                        if not isinstance(
+                            getattr(obj, "type", None),
+                            MlodyActionGraphType,
+                        ):
+                            _agraph_label = (
+                                f"{_parent_label}.agraph" if _parent_label else "agraph"
+                            )
+                            return MlodyValueValue(
+                                struct=make_action_graph_virtual_value(
+                                    workspace,
+                                    _port_name,
+                                    _agraph_label,
+                                )
+                            )
                 traversed = ".".join(str_path[:i])
                 parent = f" on '{traversed}'" if traversed else ""
                 return MlodyUnresolvedValue(

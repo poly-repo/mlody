@@ -26,6 +26,7 @@ from mlody.cli.main import cli
 from mlody.cli.show import show_fn
 from mlody.core.assets.interfaces import MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
+from mlody.core.action_graph_value import ACTION_GRAPH_TYPE
 from mlody.core.dag_value import make_dag_virtual_value
 from mlody.core.label import parse_label as _parse_label
 from mlody.core.virtual_value import make_virtual_value
@@ -1463,6 +1464,38 @@ class TestShowMlodyValueRendering:
 
         assert result.exit_code == 0  # type: ignore[union-attr]
         assert "action" in result.output  # type: ignore[union-attr]
+
+    def test_show_renders_action_graph_virtual_value(self, tmp_path: Path) -> None:
+        action_graph = networkx.DiGraph()
+        action_graph.add_node(
+            "prepare:@common//huggingface/downloader:downloader",
+            action=SimpleNamespace(
+                title="Prepare Display",
+                executor="mlody",
+                operation="prepare-show-value",
+                detail="@common//huggingface/downloader:downloader",
+                description="Consumes the already-resolved requested value and runs show-time preparation.",
+                executor_detail="Runs in-process Python in the current mlody CLI/server runtime.",
+            ),
+        )
+        value = MlodyValueValue(
+            struct=make_virtual_value(
+                value_type=ACTION_GRAPH_TYPE,
+                label="@common//huggingface/downloader:downloader.agraph",
+                materializer=lambda _value: action_graph,
+                name="downloader",
+            )
+        )
+
+        result = _make_show_runner(
+            tmp_path,
+            value,
+            target="@common//huggingface/downloader:downloader.agraph",
+        )
+
+        assert result.exit_code == 0  # type: ignore[union-attr]
+        assert "Action Graph" in result.output  # type: ignore[union-attr]
+        assert "already-resolved" in result.output  # type: ignore[union-attr]
 
     def test_show_exits_1_on_unresolved_value(self, tmp_path: Path) -> None:
         """Task 7.5 — Scenario: show prints red error and exits 1 on MlodyUnresolvedValue."""

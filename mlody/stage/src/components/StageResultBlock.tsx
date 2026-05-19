@@ -1,11 +1,13 @@
 import { Component, type ReactNode } from "react";
 import type {
+  StageActionGraphData,
   StageDagData,
   StageEntityData,
   StageLineageRow,
   StageResultPayload,
   StageSourceCodeData,
 } from "../types.js";
+import { StageActionGraphBlock } from "./StageActionGraphBlock.js";
 import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
 import { StageDagBlock } from "./StageDagBlock.js";
 import { StageEntityBlock } from "./StageTaskBlock.js";
@@ -29,6 +31,16 @@ type StageDagPayload = StageResultPayload & {
     edgeCount?: number;
   };
   data: StageDagData;
+};
+
+type StageActionGraphPayload = StageResultPayload & {
+  view: {
+    type: "action-graph";
+    title?: string;
+    nodeCount?: number;
+    edgeCount?: number;
+  };
+  data: StageActionGraphData;
 };
 
 type StageTablePayload = StageResultPayload & {
@@ -98,6 +110,10 @@ type StageSpecializedRenderer =
       payload: StageDagPayload;
     }
   | {
+      kind: "action-graph";
+      payload: StageActionGraphPayload;
+    }
+  | {
       kind: "source-code";
       payload: StageSourceCodePayload;
     }
@@ -115,7 +131,7 @@ type StageSpecializedRenderer =
     };
 
 interface DagRenderBoundaryProps {
-  payload: StageDagPayload;
+  payload: StageDagPayload | StageActionGraphPayload;
   children: ReactNode;
 }
 
@@ -148,10 +164,27 @@ function isStageDagData(value: unknown): value is StageDagData {
   return Array.isArray(record.nodes) && Array.isArray(record.edges);
 }
 
+function isStageActionGraphData(value: unknown): value is StageActionGraphData {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.nodes) && Array.isArray(record.edges);
+}
+
 function isDagPayload(
   payload: StageResultPayload,
 ): payload is StageDagPayload {
   return payload.view.type === "dag" && isStageDagData(payload.data);
+}
+
+function isActionGraphPayload(
+  payload: StageResultPayload,
+): payload is StageActionGraphPayload {
+  return (
+    payload.view.type === "action-graph" &&
+    isStageActionGraphData(payload.data)
+  );
 }
 
 function isLineageRowArray(value: unknown): value is StageLineageRow[] {
@@ -329,6 +362,9 @@ function resolveSpecializedRenderer(
   if (isDagPayload(payload)) {
     return { kind: "dag", payload };
   }
+  if (isActionGraphPayload(payload)) {
+    return { kind: "action-graph", payload };
+  }
   if (isSourceCodePayload(payload)) {
     return { kind: "source-code", payload };
   }
@@ -405,6 +441,13 @@ export function StageResultBlock({
     return (
       <DagRenderBoundary payload={specializedRenderer.payload}>
         <StageDagBlock payload={specializedRenderer.payload} />
+      </DagRenderBoundary>
+    );
+  }
+  if (specializedRenderer?.kind === "action-graph") {
+    return (
+      <DagRenderBoundary payload={specializedRenderer.payload}>
+        <StageActionGraphBlock payload={specializedRenderer.payload} />
       </DagRenderBoundary>
     );
   }

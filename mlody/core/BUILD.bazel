@@ -517,6 +517,8 @@ o_py_library(
     name = "core_lib",
     srcs = [
         "__init__.py",
+        "action_graph.py",
+        "action_graph_value.py",
         "anchor.py",
         "dag.py",
         "dag_value.py",
@@ -625,6 +627,16 @@ o_py_test(
 o_py_test(
     name = "dag_value_test",
     srcs = ["dag_value_test.py"],
+    deps = [
+        ":core_lib",
+        "@pip//networkx",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "action_graph_value_test",
+    srcs = ["action_graph_value_test.py"],
     deps = [
         ":core_lib",
         "@pip//networkx",

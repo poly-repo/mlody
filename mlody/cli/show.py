@@ -30,7 +30,13 @@ from mlody.cli.asset_render import (
     asset_metadata_payload,
     build_asset_metadata_console_table,
 )
+from mlody.cli.action_graph_render import build_action_graph_table
 from mlody.cli.dag_render import build_dag_table, render_dag_table, resolve_show_output_selection
+from mlody.cli.show_execution import (
+    PreparedShowValue,
+    TabularPreviewFailure,
+    execute_show_action_graph,
+)
 from mlody.cli.lineage_render import (
     build_lineage_console_table,
     is_lineage_type,
@@ -38,7 +44,9 @@ from mlody.cli.lineage_render import (
 )
 from mlody.cli.main import cli
 from mlody.core.dag import build_dag
+from mlody.core.action_graph import ActionGraphSelection
 from mlody.core.derived import DerivedValueShapeError
+from mlody.core.label.label import Label as _Label
 from mlody.core.sql.sql_query import MlodyQueryError
 from mlody.core.tabular.derived_source import DerivedSource
 from mlody.core.tabular.interfaces import PreviewResult, TabularSource
@@ -163,6 +171,31 @@ def _display_payload(value: MlodyValueValue) -> object:
     return force(value.struct)
 
 
+def _concrete_show_label(committoid: str | None, label_text: str) -> object:
+    """Build the parsed label object for one expanded show target."""
+    from mlody.core.label import parse_label as _core_parse_label
+
+    if label_text == "":
+        return _Label(
+            workspace=committoid,
+            workspace_query=None,
+            entity=None,
+            entity_query=None,
+            attribute_path=None,
+            attribute_query=None,
+        )
+    return _core_parse_label(label_text)
+
+
+def _prepared_display_payload(
+    value: MlodyValueValue,
+    prepared: PreparedShowValue | None = None,
+) -> object:
+    if prepared is not None:
+        return prepared.display_payload
+    return _display_payload(value)
+
+
 def _read_meta(cache_root: Path, resolved_sha: str) -> dict[str, object]:
     """Read the -meta.json file written by materialise(), returning {} on failure."""
     meta_path = cache_root / f"{resolved_sha}-meta.json"
@@ -236,12 +269,14 @@ def show_fn(
     )
     _committoid, inner_label = _parse_inner(label)
     print_fn(pretty_repr(_parse_label_struct(label)))
-
-    from mlody.core.label import parse_label as _core_parse_label
-
-    concrete_label = _core_parse_label(inner_label)
-    mlody_value = resolve_label_to_value(concrete_label, workspace)
-    return mlody_value
+    concrete_label = _concrete_show_label(_committoid, inner_label)
+    execution = execute_show_action_graph(
+        workspace,
+        inner_label,
+        concrete_label,
+        resolve_label=resolve_label_to_value,
+    )
+    return execution.prepared_value.value
 
 
 def _parse_inner(label: str) -> tuple[str | None, str]:
@@ -1003,6 +1038,15 @@ def _is_dag_value(value: MlodyValue) -> bool:
     return isinstance(getattr(value.struct, "type", None), MlodyDagType)
 
 
+def _is_action_graph_value(value: MlodyValue) -> bool:
+    if not isinstance(value, MlodyValueValue):
+        return False
+
+    from mlody.core.action_graph_value import MlodyActionGraphType  # noqa: PLC0415
+
+    return isinstance(getattr(value.struct, "type", None), MlodyActionGraphType)
+
+
 def _dag_title_for_value(value: MlodyValueValue) -> str:
     dag_label = getattr(value.struct, "label", "") or ""
     display_label = dag_label.removesuffix(".dag")
@@ -1013,11 +1057,26 @@ def _dag_title_for_value(value: MlodyValueValue) -> str:
     return f"DAG — ancestors of '{port_name}'" if port_name else "DAG"
 
 
+def _action_graph_title_for_value(value: MlodyValueValue) -> str:
+    action_label = getattr(value.struct, "label", "") or ""
+    display_label = action_label.removesuffix(".agraph")
+    if display_label and display_label != "agraph":
+        return f"Action Graph — plan for '{display_label}'"
+
+    port_name = getattr(value.struct, "name", "") or ""
+    return (
+        f"Action Graph — plan for '{port_name}'"
+        if port_name
+        else "Action Graph"
+    )
+
+
 def _print_mlody_value(
     value: MlodyValue,
     *,
     workspace: Workspace | None = None,
     _has_error: list[bool] | None = None,
+    prepared: PreparedShowValue | None = None,
 ) -> None:
     """Print a MlodyValue to the console.
 
@@ -1029,8 +1088,17 @@ def _print_mlody_value(
     dom_executor = RichDomExecutor(_console)
 
     if isinstance(value, MlodyVectorValue):
-        for elem in value.elements:
-            _print_mlody_value(elem, workspace=workspace, _has_error=_has_error)
+        prepared_children = prepared.children if prepared is not None else ()
+        for index, elem in enumerate(value.elements):
+            child_prepared = (
+                prepared_children[index] if index < len(prepared_children) else None
+            )
+            _print_mlody_value(
+                elem,
+                workspace=workspace,
+                _has_error=_has_error,
+                prepared=child_prepared,
+            )
         return
 
     from mlody.resolver.values.structural import MlodySourceRangeValue  # noqa: PLC0415
@@ -1076,12 +1144,30 @@ def _print_mlody_value(
         from mlody.core.virtual_value import force_virtual_value  # noqa: PLC0415
 
         if _is_dag_value(value):
-            graph = force_virtual_value(value.struct)
+            graph = (
+                prepared.display_payload
+                if prepared is not None
+                else force_virtual_value(value.struct)
+            )
             if isinstance(graph, networkx.MultiDiGraph):
                 _console.print(build_dag_table(graph, _dag_title_for_value(value)))
             return
+        if _is_action_graph_value(value):
+            graph = (
+                prepared.display_payload
+                if prepared is not None
+                else force_virtual_value(value.struct)
+            )
+            if isinstance(graph, networkx.DiGraph):
+                _console.print(
+                    build_action_graph_table(
+                        graph,
+                        _action_graph_title_for_value(value),
+                    )
+                )
+            return
 
-        display_payload = _display_payload(value)
+        display_payload = _prepared_display_payload(value, prepared)
         if is_lineage_type(getattr(value.struct, "type", None)):
             lineage_rows = lineage_rows_from_payload(display_payload)
             if lineage_rows is not None:
@@ -1092,6 +1178,16 @@ def _print_mlody_value(
                     )
                 )
                 return
+
+        if prepared is not None and prepared.source_failure is not None:
+            click.echo(
+                click.style(f"Error: {prepared.source_failure}", fg="red"),
+                err=True,
+            )
+            if _has_error is not None:
+                _has_error.append(True)
+            return
+
         render_dispatch_value = value.struct
         if display_payload is not value.struct:
             if hasattr(display_payload, "as_mapping") and getattr(display_payload, "kind", None) == "value":
@@ -1099,21 +1195,35 @@ def _print_mlody_value(
             else:
                 render_dispatch_value = None
 
-        try:
-            tabular_source = (
-                source_from_value(display_payload)
-                if hasattr(display_payload, "as_mapping")
-                else None
-            )
-        except ValueError as exc:
-            click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
-            if _has_error is not None:
-                _has_error.append(True)
-            return
+        tabular_source = None
+        preview_table: pa.Table | None = None
+        preview_total_rows: int | None = None
+        preview_failure: TabularPreviewFailure | None = None
+        if prepared is not None:
+            preview_table = prepared.preview_table
+            preview_total_rows = prepared.preview_total_rows
+            preview_failure = prepared.preview_failure
+        else:
+            try:
+                tabular_source = (
+                    source_from_value(display_payload)
+                    if hasattr(display_payload, "as_mapping")
+                    else None
+                )
+            except ValueError as exc:
+                click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
+                if _has_error is not None:
+                    _has_error.append(True)
+                return
 
         extra_fields: dict[str, object] = {}
 
-        if tabular_source is not None:
+        if preview_table is not None:
+            extra_fields["_tabular_preview"] = _build_tabular_preview(
+                preview_table,
+                image_encoder=_image_encoder_for_terminal(),
+            )
+        elif tabular_source is not None:
             try:
                 preview = tabular_source.preview(50)
                 extra_fields["_tabular_preview"] = _build_tabular_preview(
@@ -1170,6 +1280,26 @@ def _print_mlody_value(
                         "render_value: no matching method for %r, falling back",
                         dispatch_struct,
                     )
+
+        if preview_table is not None:
+            click.echo(
+                _format_value(
+                    preview_table,
+                    total_rows=preview_total_rows,
+                    image_encoder=_image_encoder_for_terminal(),
+                )
+            )
+            return
+
+        if preview_failure is not None:
+            if preview_failure.fatal:
+                click.echo(
+                    click.style(f"Error: {preview_failure.message}", fg="red"),
+                    err=True,
+                )
+                if _has_error is not None:
+                    _has_error.append(True)
+                return
 
         if tabular_source is not None and _print_tabular_source(
             tabular_source,
@@ -1260,19 +1390,25 @@ def _print_mlody_value(
             _print_row_list([value.value], image_encoder=enc)
             return
 
-    dom_executor.render(_render_mlody_value(value))
+    dom_executor.render(_render_mlody_value(value, prepared=prepared))
 
 
-def _render_mlody_value(value: MlodyValue) -> RichDomNode:
+def _render_mlody_value(
+    value: MlodyValue,
+    *,
+    prepared: PreparedShowValue | None = None,
+) -> RichDomNode:
     if isinstance(value, MlodyValueValue):
         if is_lineage_type(getattr(value.struct, "type", None)):
-            lineage_rows = lineage_rows_from_payload(_display_payload(value))
+            lineage_rows = lineage_rows_from_payload(
+                _prepared_display_payload(value, prepared)
+            )
             if lineage_rows is not None:
                 return panel(
                     _RichRenderableNode(build_lineage_console_table(lineage_rows)),
                     title="lineage",
                 )
-        payload = _display_payload(value)
+        payload = _prepared_display_payload(value, prepared)
         asset_payload = asset_metadata_payload(payload)
         if asset_payload is not None:
             return panel(
@@ -1326,6 +1462,23 @@ def _maybe_print_dag_plan(workspace: Workspace, label: str) -> None:
         selection = resolve_show_output_selection(dag, label)
         if selection is None or len(selection.graph.nodes) == 0:
             return
+        render_dag_table(
+            selection.graph,
+            f"DAG — ancestors of '{label}'",
+            console=_console,
+        )
+    except networkx.NetworkXUnfeasible:
+        click.echo(
+            click.style("Error: cycle detected in task graph", fg="red"), err=True
+        )
+    except Exception as exc:
+        _logger.debug("Skipping DAG plan rendering for %r: %s", label, exc)
+
+
+def _maybe_print_selected_dag_plan(selection: ActionGraphSelection, label: str) -> None:
+    if selection.kind != "task-output" or len(selection.graph.nodes) == 0:
+        return
+    try:
         render_dag_table(
             selection.graph,
             f"DAG — ancestors of '{label}'",
@@ -1420,26 +1573,15 @@ def show(
                             indent=2,
                         )
                     )
-                _maybe_print_dag_plan(workspace, expanded_inner)
-
-                # Resolve the concrete label to a typed MlodyValue (new pipeline step)
-                from mlody.core.label import parse_label as _core_parse_label
-                from mlody.core.label.label import Label as _Label
-
-                if expanded_inner == "":
-                    # Bare workspace label (e.g. "HEAD", "main") — construct
-                    # the label directly rather than parsing an empty string.
-                    concrete_label = _Label(
-                        workspace=_committoid,
-                        workspace_query=None,
-                        entity=None,
-                        entity_query=None,
-                        attribute_path=None,
-                        attribute_query=None,
-                    )
-                else:
-                    concrete_label = _core_parse_label(expanded_inner)
-                mlody_value = resolve_label_to_value(concrete_label, workspace)
+                concrete_label = _concrete_show_label(_committoid, expanded_inner)
+                execution = execute_show_action_graph(
+                    workspace,
+                    expanded_inner,
+                    concrete_label,
+                    resolve_label=resolve_label_to_value,
+                )
+                _maybe_print_selected_dag_plan(execution.selection, expanded_inner)
+                mlody_value = execution.prepared_value.value
 
                 if isinstance(mlody_value, MlodyUnresolvedValue):
                     has_error = True
@@ -1475,7 +1617,10 @@ def show(
                 click.echo(f"Value for user '{selected_user}'")
                 _error_sink: list[bool] = []
                 _print_mlody_value(
-                    mlody_value, workspace=workspace, _has_error=_error_sink
+                    mlody_value,
+                    workspace=workspace,
+                    _has_error=_error_sink,
+                    prepared=execution.prepared_value,
                 )
                 rendered_any_output = True
                 if _error_sink:

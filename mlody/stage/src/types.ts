@@ -40,6 +40,33 @@ export interface StageDagData {
   edges: StageDagEdge[];
 }
 
+export interface StageActionGraphNode {
+  id: string;
+  kind: "task" | "value" | "resolve" | "prepare" | "action";
+  title: string;
+  subtitle?: string | null;
+  description?: string | null;
+  executor: string;
+  executorDetail?: string | null;
+  operation: string;
+  structuralNodeId?: string | null;
+  position: {
+    x: number;
+    y: number;
+  };
+}
+
+export interface StageActionGraphEdge {
+  id: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+}
+
+export interface StageActionGraphData {
+  nodes: StageActionGraphNode[];
+  edges: StageActionGraphEdge[];
+}
+
 export interface StageEncodedImageCell {
   kind: "encoded-image";
   mimeType: string;
