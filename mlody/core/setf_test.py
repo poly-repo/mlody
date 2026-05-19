@@ -9,6 +9,7 @@ from pyfakefs.fake_filesystem import FakeFilesystem
 
 from common.python.starlarkish.core.struct import Struct
 
+from mlody.core.anchor import RegistryEntityAnchor
 from mlody.core.setf import can_setf, resolve_places, setf, setf_root
 from mlody.core.setf_strategies import (
     DictKeySetter,
@@ -511,6 +512,25 @@ class TestSetfModuleSkeleton:
 
 class TestWorkspaceFirstSetf:
     """Workspace-first label-aware `setf` acceptance tests."""
+
+    def test_selector_from_label_anchor_expands_inline_dict_keys(self) -> None:
+        from mlody.core.setf import _selector_from_label_anchor
+
+        selector = _selector_from_label_anchor(
+            RegistryEntityAnchor(
+                root_value=Struct(kind="task", name="downloader"),
+                registry_key=("task", "mlody/common/huggingface/downloader", "downloader"),
+                field_parts=('action["info"]', "implementation"),
+            )
+        )
+
+        assert selector == PathExpression(
+            segments=(
+                FieldSegment("action"),
+                KeySegment("info"),
+                FieldSegment("implementation"),
+            )
+        )
 
     def test_setf_updates_unqualified_label_against_explicit_workspace(
         self, loaded_workspace: Workspace

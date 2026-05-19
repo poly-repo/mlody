@@ -473,7 +473,15 @@ def setf_root(
 
 def _selector_from_label_anchor(anchor: Anchor) -> PathExpression:
     """Convert workspace anchor residuals into a traversal selector."""
-    segments: list[object] = [FieldSegment(field) for field in anchor.field_parts]
+    segments: list[object] = []
+    for field in anchor.field_parts:
+        if isinstance(field, str) and "[" in field:
+            try:
+                segments.extend(parse_traversal_expression(f".{field}").segments)
+                continue
+            except Exception:
+                pass
+        segments.append(FieldSegment(field))
     if anchor.entity_query is not None:
         query_expression = parse_traversal_expression(f"[{anchor.entity_query}]")
         if not (

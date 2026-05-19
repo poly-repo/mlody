@@ -1266,6 +1266,15 @@ textarea {
   line-height: 1.55;
 }
 
+.StageTaskBlock-portDetails {
+  margin: 0;
+  color: rgba(96, 107, 136, 0.92);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .StageTaskBlock-portDescription--empty,
 .StageTaskBlock-empty {
   color: rgba(122, 133, 161, 0.92);
@@ -1579,6 +1588,15 @@ textarea {
   font-family: var(--font-mono);
   font-size: 0.8rem;
   line-height: 1.5;
+}
+
+.StageResultBlock-resultList {
+  display: grid;
+  gap: 18px;
+}
+
+.StageResultBlock-resultListItem {
+  min-width: 0;
 }
 
 .JsonSyntaxBlock {

@@ -76,7 +76,7 @@ from mlody.resolver import (
     resolve_label_to_value,
     resolve_workspace,
 )
-from mlody.resolver.entity_summary import summarize_task_struct
+from mlody.resolver.entity_summary import summarize_action_struct, summarize_task_struct
 from mlody.resolver.values.internal import _RawAttrValue
 from mlody.resolver.values.structural import MlodySourceRangeValue
 from mlody.resolver.errors import WorkspaceResolutionError
@@ -1035,6 +1035,21 @@ def _stage_json_result(
     }
 
 
+def _stage_result_list_result(
+    title: str,
+    results: list[dict[str, object]],
+) -> dict[str, object]:
+    return {
+        "kind": "result",
+        "view": {
+            "type": "result-list",
+            "title": title,
+            "rowCount": len(results),
+        },
+        "data": results,
+    }
+
+
 def _stage_table_result(
     title: str,
     *,
@@ -1143,6 +1158,20 @@ def _stage_task_result(
             "title": title,
         },
         "data": summarize_task_struct(value.struct),
+    }
+
+
+def _stage_action_result(
+    title: str,
+    value: MlodyActionValue,
+) -> dict[str, object]:
+    return {
+        "kind": "result",
+        "view": {
+            "type": "action",
+            "title": title,
+        },
+        "data": summarize_action_struct(value.struct),
     }
 
 
@@ -1483,6 +1512,8 @@ def _stage_result_for_mlody_value(
 ) -> dict[str, object]:
     if isinstance(value, MlodyTaskValue):
         return _stage_task_result(title, value)
+    if isinstance(value, MlodyActionValue):
+        return _stage_action_result(title, value)
 
     if isinstance(value, MlodySourceRangeValue):
         return _stage_source_code_result(title, value)
@@ -1513,10 +1544,17 @@ def _stage_result_for_mlody_value(
         return _stage_json_result(title, raw_value)
 
     if isinstance(value, MlodyVectorValue):
-        return _stage_json_result(
+        return _stage_result_list_result(
             title,
             [
-                _stage_result_for_mlody_value(element, title=_describe_mlody_value(element))
+                _stage_result_for_mlody_value(
+                    element,
+                    title=(
+                        ""
+                        if isinstance(element, (MlodyTaskValue, MlodyActionValue))
+                        else _describe_mlody_value(element)
+                    ),
+                )
                 for element in value.elements
             ],
         )
@@ -1814,7 +1852,7 @@ def _collect_stage_command_response(
 
     return (
         _attach_stage_request_id(
-            _stage_json_result(request.arguments[0], stage_results),
+            _stage_result_list_result(request.arguments[0], stage_results),
             request_id=request.request_id,
         ),
         events,

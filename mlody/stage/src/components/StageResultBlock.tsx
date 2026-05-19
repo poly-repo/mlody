@@ -1,17 +1,17 @@
 import { Component, type ReactNode } from "react";
 import type {
   StageDagData,
+  StageEntityData,
   StageLineageRow,
   StageResultPayload,
   StageSourceCodeData,
-  StageTaskData,
 } from "../types.js";
 import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
 import { StageDagBlock } from "./StageDagBlock.js";
+import { StageEntityBlock } from "./StageTaskBlock.js";
 import { StageLineageBlock } from "./StageLineageBlock.js";
 import { StageScalarBlock } from "./StageScalarBlock.js";
 import { StageSourceCodeBlock } from "./StageSourceCodeBlock.js";
-import { StageTaskBlock } from "./StageTaskBlock.js";
 import { StageTableBlock } from "./StageTableBlock.js";
 
 interface StageResultBlockProps {
@@ -67,12 +67,21 @@ type StageScalarPayload = StageResultPayload & {
   data: string | number | boolean | null;
 };
 
-type StageTaskPayload = StageResultPayload & {
+type StageEntityPayload = StageResultPayload & {
   view: {
-    type: "task";
+    type: "task" | "action";
     title?: string;
   };
-  data: StageTaskData;
+  data: StageEntityData;
+};
+
+type StageResultListPayload = StageResultPayload & {
+  view: {
+    type: "result-list";
+    title?: string;
+    rowCount?: number;
+  };
+  data: StageResultPayload[];
 };
 
 type StageSpecializedRenderer =
@@ -98,7 +107,11 @@ type StageSpecializedRenderer =
     }
   | {
       kind: "task";
-      payload: StageTaskPayload;
+      payload: StageEntityPayload;
+    }
+  | {
+      kind: "result-list";
+      payload: StageResultListPayload;
     };
 
 interface DagRenderBoundaryProps {
@@ -194,7 +207,7 @@ function isScalarPayload(payload: StageResultPayload): payload is StageScalarPay
   );
 }
 
-function isTaskPortArray(value: unknown): value is StageTaskData["inputs"] {
+function isTaskPortArray(value: unknown): value is StageEntityData["inputs"] {
   return (
     Array.isArray(value) &&
     value.every((port) => {
@@ -205,13 +218,17 @@ function isTaskPortArray(value: unknown): value is StageTaskData["inputs"] {
       return (
         typeof candidate.name === "string" &&
         typeof candidate.type === "string" &&
-        typeof candidate.description === "string"
+        typeof candidate.description === "string" &&
+        typeof candidate.detailsText === "string" &&
+        Array.isArray(candidate.details)
       );
     })
   );
 }
 
-function isTaskAttributeArray(value: unknown): value is StageTaskData["attributes"] {
+function isTaskAttributeArray(
+  value: unknown,
+): value is StageEntityData["attributes"] {
   return (
     Array.isArray(value) &&
     value.every((attribute) => {
@@ -233,7 +250,43 @@ function isTaskAttributeArray(value: unknown): value is StageTaskData["attribute
   );
 }
 
-function isStageTaskData(value: unknown): value is StageTaskData {
+function isTaskSectionArray(value: unknown): value is StageEntityData["sections"] {
+  return (
+    Array.isArray(value) &&
+    value.every((section) => {
+      if (section === null || typeof section !== "object" || Array.isArray(section)) {
+        return false;
+      }
+      const candidate = section as Record<string, unknown>;
+      return (
+        typeof candidate.key === "string" &&
+        typeof candidate.label === "string" &&
+        isTaskPortArray(candidate.values)
+      );
+    })
+  );
+}
+
+function isStageResultPayloadArray(value: unknown): value is StageResultPayload[] {
+  return (
+    Array.isArray(value) &&
+    value.every((entry) => {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        return false;
+      }
+      const candidate = entry as Record<string, unknown>;
+      return (
+        candidate.view !== null &&
+        typeof candidate.view === "object" &&
+        "type" in candidate.view &&
+        typeof (candidate.view as Record<string, unknown>).type === "string" &&
+        "data" in candidate
+      );
+    })
+  );
+}
+
+function isStageTaskData(value: unknown): value is StageEntityData {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
@@ -244,12 +297,24 @@ function isStageTaskData(value: unknown): value is StageTaskData {
     isTaskAttributeArray(candidate.attributes) &&
     isTaskPortArray(candidate.inputs) &&
     isTaskPortArray(candidate.outputs) &&
-    isTaskPortArray(candidate.config)
+    isTaskPortArray(candidate.config) &&
+    isTaskSectionArray(candidate.sections)
   );
 }
 
-function isTaskPayload(payload: StageResultPayload): payload is StageTaskPayload {
-  return payload.view.type === "task" && isStageTaskData(payload.data);
+function isTaskPayload(payload: StageResultPayload): payload is StageEntityPayload {
+  return (
+    (payload.view.type === "task" || payload.view.type === "action") &&
+    isStageTaskData(payload.data)
+  );
+}
+
+function isResultListPayload(
+  payload: StageResultPayload,
+): payload is StageResultListPayload {
+  return (
+    payload.view.type === "result-list" && isStageResultPayloadArray(payload.data)
+  );
 }
 
 function resolveSpecializedRenderer(
@@ -272,6 +337,9 @@ function resolveSpecializedRenderer(
   }
   if (isTaskPayload(payload)) {
     return { kind: "task", payload };
+  }
+  if (isResultListPayload(payload)) {
+    return { kind: "result-list", payload };
   }
 
   return null;
@@ -347,7 +415,21 @@ export function StageResultBlock({
     return <StageScalarBlock payload={specializedRenderer.payload} />;
   }
   if (specializedRenderer?.kind === "task") {
-    return <StageTaskBlock payload={specializedRenderer.payload} />;
+    return <StageEntityBlock payload={specializedRenderer.payload} />;
+  }
+  if (specializedRenderer?.kind === "result-list") {
+    return (
+      <div className="StageResultBlock-resultList">
+        {specializedRenderer.payload.data.map((result, index) => (
+          <div
+            className="StageResultBlock-resultListItem"
+            key={`${index}-${result.view.type}`}
+          >
+            <StageResultBlock payload={result} mode={mode} />
+          </div>
+        ))}
+      </div>
+    );
   }
 
   return <JsonSyntaxBlock value={payload} />;

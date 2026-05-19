@@ -229,6 +229,61 @@ class TestDomForAction:
         rendered = _render(dom_for(v))
         assert "action: deploy" in rendered
 
+    def test_action_panel_renders_attributes_and_value_sections(self) -> None:
+        from mlody.resolver.values.registry_backed import MlodyActionValue
+
+        v = MlodyActionValue(
+            struct=_make_struct(
+                kind="action",
+                name="deploy",
+                description="Ship the trained model",
+                inputs={
+                    "artifact": _make_struct(
+                        kind="value",
+                        name="artifact",
+                        description="Built model artifact",
+                        type=_make_struct(kind="type", type="string", name="string"),
+                    )
+                },
+                outputs={
+                    "release": _make_struct(
+                        kind="value",
+                        name="release",
+                        description="Published release record",
+                        type=_make_struct(kind="type", type="record", name="release-record"),
+                    )
+                },
+                config={
+                    "region": _make_struct(
+                        kind="value",
+                        name="region",
+                        description="Deployment region",
+                        type=_make_struct(kind="type", type="string", name="string"),
+                    )
+                },
+                implementation=_make_struct(
+                    kind="implementation",
+                    type="container",
+                    name="container",
+                    build=_make_struct(
+                        kind="build_ref",
+                        type="bazel",
+                        name="bazel",
+                        target="//mlody/release:image",
+                    ),
+                ),
+            )
+        )
+
+        rendered = _render(dom_for(v))
+        assert "Ship the trained model" in rendered
+        assert "Inputs" in rendered
+        assert "Outputs" in rendered
+        assert "Config" in rendered
+        assert "artifact" in rendered
+        assert "release-record" in rendered
+        assert "build=bazel(target=//mlody/release:image)" in rendered
+
 
 # ---------------------------------------------------------------------------
 # MlodyUserValue

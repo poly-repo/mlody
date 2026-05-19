@@ -1,42 +1,47 @@
-import type { StageResultPayload, StageTaskData, StageTaskPort } from "../types.js";
+import type {
+  StageEntityData,
+  StageEntitySection,
+  StageResultPayload,
+} from "../types.js";
 
-interface StageTaskBlockProps {
+interface StageEntityBlockProps {
   payload: StageResultPayload & {
     view: {
-      type: "task";
+      type: "task" | "action";
       title?: string;
     };
-    data: StageTaskData;
+    data: StageEntityData;
   };
 }
 
-interface TaskSectionSpec {
-  key: "inputs" | "outputs" | "config";
-  label: string;
-  ports: StageTaskPort[];
-}
-
-const SECTION_SPECS: Array<Pick<TaskSectionSpec, "key" | "label">> = [
+const LEGACY_SECTION_SPECS: Array<Pick<StageEntitySection, "key" | "label">> = [
   { key: "inputs", label: "Inputs" },
   { key: "outputs", label: "Outputs" },
   { key: "config", label: "Config" },
 ];
 
-function sectionSpecs(data: StageTaskData): TaskSectionSpec[] {
-  return SECTION_SPECS.map((section) => ({
+function entitySections(data: StageEntityData): StageEntitySection[] {
+  if (Array.isArray(data.sections) && data.sections.length > 0) {
+    return data.sections;
+  }
+  return LEGACY_SECTION_SPECS.map((section) => ({
     ...section,
-    ports: data[section.key],
+    values: data[section.key as keyof Pick<StageEntityData, "inputs" | "outputs" | "config">],
   }));
 }
 
-export function StageTaskBlock({ payload }: StageTaskBlockProps) {
-  const sections = sectionSpecs(payload.data);
+function entityLabel(kind: StageEntityBlockProps["payload"]["view"]["type"]): string {
+  return kind === "action" ? "Action" : "Task";
+}
+
+export function StageEntityBlock({ payload }: StageEntityBlockProps) {
+  const sections = entitySections(payload.data);
 
   return (
     <div className="StageTaskBlock">
       <div className="StageTaskBlock-header">
         <div className="StageTaskBlock-headingGroup">
-          <span className="StageTaskBlock-label">Task</span>
+          <span className="StageTaskBlock-label">{entityLabel(payload.view.type)}</span>
           <span className="StageTaskBlock-title">{payload.data.name}</span>
           {payload.view.title ? (
             <span className="StageTaskBlock-context">{payload.view.title}</span>
@@ -73,12 +78,12 @@ export function StageTaskBlock({ payload }: StageTaskBlockProps) {
               <div className="StageTaskBlock-sectionHeader">
                 <span className="StageTaskBlock-sectionTitle">{section.label}</span>
                 <span className="StageTaskBlock-sectionCount">
-                  {section.ports.length}
+                  {section.values.length}
                 </span>
               </div>
-              {section.ports.length ? (
+              {section.values.length ? (
                 <div className="StageTaskBlock-portGrid">
-                  {section.ports.map((port) => (
+                  {section.values.map((port) => (
                     <article
                       className="StageTaskBlock-portCard"
                       key={`${section.key}-${port.name}`}
@@ -99,6 +104,9 @@ export function StageTaskBlock({ payload }: StageTaskBlockProps) {
                       >
                         {port.description || "No description."}
                       </p>
+                      {port.detailsText ? (
+                        <p className="StageTaskBlock-portDetails">{port.detailsText}</p>
+                      ) : null}
                     </article>
                   ))}
                 </div>
@@ -112,3 +120,5 @@ export function StageTaskBlock({ payload }: StageTaskBlockProps) {
     </div>
   );
 }
+
+export const StageTaskBlock = StageEntityBlock;

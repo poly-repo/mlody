@@ -126,22 +126,27 @@ def _entity_io_panel(title: str, struct: object) -> RichDomNode:
             )
         )
 
-    for section_name in ("inputs", "outputs", "config"):
+    for section in summary.get("sections", []):
         port_rows = []
-        for port in summary.get(section_name, []):
+        for port in section.get("values", []):
+            summary_lines = [
+                str(part)
+                for part in (port.get("description"), port.get("detailsText"))
+                if part
+            ]
             port_rows.append(
                 [
                     text(str(port["name"])),
                     text(str(port["type"])),
-                    text(str(port["description"] or "-")),
+                    text("\n".join(summary_lines) if summary_lines else "-"),
                 ]
             )
         if port_rows:
             nodes.append(
                 table(
-                    ["name", "type", "description"],
+                    ["name", "type", "summary"],
                     port_rows,
-                    title=section_name,
+                    title=str(section.get("label", section.get("key", "section"))),
                 )
             )
 

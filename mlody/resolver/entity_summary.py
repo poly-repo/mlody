@@ -23,6 +23,12 @@ _RESERVED_STRUCT_FIELDS = {
     "lineage",
 }
 
+_PORT_SECTION_SPECS = (
+    ("inputs", "Inputs"),
+    ("outputs", "Outputs"),
+    ("config", "Config"),
+)
+
 
 def _as_mapping(value: object) -> Mapping[str, object] | None:
     if hasattr(value, "as_mapping"):
@@ -90,17 +96,47 @@ def _summary_text(value: object) -> str:
     return str(value)
 
 
-def summarize_ports(container: object) -> list[dict[str, str]]:
-    ports: list[dict[str, str]] = []
+def summarize_value_struct(
+    value: object,
+    *,
+    fallback_name: str,
+) -> dict[str, Any]:
+    details: list[dict[str, str]] = []
+    group_name = getattr(value, "group", None)
+    if isinstance(group_name, str) and group_name:
+        details.append({"name": "group", "value": group_name})
+    details_text = ", ".join(
+        f"{detail['name']}={detail['value']}" for detail in details
+    )
+    return {
+        "name": str(getattr(value, "name", fallback_name)),
+        "type": format_type_label(getattr(value, "type", None)),
+        "description": str(getattr(value, "description", "") or ""),
+        "details": details,
+        "detailsText": details_text,
+    }
+
+
+def summarize_values(container: object) -> list[dict[str, Any]]:
+    ports: list[dict[str, Any]] = []
     for fallback_name, item in _named_items(container):
-        ports.append(
-            {
-                "name": str(getattr(item, "name", fallback_name)),
-                "type": format_type_label(getattr(item, "type", None)),
-                "description": str(getattr(item, "description", "") or ""),
-            }
-        )
+        ports.append(summarize_value_struct(item, fallback_name=fallback_name))
     return ports
+
+
+def summarize_ports(container: object) -> list[dict[str, Any]]:
+    return summarize_values(container)
+
+
+def summarize_port_sections(entity: object) -> list[dict[str, Any]]:
+    return [
+        {
+            "key": key,
+            "label": label,
+            "values": summarize_values(getattr(entity, key, None)),
+        }
+        for key, label in _PORT_SECTION_SPECS
+    ]
 
 
 def summarize_attribute(
@@ -195,6 +231,24 @@ def _grouped_attribute(name: str, details: list[dict[str, str]]) -> dict[str, An
     }
 
 
+def _entity_summary(
+    *,
+    kind: str,
+    entity: object,
+    attributes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    sections = summarize_port_sections(entity)
+    summary: dict[str, Any] = {
+        "kind": kind,
+        "name": str(getattr(entity, "name", "?")),
+        "description": str(getattr(entity, "description", "") or ""),
+        "attributes": attributes,
+        "sections": sections,
+    }
+    for section in sections:
+        summary[str(section["key"])] = section["values"]
+    return summary
+
 
 def summarize_task_struct(task_struct: object) -> dict[str, Any]:
     action = getattr(task_struct, "action", None)
@@ -225,15 +279,7 @@ def summarize_task_struct(task_struct: object) -> dict[str, Any]:
     if execution_summary is not None:
         attributes.append(execution_summary)
 
-    return {
-        "kind": "task",
-        "name": str(getattr(task_struct, "name", "?")),
-        "description": str(getattr(task_struct, "description", "") or ""),
-        "attributes": attributes,
-        "inputs": summarize_ports(getattr(task_struct, "inputs", None)),
-        "outputs": summarize_ports(getattr(task_struct, "outputs", None)),
-        "config": summarize_ports(getattr(task_struct, "config", None)),
-    }
+    return _entity_summary(kind="task", entity=task_struct, attributes=attributes)
 
 
 def summarize_action_struct(action_struct: object) -> dict[str, Any]:
@@ -245,12 +291,4 @@ def summarize_action_struct(action_struct: object) -> dict[str, Any]:
     if implementation_summary is not None:
         attributes.append(implementation_summary)
 
-    return {
-        "kind": "action",
-        "name": str(getattr(action_struct, "name", "?")),
-        "description": str(getattr(action_struct, "description", "") or ""),
-        "attributes": attributes,
-        "inputs": summarize_ports(getattr(action_struct, "inputs", None)),
-        "outputs": summarize_ports(getattr(action_struct, "outputs", None)),
-        "config": summarize_ports(getattr(action_struct, "config", None)),
-    }
+    return _entity_summary(kind="action", entity=action_struct, attributes=attributes)

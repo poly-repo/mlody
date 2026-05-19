@@ -55,33 +55,47 @@ export interface StageLineageRow {
   active: boolean;
 }
 
-export interface StageTaskPort {
+export interface StageSummaryDetail {
+  name: string;
+  value: string;
+}
+
+export interface StageEntityValue {
   name: string;
   type: string;
   description: string;
-}
-
-export interface StageTaskAttributeDetail {
-  name: string;
-  value: string;
-}
-
-export interface StageTaskAttribute {
-  name: string;
-  value: string;
-  details: StageTaskAttributeDetail[];
+  details: StageSummaryDetail[];
   detailsText: string;
 }
 
-export interface StageTaskData {
+export interface StageEntityAttribute {
+  name: string;
+  value: string;
+  details: StageSummaryDetail[];
+  detailsText: string;
+}
+
+export interface StageEntitySection {
+  key: string;
+  label: string;
+  values: StageEntityValue[];
+}
+
+export interface StageEntityData {
   kind: string;
   name: string;
   description: string;
-  attributes: StageTaskAttribute[];
-  inputs: StageTaskPort[];
-  outputs: StageTaskPort[];
-  config: StageTaskPort[];
+  attributes: StageEntityAttribute[];
+  sections: StageEntitySection[];
+  inputs: StageEntityValue[];
+  outputs: StageEntityValue[];
+  config: StageEntityValue[];
 }
+
+export type StageTaskPort = StageEntityValue;
+export type StageTaskAttributeDetail = StageSummaryDetail;
+export type StageTaskAttribute = StageEntityAttribute;
+export type StageTaskData = StageEntityData;
 
 export interface StageSourceCodeData {
   path: string;

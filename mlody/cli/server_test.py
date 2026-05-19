@@ -40,7 +40,13 @@ from mlody.cli.server import (
 from mlody.core.dag import Edge, TaskNode, ValueNode
 from mlody.core.dag_value import MlodyDagType
 from mlody.core.workspace_models import RootInfo
-from mlody.resolver import MlodyFolderValue, MlodyTaskValue, MlodyValueValue
+from mlody.resolver import (
+    MlodyActionValue,
+    MlodyFolderValue,
+    MlodyTaskValue,
+    MlodyValueValue,
+    MlodyVectorValue,
+)
 from mlody.resolver.values.internal import _RawAttrValue
 from mlody.resolver.values.structural import MlodySourceRangeValue
 
@@ -758,8 +764,12 @@ class TestExecuteStageCommandResponse:
                 "name": "dataset",
                 "type": "string",
                 "description": "Prepared training dataset",
+                "details": [],
+                "detailsText": "",
             }
         ]
+        assert response["data"]["sections"][0]["label"] == "Inputs"
+        assert response["data"]["sections"][0]["values"] == response["data"]["inputs"]
         assert response["data"]["attributes"][1]["value"] == "container"
         assert response["data"]["attributes"][1]["detailsText"] == (
             "build=bazel(target=//mlody/train:image)"
@@ -768,6 +778,142 @@ class TestExecuteStageCommandResponse:
         assert response["data"]["attributes"][2]["detailsText"] == (
             "namespace=mlody, service_account=trainer"
         )
+
+    def test_renders_action_summary_result(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        action_struct = Struct(
+            kind="action",
+            name="fit_model",
+            description="Fit a ranking model",
+            inputs=[
+                Struct(
+                    kind="value",
+                    name="dataset",
+                    description="Prepared training dataset",
+                    type=Struct(kind="type", type="string", name="string"),
+                )
+            ],
+            outputs=[
+                Struct(
+                    kind="value",
+                    name="model",
+                    description="Fitted ranking model",
+                    type=Struct(kind="type", type="record", name="ranking-model"),
+                )
+            ],
+            config=[
+                Struct(
+                    kind="value",
+                    name="epochs",
+                    description="Training epochs",
+                    type=Struct(kind="type", type="integer", name="integer"),
+                )
+            ],
+            implementation=Struct(
+                kind="implementation",
+                type="container",
+                name="container",
+                build=Struct(
+                    kind="build_ref",
+                    type="bazel",
+                    name="bazel",
+                    target="//mlody/train:image",
+                ),
+            ),
+        )
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyActionValue(struct=action_struct),
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "//mlody/train:fit_model",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"]["type"] == "action"
+        assert response["data"]["name"] == "fit_model"
+        assert response["data"]["sections"][0]["values"][0]["name"] == "dataset"
+        assert response["data"]["sections"][1]["values"][0]["type"] == "ranking-model"
+        assert response["data"]["attributes"][0]["value"] == "container"
+
+    def test_renders_multi_result_stage_list_for_action_vectors(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _FakeWorkspace:
+            evaluator = SimpleNamespace(_method_registry={})
+
+            @staticmethod
+            def expand_wildcard_label(label: str) -> list[str]:
+                return [label]
+
+        first_action = Struct(
+            kind="action",
+            name="downloader-action-info",
+            outputs=[],
+            config=[],
+            implementation=Struct(kind="implementation", type="sandbox", name="sandbox"),
+        )
+        second_action = Struct(
+            kind="action",
+            name="downloader-action",
+            outputs=[],
+            config=[],
+            implementation=Struct(kind="implementation", type="sandbox", name="sandbox"),
+        )
+
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_workspace",
+            lambda *args, **kwargs: (_FakeWorkspace(), "sha123"),
+        )
+        monkeypatch.setattr(
+            "mlody.cli.server.resolve_label_to_value",
+            lambda _label, _workspace: MlodyVectorValue(
+                elements=(
+                    MlodyActionValue(struct=first_action),
+                    MlodyActionValue(struct=second_action),
+                )
+            ),
+        )
+
+        request = parse_verbatim_command_request(
+            {
+                "command": "show",
+                "input": "@common//huggingface/downloader:downloader.action",
+            }
+        )
+        response = execute_stage_command_response(_server_config(tmp_path), request)
+
+        assert response["kind"] == "result"
+        assert response["view"]["type"] == "result-list"
+        assert response["view"]["rowCount"] == 2
+        assert isinstance(response["data"], list)
+        assert response["data"][0]["view"]["type"] == "action"
+        assert response["data"][0]["view"].get("title", "") == ""
+        assert response["data"][0]["data"]["name"] == "downloader-action-info"
+        assert response["data"][1]["view"].get("title", "") == ""
+        assert response["data"][1]["data"]["name"] == "downloader-action"
 
     def test_falls_back_to_json_when_value_has_no_tabular_source(
         self,
