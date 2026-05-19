@@ -79,6 +79,12 @@ interface AutocompleteAnalysis {
   validFor?: RegExp;
 }
 
+interface DeleteBackwardState {
+  nextSegments: readonly string[];
+  nextValue: string;
+  nextCursor: number;
+}
+
 const AUTOCOMPLETE_VALID_FOR = /^[A-Za-z0-9_-]*$/;
 
 const setPromotedSegmentsEffect = StateEffect.define<readonly string[]>();
@@ -386,38 +392,36 @@ function isCursorAtEnd(view: EditorView): boolean {
   return selection.empty && selection.head === view.state.doc.length;
 }
 
-function findPreviousWordStart(value: string, cursor: number): number {
+function isSegmentBoundaryCharacter(value: string): boolean {
+  return value === "." || value === ":" || value === "/";
+}
+
+function findPreviousSegmentDeleteStart(
+  value: string,
+  cursor: number,
+): number {
+  if (cursor <= 0) {
+    return cursor;
+  }
+
   let from = cursor;
   while (from > 0 && /\s/.test(value[from - 1] ?? "")) {
     from -= 1;
   }
-  while (from > 0 && !/\s/.test(value[from - 1] ?? "")) {
-    from -= 1;
-  }
-  return from;
-}
 
-function deletePreviousWordInView(view: EditorView): boolean {
-  const selection = view.state.selection.main;
-  if (!selection.empty || selection.head === 0) {
-    return false;
-  }
-
-  const text = view.state.doc.toString();
-  const from = findPreviousWordStart(text, selection.head);
-
-  if (from === selection.head) {
-    return false;
+  let scan = from;
+  while (scan > 0) {
+    const previousCharacter = value[scan - 1] ?? "";
+    if (isSegmentBoundaryCharacter(previousCharacter)) {
+      return scan - 1;
+    }
+    if (/\s/.test(previousCharacter)) {
+      return scan;
+    }
+    scan -= 1;
   }
 
-  view.dispatch({
-    changes: {
-      from,
-      to: selection.head,
-      insert: "",
-    },
-  });
-  return true;
+  return 0;
 }
 
 function runAndReport(
@@ -497,18 +501,65 @@ function popLastPromotedSegmentChar(
   };
 }
 
-function popLocationSegment(view: EditorView): boolean {
-  if (view.state.doc.length > 0) {
-    return false;
-  }
-
-  const segments = getPromotedSegments(view);
+function updateLastSegment(
+  segments: readonly string[],
+  nextLastSegment: string,
+): readonly string[] {
   if (segments.length === 0) {
-    return false;
+    return segments;
   }
 
-  dispatchPromotedSegmentsUpdate(view, segments.slice(0, -1));
-  return true;
+  if (nextLastSegment === "") {
+    return segments.slice(0, -1);
+  }
+
+  return [...segments.slice(0, -1), nextLastSegment];
+}
+
+function adjustSegmentsAfterClearingCurrentValue(
+  segments: readonly string[],
+): readonly string[] {
+  const lastSegment = segments[segments.length - 1] ?? "";
+  if (lastSegment === "//") {
+    return segments.slice(0, -1);
+  }
+
+  if (lastSegment.endsWith(":")) {
+    return updateLastSegment(segments, lastSegment.slice(0, -1));
+  }
+
+  return segments;
+}
+
+function deletePreviousPromotedChunk(
+  segments: readonly string[],
+): readonly string[] | null {
+  if (segments.length === 0) {
+    return null;
+  }
+
+  const lastSegment = segments[segments.length - 1] ?? "";
+  if (lastSegment === "//") {
+    return segments.slice(0, -1);
+  }
+
+  if (lastSegment.endsWith(":")) {
+    return updateLastSegment(segments, lastSegment.slice(0, -1));
+  }
+
+  const previousSegment = segments[segments.length - 2] ?? "";
+  if (previousSegment === "//") {
+    return segments.slice(0, -2);
+  }
+
+  if (previousSegment.endsWith(":")) {
+    return updateLastSegment(
+      segments.slice(0, -1),
+      previousSegment.slice(0, -1),
+    );
+  }
+
+  return segments.slice(0, -1);
 }
 
 function demoteLocationSegmentAfterSingleDelete(view: EditorView): boolean {
@@ -528,14 +579,79 @@ function demoteLocationSegmentAfterSingleDelete(view: EditorView): boolean {
   return true;
 }
 
-function deletePreviousWordFromText(value: string, cursor: number): string {
-  if (cursor <= 0) {
-    return value;
+function deletePreviousSegmentChunkState(
+  segments: readonly string[],
+  value: string,
+  cursor: number,
+): DeleteBackwardState | null {
+  if (cursor < 0 || cursor > value.length) {
+    return null;
   }
 
-  const from = findPreviousWordStart(value, cursor);
+  if (cursor > 0) {
+    const from = findPreviousSegmentDeleteStart(value, cursor);
+    if (from < cursor) {
+      if (from > 0 || isSegmentBoundaryCharacter(value[from] ?? "")) {
+        return {
+          nextSegments: segments,
+          nextValue: value.slice(0, from) + value.slice(cursor),
+          nextCursor: from,
+        };
+      }
 
-  return value.slice(0, from) + value.slice(cursor);
+      if (segments.length === 0 || cursor < value.length) {
+        return {
+          nextSegments: segments,
+          nextValue: value.slice(cursor),
+          nextCursor: 0,
+        };
+      }
+
+      return {
+        nextSegments: adjustSegmentsAfterClearingCurrentValue(segments),
+        nextValue: "",
+        nextCursor: 0,
+      };
+    }
+  }
+
+  const nextSegments = deletePreviousPromotedChunk(segments);
+  if (nextSegments === null) {
+    return null;
+  }
+
+  return {
+    nextSegments,
+    nextValue: value,
+    nextCursor: cursor,
+  };
+}
+
+function applyDeleteBackwardStateToView(
+  view: EditorView,
+  nextState: DeleteBackwardState,
+): boolean {
+  const currentSegments = getPromotedSegments(view);
+  if (areSegmentsEqual(currentSegments, nextState.nextSegments)) {
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: view.state.doc.length,
+        insert: nextState.nextValue,
+      },
+      selection: {
+        anchor: nextState.nextCursor,
+      },
+      annotations: [Transaction.addToHistory.of(true), isolateHistory.of("full")],
+    });
+    return true;
+  }
+
+  dispatchPromotedSegmentsUpdate(view, nextState.nextSegments, {
+    insert: nextState.nextValue,
+    selectionAnchor: nextState.nextCursor,
+  });
+  return true;
 }
 
 function CodeMirrorCommandInput({
@@ -618,11 +734,21 @@ function CodeMirrorCommandInput({
   }, [cursorToEndToken, disabled, promotedSegments, value]);
 
   function deletePreviousWholeThing(view: EditorView): boolean {
-    if (!view.state.selection.main.empty) {
+    const selection = view.state.selection.main;
+    if (!selection.empty) {
       return runAndReport(view, deleteCharBackward);
     }
 
-    return popLocationSegment(view) || deletePreviousWordInView(view);
+    const nextState = deletePreviousSegmentChunkState(
+      getPromotedSegments(view),
+      view.state.doc.toString(),
+      selection.head,
+    );
+    if (!nextState) {
+      return false;
+    }
+
+    return applyDeleteBackwardStateToView(view, nextState);
   }
 
   function deletePreviousCharOrDemoteSegment(view: EditorView): boolean {
@@ -1236,15 +1362,6 @@ function TextareaCommandInput({
     onChange(nextValue);
   }
 
-  function popTextareaLocationSegment(): boolean {
-    if (promotedSegments.length === 0) {
-      return false;
-    }
-
-    onPromotedSegmentsChange(promotedSegments.slice(0, -1));
-    return true;
-  }
-
   function demoteTextareaLocationSegmentAfterSingleDelete(): boolean {
     const demotedSegment = popLastPromotedSegmentChar(promotedSegments);
     if (!demotedSegment) {
@@ -1258,18 +1375,18 @@ function TextareaCommandInput({
   }
 
   function deletePreviousWholeThingInTextarea(cursor: number): boolean {
-    if (value === "") {
-      return popTextareaLocationSegment();
-    }
-
-    const from = findPreviousWordStart(value, cursor);
-    const nextValue = deletePreviousWordFromText(value, cursor);
-    if (nextValue === value) {
+    const nextState = deletePreviousSegmentChunkState(
+      promotedSegments,
+      value,
+      cursor,
+    );
+    if (!nextState) {
       return false;
     }
 
-    onChange(nextValue);
-    moveTextareaCursor(from);
+    onPromotedSegmentsChange([...nextState.nextSegments]);
+    onChange(nextState.nextValue);
+    moveTextareaCursor(nextState.nextCursor);
     return true;
   }
 
