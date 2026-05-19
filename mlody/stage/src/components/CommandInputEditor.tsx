@@ -386,6 +386,17 @@ function isCursorAtEnd(view: EditorView): boolean {
   return selection.empty && selection.head === view.state.doc.length;
 }
 
+function findPreviousWordStart(value: string, cursor: number): number {
+  let from = cursor;
+  while (from > 0 && /\s/.test(value[from - 1] ?? "")) {
+    from -= 1;
+  }
+  while (from > 0 && !/\s/.test(value[from - 1] ?? "")) {
+    from -= 1;
+  }
+  return from;
+}
+
 function deletePreviousWordInView(view: EditorView): boolean {
   const selection = view.state.selection.main;
   if (!selection.empty || selection.head === 0) {
@@ -393,14 +404,7 @@ function deletePreviousWordInView(view: EditorView): boolean {
   }
 
   const text = view.state.doc.toString();
-  let from = selection.head;
-
-  while (from > 0 && /\s/.test(text[from - 1] ?? "")) {
-    from -= 1;
-  }
-  while (from > 0 && !/\s/.test(text[from - 1] ?? "")) {
-    from -= 1;
-  }
+  const from = findPreviousWordStart(text, selection.head);
 
   if (from === selection.head) {
     return false;
@@ -451,6 +455,7 @@ function dispatchPromotedSegmentsUpdate(
   options: {
     insert?: string;
     addToHistory?: boolean;
+    selectionAnchor?: number;
   } = {},
 ): void {
   const addToHistory = options.addToHistory ?? true;
@@ -464,11 +469,32 @@ function dispatchPromotedSegmentsUpdate(
           },
         }
       : {}),
+    ...(options.selectionAnchor !== undefined
+      ? {
+          selection: {
+            anchor: options.selectionAnchor,
+          },
+        }
+      : {}),
     effects: setPromotedSegmentsEffect.of(nextSegments),
     annotations: addToHistory
       ? [Transaction.addToHistory.of(true), isolateHistory.of("full")]
       : [Transaction.addToHistory.of(false)],
   });
+}
+
+function popLastPromotedSegmentChar(
+  segments: readonly string[],
+): { nextSegments: readonly string[]; insert: string } | null {
+  if (segments.length === 0) {
+    return null;
+  }
+
+  const lastSegment = segments[segments.length - 1] ?? "";
+  return {
+    nextSegments: segments.slice(0, -1),
+    insert: lastSegment.slice(0, -1),
+  };
 }
 
 function popLocationSegment(view: EditorView): boolean {
@@ -485,18 +511,29 @@ function popLocationSegment(view: EditorView): boolean {
   return true;
 }
 
+function demoteLocationSegmentAfterSingleDelete(view: EditorView): boolean {
+  if (view.state.doc.length > 0) {
+    return false;
+  }
+
+  const demotedSegment = popLastPromotedSegmentChar(getPromotedSegments(view));
+  if (!demotedSegment) {
+    return false;
+  }
+
+  dispatchPromotedSegmentsUpdate(view, demotedSegment.nextSegments, {
+    insert: demotedSegment.insert,
+    selectionAnchor: demotedSegment.insert.length,
+  });
+  return true;
+}
+
 function deletePreviousWordFromText(value: string, cursor: number): string {
   if (cursor <= 0) {
     return value;
   }
 
-  let from = cursor;
-  while (from > 0 && /\s/.test(value[from - 1] ?? "")) {
-    from -= 1;
-  }
-  while (from > 0 && !/\s/.test(value[from - 1] ?? "")) {
-    from -= 1;
-  }
+  const from = findPreviousWordStart(value, cursor);
 
   return value.slice(0, from) + value.slice(cursor);
 }
@@ -527,6 +564,7 @@ function CodeMirrorCommandInput({
   const autocompleteRequestKeyRef = useRef<string | null>(null);
   const autocompleteRequestSequenceRef = useRef(0);
   const cursorToEndTokenRef = useRef(cursorToEndToken);
+  const escapePrefixActiveRef = useRef(false);
 
   useEffect(() => {
     if (!disabled) {
@@ -578,6 +616,22 @@ function CodeMirrorCommandInput({
       });
     }
   }, [cursorToEndToken, disabled, promotedSegments, value]);
+
+  function deletePreviousWholeThing(view: EditorView): boolean {
+    if (!view.state.selection.main.empty) {
+      return runAndReport(view, deleteCharBackward);
+    }
+
+    return popLocationSegment(view) || deletePreviousWordInView(view);
+  }
+
+  function deletePreviousCharOrDemoteSegment(view: EditorView): boolean {
+    if (runAndReport(view, deleteCharBackward)) {
+      return true;
+    }
+
+    return demoteLocationSegmentAfterSingleDelete(view);
+  }
 
   const completionSource = async (
     context: CompletionContext,
@@ -669,6 +723,16 @@ function CodeMirrorCommandInput({
         }),
         EditorView.domEventHandlers({
           keydown(event) {
+            const lowerKey = event.key.toLowerCase();
+            if (
+              escapePrefixActiveRef.current &&
+              event.key !== "Escape" &&
+              event.key !== "Backspace" &&
+              !(event.ctrlKey && lowerKey === "h")
+            ) {
+              escapePrefixActiveRef.current = false;
+            }
+
             if (!historySearchActive) {
               return false;
             }
@@ -857,7 +921,12 @@ function CodeMirrorCommandInput({
             {
               key: "Escape",
               run() {
-                return historySearchActive ? onHistorySearchCancel() : false;
+                if (historySearchActive) {
+                  return onHistorySearchCancel();
+                }
+
+                escapePrefixActiveRef.current = true;
+                return true;
               },
             },
             {
@@ -909,7 +978,25 @@ function CodeMirrorCommandInput({
                   return onHistorySearchBackspace();
                 }
 
-                return popLocationSegment(view) || deletePreviousWordInView(view);
+                const deleteWholeThing = escapePrefixActiveRef.current;
+                escapePrefixActiveRef.current = false;
+                return deleteWholeThing
+                  ? deletePreviousWholeThing(view)
+                  : deletePreviousCharOrDemoteSegment(view);
+              },
+            },
+            {
+              key: "Alt-Backspace",
+              run(view) {
+                escapePrefixActiveRef.current = false;
+                return deletePreviousWholeThing(view);
+              },
+            },
+            {
+              key: "Ctrl-Backspace",
+              run(view) {
+                escapePrefixActiveRef.current = false;
+                return deletePreviousWholeThing(view);
               },
             },
             {
@@ -919,7 +1006,11 @@ function CodeMirrorCommandInput({
                   return onHistorySearchBackspace();
                 }
 
-                return popLocationSegment(view) || runAndReport(view, deleteCharBackward);
+                const deleteWholeThing = escapePrefixActiveRef.current;
+                escapePrefixActiveRef.current = false;
+                return deleteWholeThing
+                  ? deletePreviousWholeThing(view)
+                  : deletePreviousCharOrDemoteSegment(view);
               },
             },
             {
@@ -1080,6 +1171,7 @@ function TextareaCommandInput({
 }: CommandInputEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cursorToEndTokenRef = useRef(cursorToEndToken);
+  const escapePrefixActiveRef = useRef(false);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -1113,6 +1205,18 @@ function TextareaCommandInput({
     textarea.setSelectionRange(cursor, cursor);
   }, [cursorToEndToken, disabled, value]);
 
+  function moveTextareaCursor(cursor: number): void {
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea || disabled) {
+        return;
+      }
+
+      textarea.focus();
+      textarea.setSelectionRange(cursor, cursor);
+    });
+  }
+
   function handleChange(nextValue: string) {
     if (!shouldAttemptBulkPromotion(value, nextValue)) {
       onChange(nextValue);
@@ -1141,6 +1245,34 @@ function TextareaCommandInput({
     return true;
   }
 
+  function demoteTextareaLocationSegmentAfterSingleDelete(): boolean {
+    const demotedSegment = popLastPromotedSegmentChar(promotedSegments);
+    if (!demotedSegment) {
+      return false;
+    }
+
+    onPromotedSegmentsChange([...demotedSegment.nextSegments]);
+    onChange(demotedSegment.insert);
+    moveTextareaCursor(demotedSegment.insert.length);
+    return true;
+  }
+
+  function deletePreviousWholeThingInTextarea(cursor: number): boolean {
+    if (value === "") {
+      return popTextareaLocationSegment();
+    }
+
+    const from = findPreviousWordStart(value, cursor);
+    const nextValue = deletePreviousWordFromText(value, cursor);
+    if (nextValue === value) {
+      return false;
+    }
+
+    onChange(nextValue);
+    moveTextareaCursor(from);
+    return true;
+  }
+
   return (
     <textarea
       ref={textareaRef}
@@ -1149,6 +1281,20 @@ function TextareaCommandInput({
       value={value}
       onChange={(event) => handleChange(event.target.value)}
       onKeyDown={(event) => {
+        const lowerKey = event.key.toLowerCase();
+        const selectionStart = event.currentTarget.selectionStart;
+        const selectionEnd = event.currentTarget.selectionEnd;
+        const selectionCollapsed = selectionStart === selectionEnd;
+
+        if (
+          escapePrefixActiveRef.current &&
+          event.key !== "Escape" &&
+          event.key !== "Backspace" &&
+          !(event.ctrlKey && lowerKey === "h")
+        ) {
+          escapePrefixActiveRef.current = false;
+        }
+
         if (historySearchActive) {
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
@@ -1158,7 +1304,7 @@ function TextareaCommandInput({
 
           if (
             event.key === "Escape" ||
-            (event.ctrlKey && event.key.toLowerCase() === "g")
+            (event.ctrlKey && lowerKey === "g")
           ) {
             event.preventDefault();
             onHistorySearchCancel();
@@ -1167,20 +1313,20 @@ function TextareaCommandInput({
 
           if (
             event.key === "Backspace" ||
-            (event.ctrlKey && event.key.toLowerCase() === "h")
+            (event.ctrlKey && lowerKey === "h")
           ) {
             event.preventDefault();
             onHistorySearchBackspace();
             return;
           }
 
-          if (event.ctrlKey && event.key.toLowerCase() === "r") {
+          if (event.ctrlKey && lowerKey === "r") {
             event.preventDefault();
             onHistorySearchPreviousMatch();
             return;
           }
 
-          if (event.ctrlKey && event.key.toLowerCase() === "p") {
+          if (event.ctrlKey && lowerKey === "p") {
             event.preventDefault();
             onHistorySearchPreviousMatch();
             return;
@@ -1192,7 +1338,7 @@ function TextareaCommandInput({
             return;
           }
 
-          if (event.ctrlKey && event.key.toLowerCase() === "n") {
+          if (event.ctrlKey && lowerKey === "n") {
             event.preventDefault();
             onHistorySearchNextMatch();
             return;
@@ -1221,6 +1367,12 @@ function TextareaCommandInput({
           }
         }
 
+        if (event.key === "Escape") {
+          event.preventDefault();
+          escapePrefixActiveRef.current = true;
+          return;
+        }
+
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           onSubmit({
@@ -1236,7 +1388,7 @@ function TextareaCommandInput({
           return;
         }
 
-        if (event.ctrlKey && event.key.toLowerCase() === "p") {
+        if (event.ctrlKey && lowerKey === "p") {
           event.preventDefault();
           onHistoryPrevious();
           return;
@@ -1248,7 +1400,7 @@ function TextareaCommandInput({
           return;
         }
 
-        if (event.ctrlKey && event.key.toLowerCase() === "n") {
+        if (event.ctrlKey && lowerKey === "n") {
           event.preventDefault();
           onHistoryNext();
           return;
@@ -1260,7 +1412,7 @@ function TextareaCommandInput({
           return;
         }
 
-        if (event.ctrlKey && event.key.toLowerCase() === "r") {
+        if (event.ctrlKey && lowerKey === "r") {
           event.preventDefault();
           onHistorySearchRequest();
           return;
@@ -1268,8 +1420,8 @@ function TextareaCommandInput({
 
         if (
           event.key === "/" &&
-          event.currentTarget.selectionStart === value.length &&
-          event.currentTarget.selectionEnd === value.length &&
+          selectionStart === value.length &&
+          selectionEnd === value.length &&
           value === "/"
         ) {
           event.preventDefault();
@@ -1280,8 +1432,8 @@ function TextareaCommandInput({
 
         if (
           event.key === "/" &&
-          event.currentTarget.selectionStart === value.length &&
-          event.currentTarget.selectionEnd === value.length &&
+          selectionStart === value.length &&
+          selectionEnd === value.length &&
           value === ""
         ) {
           event.preventDefault();
@@ -1293,8 +1445,8 @@ function TextareaCommandInput({
 
         if (
           event.key === "/" &&
-          event.currentTarget.selectionStart === value.length &&
-          event.currentTarget.selectionEnd === value.length &&
+          selectionStart === value.length &&
+          selectionEnd === value.length &&
           isRootLocationSegment(value)
         ) {
           event.preventDefault();
@@ -1305,8 +1457,8 @@ function TextareaCommandInput({
 
         if (
           event.key === "/" &&
-          event.currentTarget.selectionStart === value.length &&
-          event.currentTarget.selectionEnd === value.length &&
+          selectionStart === value.length &&
+          selectionEnd === value.length &&
           canPromoteLocationSegment(value)
         ) {
           event.preventDefault();
@@ -1317,8 +1469,8 @@ function TextareaCommandInput({
 
         if (
           event.key === ":" &&
-          event.currentTarget.selectionStart === value.length &&
-          event.currentTarget.selectionEnd === value.length &&
+          selectionStart === value.length &&
+          selectionEnd === value.length &&
           value !== "" &&
           canPromoteLocationSegment(value)
         ) {
@@ -1330,8 +1482,8 @@ function TextareaCommandInput({
 
         if (
           event.key === "." &&
-          event.currentTarget.selectionStart === value.length &&
-          event.currentTarget.selectionEnd === value.length
+          selectionStart === value.length &&
+          selectionEnd === value.length
         ) {
           if (value === "..") {
             event.preventDefault();
@@ -1348,32 +1500,57 @@ function TextareaCommandInput({
           }
         }
 
-        if (
-          event.key === "Backspace" &&
-          value === ""
-        ) {
-          if (popTextareaLocationSegment()) {
+        if (event.key === "Backspace") {
+          const deleteWholeThing =
+            escapePrefixActiveRef.current || event.altKey || event.ctrlKey;
+          escapePrefixActiveRef.current = false;
+
+          if (!selectionCollapsed) {
+            return;
+          }
+
+          if (deleteWholeThing) {
+            if (deletePreviousWholeThingInTextarea(selectionStart)) {
+              event.preventDefault();
+            }
+            return;
+          }
+
+          if (value === "" && demoteTextareaLocationSegmentAfterSingleDelete()) {
             event.preventDefault();
           }
           return;
         }
 
-        if (
-          event.key === "Backspace" &&
-          value !== "" &&
-          event.currentTarget.selectionStart === event.currentTarget.selectionEnd
-        ) {
+        if (event.ctrlKey && lowerKey === "h") {
           event.preventDefault();
-          onChange(
-            deletePreviousWordFromText(value, event.currentTarget.selectionStart),
-          );
-          return;
-        }
+          const deleteWholeThing = escapePrefixActiveRef.current;
+          escapePrefixActiveRef.current = false;
 
-        if (event.ctrlKey && event.key === "h" && value === "") {
-          if (popTextareaLocationSegment()) {
-            event.preventDefault();
+          if (!selectionCollapsed) {
+            onChange(value.slice(0, selectionStart) + value.slice(selectionEnd));
+            moveTextareaCursor(selectionStart);
+            return;
           }
+
+          if (deleteWholeThing) {
+            deletePreviousWholeThingInTextarea(selectionStart);
+            return;
+          }
+
+          if (value === "") {
+            demoteTextareaLocationSegmentAfterSingleDelete();
+            return;
+          }
+
+          if (selectionStart <= 0) {
+            return;
+          }
+
+          onChange(
+            value.slice(0, selectionStart - 1) + value.slice(selectionStart),
+          );
+          moveTextareaCursor(selectionStart - 1);
         }
       }}
       disabled={disabled}
