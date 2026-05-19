@@ -36,6 +36,11 @@ const STAGE_E2E_TESTS: Record<string, StageE2eScenario> = {
       ],
       [
         "mav",
+        LAUNCH_WORKSPACE_ROOT,
+        "@common//huggingface/downloader:downloader.action",
+      ],
+      [
+        "mav",
         AIRFLOW_SIMPLE_ETL_PIPELINE_WORKSPACE,
         "//pipeline:raw-employees.lineage",
       ],
