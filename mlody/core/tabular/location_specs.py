@@ -127,6 +127,9 @@ def _source_backed_local_source_from_value(
     from mlody.core.tabular.copied_asset_tabular_source import (
         CopiedAssetTabularSource,
     )
+    from mlody.core.tabular.html_table_csv_tabular_source import (
+        HtmlTableCsvTabularSource,
+    )
 
     value_name = str(getattr(value_struct, "name", "<unknown>"))
     if len(posix_spec.paths) != 1:
@@ -145,6 +148,7 @@ def _source_backed_local_source_from_value(
     source_attr = getattr(value_struct, "source", None)
     source_value = _source_value_struct(value_struct)
     freshness = getattr(value_struct, "freshness", None)
+    source_representation_name = _representation_name(source_value) if source_value is not None else None
     source_label = source_attr if isinstance(source_attr, str) else getattr(
         source_attr,
         "name",
@@ -163,12 +167,23 @@ def _source_backed_local_source_from_value(
             upstream = asset_from_value(source_struct, freshness_override=freshness)
             if upstream is None:
                 raise ValueError(
-                    f"Source-backed local value {value_name!r} depends on non-tabular "
+                    f"Source-backed local value {value_name!r} depends on non-materializable "
                     f"source {source_name!r} in v1"
                 )
             return upstream
 
         upstream_factory = _make_upstream
+
+    if representation_name == "csv" and source_representation_name == "html":
+        return HtmlTableCsvTabularSource(
+            value_name=value_name,
+            destination_path=posix_spec.paths[0],
+            upstream_factory=upstream_factory,
+            source_label=str(source_label) if source_label is not None else None,
+            separator=_representation_string(value_struct, "separator", ","),
+            header_required=_representation_bool(value_struct, "header_required", True),
+            freshness=freshness,
+        )
 
     return CopiedAssetTabularSource(
         value_name=value_name,

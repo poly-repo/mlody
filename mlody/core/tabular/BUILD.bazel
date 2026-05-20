@@ -17,6 +17,7 @@ o_py_library(
     deps = [
         ":csv_source_lib",
         ":copied_asset_tabular_source_lib",
+        ":html_table_csv_tabular_source_lib",
         ":interfaces_lib",
         ":parquet_source_lib",
         "//mlody/core/assets:interfaces_lib",
@@ -63,6 +64,21 @@ o_py_library(
 )
 
 o_py_library(
+    name = "html_table_csv_tabular_source_lib",
+    srcs = ["html_table_csv_tabular_source.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":csv_source_lib",
+        ":interfaces_lib",
+        "//mlody/core/assets:freshness_policy_lib",
+        "//mlody/core/assets:interfaces_lib",
+        "@pip//beautifulsoup4",
+        "@pip//html5lib",
+        "@pip//pandas",
+    ],
+)
+
+o_py_library(
     name = "derived_source_lib",
     srcs = ["derived_source.py"],
     visibility = ["//:__subpackages__"],
@@ -82,6 +98,7 @@ o_py_test(
     deps = [
         ":csv_source_lib",
         ":copied_asset_tabular_source_lib",
+        ":html_table_csv_tabular_source_lib",
         ":derived_source_lib",
         ":location_specs_lib",
         ":parquet_source_lib",

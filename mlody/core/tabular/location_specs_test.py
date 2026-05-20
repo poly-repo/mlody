@@ -22,6 +22,7 @@ from mlody.core.location_specs import (
 )
 from mlody.core.tabular.csv_source import CsvSource
 from mlody.core.tabular.derived_source import DerivedSource
+from mlody.core.tabular.html_table_csv_tabular_source import HtmlTableCsvTabularSource
 from mlody.core.tabular.location_specs import (
     query_rows_from_value,
     source_from_location,
@@ -455,6 +456,59 @@ def test_source_from_value_returns_none_for_source_backed_local_html_value() -> 
     assert source_from_value(value_struct) is None
 
 
+def test_source_from_value_converts_html_source_backed_local_csv_value(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "country_stats.html"
+    source_path.write_text(
+        (
+            "<table>"
+            "<thead><tr><th>Country</th><th>Population</th></tr></thead>"
+            "<tbody><tr><td>Freedonia</td><td>1100</td></tr></tbody>"
+            "</table>"
+        ),
+        encoding="utf-8",
+    )
+    destination_path = tmp_path / "country_stats.csv"
+    value_struct = Struct(
+        kind="value",
+        name="country-stats",
+        location=Struct(kind="location", type="posix", path=str(destination_path)),
+        source=":country-stats-page",
+        _source_value=Struct(
+            kind="value",
+            name="country-stats-page",
+            location=Struct(kind="location", type="posix", path=str(source_path)),
+            representation=Struct(
+                kind="representation",
+                name="html",
+                attributes={},
+            ),
+        ),
+        representation=Struct(
+            kind="representation",
+            name="csv",
+            separator=",",
+            header_required=True,
+            multifile=False,
+            attributes={
+                "separator": ",",
+                "header_required": True,
+                "multifile": False,
+            },
+        ),
+    )
+
+    source = source_from_value(value_struct)
+
+    assert isinstance(source, HtmlTableCsvTabularSource)
+    assert source.materialize() == destination_path
+    assert destination_path.read_text(encoding="utf-8").startswith("Country,Population\n")
+    preview = source.preview(10)
+    assert preview.total_rows == 1
+    assert preview.table.column("Country").to_pylist() == ["Freedonia"]
+
+
 def test_source_from_value_builds_derived_source_for_remote_csv_source(
     tmp_path: Path,
 ) -> None:
@@ -777,7 +831,7 @@ def test_source_backed_local_source_raises_for_non_tabular_source() -> None:
     source = source_from_value(value_struct)
 
     assert isinstance(source, CopiedAssetTabularSource)
-    with pytest.raises(ValueError, match="non-tabular source 'meta'"):
+    with pytest.raises(ValueError, match="non-materializable source 'meta'"):
         source.materialize()
 
 
