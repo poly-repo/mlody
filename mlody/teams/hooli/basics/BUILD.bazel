@@ -1,0 +1,65 @@
+load("//build/bzl:python.bzl", "o_py_binary", "o_py_library", "o_py_test")
+
+# gazelle:resolve py mlody.teams.hooli.basics.runtime //mlody/teams/hooli/basics:hooli_basics_lib
+
+o_py_library(
+    name = "hooli_basics_lib",
+    srcs = [
+        "__init__.py",
+        "runtime.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@pip//numpy",
+        "@pip//beautifulsoup4",
+        "@pip//html5lib",
+        "@pip//pandas",
+    ],
+)
+
+o_py_binary(
+    name = "country_stats_task",
+    srcs = ["country_stats.py"],
+    main = "country_stats.py",
+    package_collisions = "warning",
+    visibility = ["//visibility:public"],
+    deps = [":hooli_basics_lib"],
+)
+
+o_py_binary(
+    name = "check_country_stats_task",
+    srcs = ["check_country_stats.py"],
+    main = "check_country_stats.py",
+    package_collisions = "warning",
+    visibility = ["//visibility:public"],
+    deps = [":hooli_basics_lib"],
+)
+
+o_py_binary(
+    name = "change_model_task",
+    srcs = ["change_model.py"],
+    main = "change_model.py",
+    package_collisions = "warning",
+    visibility = ["//visibility:public"],
+    deps = [":hooli_basics_lib"],
+)
+
+o_py_binary(
+    name = "continent_stats_task",
+    srcs = ["continent_stats.py"],
+    main = "continent_stats.py",
+    package_collisions = "warning",
+    visibility = ["//visibility:public"],
+    deps = [":hooli_basics_lib"],
+)
+
+o_py_test(
+    name = "hooli_basics_test",
+    srcs = ["runtime_test.py"],
+    package_collisions = "warning",
+    deps = [
+        ":hooli_basics_lib",
+        "@pip//numpy",
+        "@pip//pandas",
+    ],
+)

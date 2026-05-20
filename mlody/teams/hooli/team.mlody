@@ -1,0 +1,15 @@
+load("//mlody/common/user.mlody")
+
+user(
+    name = "nreed",
+    description = "Naomi Reed",
+    groups = ["hooli", "hooli-admin"],
+    avatar = "assets/images/avatars/avatars-4-0.png",
+)
+
+user(
+    name = "kshah",
+    description = "Kiran Shah",
+    groups = ["hooli"],
+    avatar = "assets/images/avatars/avatars-4-1.png",
+)

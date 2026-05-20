@@ -79,6 +79,15 @@ dependencies = [
   # vectorized matrix math for calibration and geometry reconstruction.
   # See: https://numpy.org/
   "numpy",
+  # table-oriented data wrangling for the Hooli basics demo.
+  # See: https://pandas.pydata.org/
+  "pandas",
+  # HTML parsing stack used by pandas.read_html(..., flavor=\"html5lib\").
+  # See: https://pypi.org/project/beautifulsoup4/
+  "beautifulsoup4",
+  # Standards-compliant HTML parser used by pandas.read_html for cached pages.
+  # See: https://pypi.org/project/html5lib/
+  "html5lib",
   # webcam capture, calibration parsing, GUI display, and pose solving.
   # See: https://opencv.org/
   "opencv-python",

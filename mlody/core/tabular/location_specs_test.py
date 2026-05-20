@@ -421,6 +421,40 @@ def test_source_from_value_returns_none_for_remote_multifile_csv() -> None:
     assert source_from_value(value_struct) is None
 
 
+def test_source_from_value_returns_none_for_source_backed_local_html_value() -> None:
+    value_struct = Struct(
+        kind="value",
+        name="cached_page",
+        location=Struct(
+            kind="location",
+            type="posix",
+            attributes={"path": ["/tmp/cached_page.html"]},
+        ),
+        source=":cached_page_remote",
+        _source_value=Struct(
+            kind="value",
+            name="cached_page_remote",
+            location=Struct(
+                kind="location",
+                type="remote",
+                attributes={"uri": "https://example.com/page.html"},
+            ),
+            representation=Struct(
+                kind="representation",
+                name="html",
+                attributes={},
+            ),
+        ),
+        representation=Struct(
+            kind="representation",
+            name="html",
+            attributes={},
+        ),
+    )
+
+    assert source_from_value(value_struct) is None
+
+
 def test_source_from_value_builds_derived_source_for_remote_csv_source(
     tmp_path: Path,
 ) -> None:

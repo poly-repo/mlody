@@ -346,6 +346,14 @@ def test_value_with_representation_text_accepts_markdown_markup() -> None:
     assert v.representation.markup == "markdown"
 
 
+def test_value_with_representation_html_registers_html_representation() -> None:
+    ev = _eval('value(name="x", type=integer(), location=s3(), representation=html())')
+    v = ev.registry.values.by_name["x"]
+    assert v.representation is not None
+    assert v.representation.kind == "representation"
+    assert v.representation.name == "html"
+
+
 def test_value_with_representation_text_invalid_markup_raises_value_error() -> None:
     with pytest.raises(ValueError, match="text\\(markup"):
         _eval(
@@ -906,6 +914,27 @@ def test_cached_value_expands_to_remote_and_local_values() -> None:
     assert local_value._source_value.name == "raw_employees-remote"
     assert local_value.freshness.name == "ttl"
     assert local_value.representation.name == "csv"
+
+
+def test_cached_value_supports_non_tabular_html_representation() -> None:
+    ev = _eval(
+        'cached_value(\n'
+        '  name="raw_page",\n'
+        '  type=opaque(),\n'
+        '  source=remote(uri="https://example.com/page.html"),\n'
+        '  location=posix(path="~/.cache/mlody/page.html"),\n'
+        '  representation=html(),\n'
+        '  freshness=ttl(duration="1day"),\n'
+        ')\n'
+    )
+
+    local_value = ev.registry.values.by_name["raw_page"]
+    remote_value = ev.registry.values.by_name["raw_page-remote"]
+
+    assert remote_value.representation.name == "html"
+    assert local_value.representation.name == "html"
+    assert local_value.location.type == "posix"
+    assert local_value._source_value.name == "raw_page-remote"
 
 
 def test_cached_value_respects_custom_remote_name() -> None:

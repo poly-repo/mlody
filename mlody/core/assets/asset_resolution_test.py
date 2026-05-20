@@ -157,6 +157,37 @@ def test_asset_from_value_returns_copied_asset_for_source_backed_local_value(tmp
     assert destination_path.read_text() == source_path.read_text()
 
 
+def test_asset_from_value_copies_source_backed_local_html_value(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+) -> None:
+    base_url, root = http_server
+    source_path = root / "page.html"
+    source_path.write_text("<html><body><h1>Hello</h1></body></html>")
+    destination_path = tmp_path / "cached.html"
+    value_struct = Struct(
+        kind="value",
+        location=Struct(kind="location", type="posix", path=str(destination_path)),
+        representation=Struct(kind="representation", name="html", attributes={}),
+        _source_value=Struct(
+            kind="value",
+            location=Struct(
+                kind="location",
+                type="remote",
+                uri=f"{base_url}/page.html",
+            ),
+            representation=Struct(kind="representation", name="html", attributes={}),
+        ),
+    )
+
+    asset = asset_from_value(value_struct)
+
+    assert isinstance(asset, CopiedAssetSource)
+    materialized = asset.materialize()
+    assert materialized.path == destination_path
+    assert destination_path.read_text() == source_path.read_text()
+
+
 def test_asset_from_value_uses_downstream_freshness_for_cached_remote_value(
     http_server: tuple[str, Path],
     tmp_path: Path,

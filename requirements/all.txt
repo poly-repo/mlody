@@ -77,6 +77,12 @@ babel==2.18.0 \
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
     #   csvw
+beautifulsoup4==4.14.3 \
+    --hash=sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb \
+    --hash=sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
 blis==1.3.3 \
     --hash=sha256:034d4560ff3cc43e8aa37e188451b0440e3261d989bb8a42ceee865607715ecd \
     --hash=sha256:1e647341f958421a86b028a2efe16ce19c67dba2a05f79e8f7e80b1ff45328aa \
@@ -847,6 +853,12 @@ hf-xet==1.3.2 \
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
     #   huggingface-hub
+html5lib==1.1 \
+    --hash=sha256:0d78f8fde1c230e99fe37986a60526d7049ed4bf8a9fadbad5f00e22e58e041d \
+    --hash=sha256:b2e5b40261e20f354d198eae92afc10d750afb487ed5e50f9c4eaf07c184146f
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
 httpcore==1.0.9 \
     --hash=sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55 \
     --hash=sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8
@@ -1407,6 +1419,7 @@ numpy==1.26.4 \
     #   mediapipe
     #   opencv-contrib-python
     #   opencv-python
+    #   pandas
     #   pyerfa
     #   scipy
     #   spacy
@@ -1578,6 +1591,58 @@ packaging==26.0 \
     #   thinc
     #   transformers
     #   weasel
+pandas==3.0.3 \
+    --hash=sha256:0383c72c75cdcca61a9e116e611143902dbfd08bff356829c2f6d1cf40a9ca8c \
+    --hash=sha256:05f1f1752b8533ea03f7f39a9c15b1a058d067bb48f4748948e7a8691e0510f2 \
+    --hash=sha256:08d789b41f87e0905880e293cedf6197ce71fe67cc081358b1e148a491b9bd13 \
+    --hash=sha256:0d589105b3c14645af1738ff279b2995102d8f7a03b0a66dc8d95550eb513e04 \
+    --hash=sha256:13fc1e853d9e04743d11ba75a985ccbc2a317fe07d8af61e445a6fd24dacd6a6 \
+    --hash=sha256:14da8316da4d0c5a77618425996bfb1248ca87fc2c1486e6fde4652bd18b5824 \
+    --hash=sha256:1928e07221f82db493cd4af1e23c1bfca524a19a4699887975bff68f49a72bfb \
+    --hash=sha256:261e308dfb22448384b7580cf719d2f998fe2966c92893c3e77d14008af1f066 \
+    --hash=sha256:275c14e0fce14a2ec20eee474aecd305478ea3c1e6f6a9d8fe219a165542717e \
+    --hash=sha256:335f62418ed562cfc3c49e9e196375c28b729dcef8543abf4f9438e381bf3c76 \
+    --hash=sha256:3650109c0f22879df8bd6179ab9ee3d7f1d1d4e7e0094a3f0032d9f51e2e64ac \
+    --hash=sha256:39436b377d56d2a2e52d0395bdbee171f01068e99af5250509aceeb929f765c7 \
+    --hash=sha256:3c20a521bbb85902f79f7270c80a59e1b5452d96d170c034f207181870f97ac5 \
+    --hash=sha256:3e91cec1879ada0624fc3dc9953c5cbd60208e59c0db28f540c5d6d47502422f \
+    --hash=sha256:455f6f8139d4282188f526868dbc3c828470e88a3d9d59a891bd46a455f21b98 \
+    --hash=sha256:46997386d528eb40376ecd6b033cf4a8a1e5282580f68f43de875b78cba2199d \
+    --hash=sha256:4db8c527972a821cf5286b40ccc57642a39bc62e62022b42f99f8a67fca8c3a1 \
+    --hash=sha256:4e15135e2ee5df1063313e2425ceef8ac0f4ae775893815b0923651b806a5639 \
+    --hash=sha256:51b1fe551acb77dac643c6fda86084d8d446c10fe64b06a9cc29c4cc8540e7f2 \
+    --hash=sha256:557409bc4178e70ee8d9ddb494798e51ebf6ea59330f6be22c51bab2a7db6c49 \
+    --hash=sha256:5cc09a68b3120e0f54870dede8287a7bb1fa463907e4fcec1ea77cab6179bf7a \
+    --hash=sha256:60ae316d3fd75d1858d450d0db0103ea2be3e7d4a95ec2f064f7e2ae63f7b028 \
+    --hash=sha256:6674ab18ad8c57802867264b00e15e7bb904700cdd9046e3b2fa1fce237439ea \
+    --hash=sha256:67b3b64c11910cfa29f4e94a14d3bff9ee693b6fc76055e7cad549cee0aec5fa \
+    --hash=sha256:696a4a00a2a2a35d4e5deb3fc946641b96c944f02230e4f76137fe35d806c4fc \
+    --hash=sha256:6dc0b3fd2169c9157deed50b4d519553a3655c8c6a96027136d654592be973a9 \
+    --hash=sha256:7e65d5407dc0b394f509699650e4a2ec01c0514f21850f453fa60f3be79a5dbf \
+    --hash=sha256:819959dab7bbd0049c15623fbac4e29a191b9528160a61fb1032242d8ced2d9c \
+    --hash=sha256:8a1e45c80cceb3b4a21bc5939d52e8cbd8d9b7305309219d59e9754d9ce09e27 \
+    --hash=sha256:9c39be2d709d01fa972a0cabc522389fceca4f3969332ba25a7d6c5802cf976a \
+    --hash=sha256:9d71c63ae4ebdbf70209742096f1fc46a83a0613c99d4b23766cced9ff8cd62a \
+    --hash=sha256:a2d2dff8a04f3917b55ab3910c32990f8ddf7eceba114947838cefa976a68977 \
+    --hash=sha256:a4eeb6830daf35a71cc09649bd823e2b542dac246cdee9614c6e4bd65028cd6a \
+    --hash=sha256:a55066a0505dae0ba2b50a46637db34b46f9094c65c5d4800794ef6335010938 \
+    --hash=sha256:a82d532a3351d435432cd913edbccaf8b8e01d4dd0e5ced5a8d2e8ecd94c7e44 \
+    --hash=sha256:b168fc218fd80a6cbdbdbc1a97ddc7889ed057d7eb45f50d866ceab5f39904c4 \
+    --hash=sha256:b2c95f8bfc1ee412bf482605d7bfd30c12d1d26bd59fdd91efeef1d4718decb1 \
+    --hash=sha256:ba7e08b9ac1d54569cd1e256e3668975ed624d6826f7b68df0342b012007bddb \
+    --hash=sha256:bab900348131a7db1f69a7309ef141fd5680f1487094193bcbbb61791573bf8f \
+    --hash=sha256:bd3a518890b400d32f9023722dc9a9a5c969f00b415419a3c06c043f09bb5d7d \
+    --hash=sha256:c7be265b62cef88e253a941e4698604973736dcfe242fdb5198f0f7bc473cdcc \
+    --hash=sha256:d26cbe1fcfc12e8fd900e2454163e466b2d3af84f7c75481df7683ffc073d870 \
+    --hash=sha256:d4be06d68f9ddcfc645b87534911da79a8fbffc7573c80e0edcf42a5020624d8 \
+    --hash=sha256:d72828c20c6d6e83e1e22a6a3b47b326b71664112fa9705dcbccfd7a39b62085 \
+    --hash=sha256:dd1a5d1def6a46002e964510bdc67c368aa0951df5d1d9f8365336f5a1f490cd \
+    --hash=sha256:e3a2ec42c98ffa2565a67e08e218d06d72576d758d90facb7c00805194d8f360 \
+    --hash=sha256:f8894dc474d648fe7b6ff0ca9b0bd73950d19952bc1a6534540762c5d79d305c \
+    --hash=sha256:fed2ff7fd9779120e388e285fc029bd5cf9490cdd2e4166a9ee22c0e49a9ab09
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
 parso==0.8.6 \
     --hash=sha256:2b9a0332696df97d454fa67b81618fd69c35a7b90327cbe6ba5c92d2c68a7bfd \
     --hash=sha256:2c549f800b70a5c4952197248825584cb00f033b29c692671d3bf08bf380baff
@@ -2139,6 +2204,7 @@ python-dateutil==2.9.0.post0 \
     #   -r requirements/runtime.txt
     #   csvw
     #   matplotlib
+    #   pandas
 python-gnupg==0.5.6 \
     --hash=sha256:5743e96212d38923fc19083812dc127907e44dbd3bcf0db4d657e291d3c21eac \
     --hash=sha256:b5050a55663d8ab9fcc8d97556d229af337a87a3ebebd7054cbd8b7e2043394a
@@ -2636,6 +2702,7 @@ six==1.17.0 \
     # via
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
+    #   html5lib
     #   python-dateutil
 smart-open==7.5.1 \
     --hash=sha256:3e07cbbd9c8a908bcb8e25d48becf1a5cbb4886fa975e9f34c672ed171df2318 \
@@ -2662,6 +2729,13 @@ sounddevice==0.5.5 \
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
     #   mediapipe
+soupsieve==2.8.3 \
+    --hash=sha256:3267f1eeea4251fb42728b6dfb746edc9acaffc4a45b27e19450b676586e8349 \
+    --hash=sha256:ed64f2ba4eebeab06cc4962affce381647455978ffc1e36bb79a545b91f45a95
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   beautifulsoup4
 spacy==3.8.14 \
     --hash=sha256:042d799e342fdb6bb5b02a4213a95acc9116c40ed3c849bb0a8296fbe648ec22 \
     --hash=sha256:0860c57220c633ccb20468bcd64bfb0d28908990c371a8857951d093a148dc8e \
@@ -3136,6 +3210,7 @@ typing-extensions==4.15.0 \
     # via
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
+    #   beautifulsoup4
     #   cattrs
     #   huggingface-hub
     #   phonemizer
@@ -3226,6 +3301,13 @@ weasel==1.0.0 \
     #   -c requirements/runtime.txt
     #   -r requirements/runtime.txt
     #   spacy
+webencodings==0.5.1 \
+    --hash=sha256:a0af1213f3c2226497a97e2b3aa01a7e4bee4f403f95be16fc9acd2947514a78 \
+    --hash=sha256:b36a1c245f2d304965eb4e0a82848379241dc04b865afcc4aab16748587e1923
+    # via
+    #   -c requirements/runtime.txt
+    #   -r requirements/runtime.txt
+    #   html5lib
 wrapt==2.1.2 \
     --hash=sha256:08ffa54146a7559f5b8df4b289b46d963a8e74ed16ba3687f99896101a3990c5 \
     --hash=sha256:0fc04bc8664a8bc4c8e00b37b5355cffca2535209fba1abb09ae2b7c76ddf82b \

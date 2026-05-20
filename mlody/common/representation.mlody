@@ -129,6 +129,14 @@ def text(*, markup="none"):
     return _text_factory(markup=markup)
 
 
+_html_struct = representation(name="html")
+_html_factory = _make_representation_factory(_html_struct)
+
+
+def html():
+    return _html_factory()
+
+
 _parquet_struct = representation(
     name="parquet",
     attrs={

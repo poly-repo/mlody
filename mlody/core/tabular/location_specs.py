@@ -251,7 +251,9 @@ def source_from_value(value_struct: object) -> TabularSource | None:
     posix_spec = PosixLocationSpec.from_location(location)
     if posix_spec is not None:
         if getattr(value_struct, "source", None) is not None:
-            return _source_backed_local_source_from_value(value_struct, posix_spec)
+            representation_name = _representation_name(value_struct)
+            if representation_name in {"csv", "parquet"}:
+                return _source_backed_local_source_from_value(value_struct, posix_spec)
 
     asset = asset_from_value(value_struct)
     if asset is not None:
@@ -263,9 +265,11 @@ def source_from_value(value_struct: object) -> TabularSource | None:
         representation_name = _representation_name(value_struct)
         if representation_name == "csv":
             return _csv_source_from_paths(posix_spec.paths, value_struct=value_struct)
-        from mlody.core.tabular.parquet_source import ParquetSource
+        if representation_name == "parquet":
+            from mlody.core.tabular.parquet_source import ParquetSource
 
-        return ParquetSource(paths=posix_spec.paths)
+            return ParquetSource(paths=posix_spec.paths)
+        return None
 
     return None
 

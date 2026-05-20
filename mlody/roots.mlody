@@ -25,6 +25,12 @@ root(
 )
 
 root(
+    name="hooli",
+    path="//mlody/teams/hooli",
+    description="the Hooli company",
+)
+
+root(
     name="common",
     path="//mlody/common",
     description="shared modules",
