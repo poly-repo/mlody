@@ -9,61 +9,34 @@ from mlody.teams.hooli.basics.runtime import (
     build_continent_stats_frame,
     build_population_change_model,
     check_country_stats_frame,
-    load_country_stats_frame,
     read_continent_stats_frame,
     read_country_stats_frame,
     read_population_change_model,
     write_continent_stats_csv,
-    write_country_stats_csv,
     write_population_change_model,
 )
 
-_SAMPLE_HTML = """
-<html>
-  <body>
-    <table>
-      <tr>
-        <th>Country</th>
-        <th>Population (1 July 2022)</th>
-        <th>Population (1 July 2023)</th>
-        <th>Change</th>
-        <th>UN Continental Region[1]</th>
-        <th>UN Statistical Subregion[1]</th>
-      </tr>
-      <tr>
-        <td>Freedonia</td>
-        <td>1,000</td>
-        <td>1,100</td>
-        <td>10.0%</td>
-        <td>Europe</td>
-        <td>Western Europe</td>
-      </tr>
-      <tr>
-        <td>Sylvania</td>
-        <td>2,000</td>
-        <td>2,040</td>
-        <td>2.0%</td>
-        <td>Europe</td>
-        <td>Western Europe</td>
-      </tr>
-      <tr>
-        <td>Elbonia</td>
-        <td>3,000</td>
-        <td>3,180</td>
-        <td>6.0%</td>
-        <td>Asia</td>
-        <td>Central Asia</td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
+def _sample_source_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Country or territory": ["Freedonia", "Sylvania", "Elbonia"],
+            "Population (1 July 2022)": ["1,000", "2,000", "3,000"],
+            "Population (1 July 2023)": ["1,100", "2,040", "3,180"],
+            "Change (%)": ["+10.0%", "+2.0%", "+6.0%"],
+            "UN Continental Region[1]": ["Europe", "Europe", "Asia"],
+            "UN Statistical Subregion[1]": [
+                "Western Europe",
+                "Western Europe",
+                "Central Asia",
+            ],
+        }
+    )
 
 
-def test_load_country_stats_frame_extracts_rows(tmp_path: Path) -> None:
-    source_path = tmp_path / "countries.html"
-    source_path.write_text(_SAMPLE_HTML, encoding="utf-8")
-    frame = load_country_stats_frame(str(source_path))
+def test_read_country_stats_frame_normalizes_source_columns(tmp_path: Path) -> None:
+    source_path = tmp_path / "country_stats.csv"
+    _sample_source_frame().to_csv(source_path, index=False)
+    frame = read_country_stats_frame(source_path)
     assert frame["country"].tolist() == ["Freedonia", "Sylvania", "Elbonia"]
     assert frame.iloc[0]["pop_2022"] == 1000
     assert frame.iloc[0]["pop_2023"] == 1100
@@ -71,9 +44,9 @@ def test_load_country_stats_frame_extracts_rows(tmp_path: Path) -> None:
 
 
 def test_check_country_stats_frame_reports_success(tmp_path: Path) -> None:
-    source_path = tmp_path / "countries.html"
-    source_path.write_text(_SAMPLE_HTML, encoding="utf-8")
-    frame = load_country_stats_frame(str(source_path))
+    source_path = tmp_path / "country_stats.csv"
+    _sample_source_frame().to_csv(source_path, index=False)
+    frame = read_country_stats_frame(source_path)
     result = check_country_stats_frame(frame)
     assert result.passed is True
     assert result.row_count == 3
@@ -81,17 +54,12 @@ def test_check_country_stats_frame_reports_success(tmp_path: Path) -> None:
 
 
 def test_model_and_continent_stats_round_trip(tmp_path: Path) -> None:
-    source_path = tmp_path / "countries.html"
-    source_path.write_text(_SAMPLE_HTML, encoding="utf-8")
-    frame = load_country_stats_frame(str(source_path))
+    source_path = tmp_path / "country_stats.csv"
+    _sample_source_frame().to_csv(source_path, index=False)
+    frame = read_country_stats_frame(source_path)
 
-    country_stats_path = tmp_path / "country_stats.csv"
     model_path = tmp_path / "change_model.json"
     continent_stats_path = tmp_path / "continent_stats.csv"
-
-    write_country_stats_csv(frame, country_stats_path)
-    loaded_frame = read_country_stats_frame(country_stats_path)
-    assert_frame_equal(loaded_frame, frame)
 
     model = build_population_change_model(frame)
     assert model.num_training_samples == 3

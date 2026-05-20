@@ -10,8 +10,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-COUNTRY_STATS_SOURCE_URL = "https://tinyurl.com/mry64ebh"
-
 COUNTRY_STATS_FIELDS = (
     "country",
     "pop_2022",
@@ -39,6 +37,7 @@ MODEL_REQUIRED_KEYS = (
 )
 
 COUNTRY_TABLE_HEADERS = {
+    "country or territory": "country",
     "country": "country",
     "population (1 july 2022)": "pop_2022",
     "population (1 july 2023)": "pop_2023",
@@ -83,26 +82,32 @@ def _normalize_headers(columns: pd.Index) -> list[str]:
     return [str(column).strip().lower() for column in columns]
 
 
-def load_country_stats_frame(source: str) -> pd.DataFrame:
-    table = pd.read_html(source, flavor="html5lib")[0].copy()
+def _coerce_country_stats_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    table = frame.copy()
     normalized_headers = _normalize_headers(table.columns)
     header_map = {
         original: COUNTRY_TABLE_HEADERS[normalized]
         for original, normalized in zip(table.columns, normalized_headers)
         if normalized in COUNTRY_TABLE_HEADERS
     }
-    if set(header_map.values()) != {"country", "pop_2022", "pop_2023", "continent", "region"}:
+    required_columns = ("country", "pop_2022", "pop_2023", "continent", "region")
+
+    if set(required_columns) <= set(table.columns):
+        table = table[list(required_columns)].copy()
+    elif set(header_map.values()) == set(required_columns):
+        table = table.rename(columns=header_map)
+        table = table[["country", "pop_2022", "pop_2023", "continent", "region"]]
+    else:
         raise ValueError("could not find the expected country population columns")
 
-    table = table.rename(columns=header_map)
-    table = table[["country", "pop_2022", "pop_2023", "continent", "region"]]
     for column in ("country", "continent", "region"):
         table[column] = table[column].astype(str).str.strip()
     for column in ("pop_2022", "pop_2023"):
         table[column] = pd.to_numeric(
-            table[column].astype(str).str.replace(r"[^0-9]", "", regex=True)
+            table[column].astype(str).str.replace(r"[^0-9]", "", regex=True),
+            errors="coerce",
         )
-    table = table.dropna(subset=["country", "continent", "region"])
+    table = table.dropna(subset=["country", "continent", "region", "pop_2022", "pop_2023"])
     table["pop_change"] = ((table["pop_2023"] / table["pop_2022"]) - 1.0) * 100.0
     table["pop_change"] = table["pop_change"].round(4)
     table = table[list(COUNTRY_STATS_FIELDS)].reset_index(drop=True)
@@ -111,13 +116,8 @@ def load_country_stats_frame(source: str) -> pd.DataFrame:
     return table
 
 
-def write_country_stats_csv(frame: pd.DataFrame, output_path: Path) -> None:
-    _ensure_parent_dir(output_path)
-    frame.to_csv(output_path, index=False)
-
-
 def read_country_stats_frame(input_path: Path) -> pd.DataFrame:
-    return pd.read_csv(input_path)
+    return _coerce_country_stats_frame(pd.read_csv(input_path))
 
 
 def check_country_stats_frame(frame: pd.DataFrame) -> CountryStatsCheckResult:
@@ -244,11 +244,6 @@ def read_continent_stats_frame(input_path: Path) -> pd.DataFrame:
     return pd.read_csv(input_path)
 
 
-def run_country_stats(*, source: str, output_path: Path) -> None:
-    frame = load_country_stats_frame(source)
-    write_country_stats_csv(frame, output_path)
-
-
 def run_check_country_stats(*, input_path: Path, output_path: Path) -> None:
     frame = read_country_stats_frame(input_path)
     result = check_country_stats_frame(frame)
@@ -269,23 +264,19 @@ def run_continent_stats(*, input_path: Path, model_path: Path, output_path: Path
 
 
 __all__ = [
-    "COUNTRY_STATS_SOURCE_URL",
     "ContinentCoefficient",
     "CountryStatsCheckResult",
     "PopulationChangeModel",
     "build_continent_stats_frame",
     "build_population_change_model",
     "check_country_stats_frame",
-    "load_country_stats_frame",
     "read_continent_stats_frame",
     "read_country_stats_frame",
     "read_population_change_model",
     "run_change_model",
     "run_check_country_stats",
     "run_continent_stats",
-    "run_country_stats",
     "write_check_result",
     "write_continent_stats_csv",
-    "write_country_stats_csv",
     "write_population_change_model",
 ]

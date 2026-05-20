@@ -11,19 +11,8 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         "@pip//numpy",
-        "@pip//beautifulsoup4",
-        "@pip//html5lib",
         "@pip//pandas",
     ],
-)
-
-o_py_binary(
-    name = "country_stats_task",
-    srcs = ["country_stats.py"],
-    main = "country_stats.py",
-    package_collisions = "warning",
-    visibility = ["//visibility:public"],
-    deps = [":hooli_basics_lib"],
 )
 
 o_py_binary(
@@ -59,7 +48,6 @@ o_py_test(
     package_collisions = "warning",
     deps = [
         ":hooli_basics_lib",
-        "@pip//numpy",
         "@pip//pandas",
     ],
 )
