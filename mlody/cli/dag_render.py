@@ -10,7 +10,14 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from mlody.core.dag import Edge, TaskNode, ValueNode, ancestors_subgraph, iter_port_values
+from mlody.core.dag import (
+    Edge,
+    TaskNode,
+    ValueNode,
+    ancestors_subgraph,
+    iter_port_values,
+    task_output_ancestors_subgraph,
+)
 from mlody.core.targets import TargetAddress, parse_target
 from mlody.core.type_display import format_value_type_label
 
@@ -199,8 +206,9 @@ def resolve_dag_selection(
 
     if len(address.field_path) == 2 and address.field_path[0] == "outputs":
         port_name = address.field_path[1]
+        task_node_id = _task_node_id_for_address(dag, address)
         return DagSelectionResult(
-            graph=ancestors_subgraph(dag, port_name),
+            graph=task_output_ancestors_subgraph(dag, task_node_id, port_name),
             resolved_label=port_name,
         )
 
@@ -233,8 +241,9 @@ def resolve_show_output_selection(
     if len(address.field_path) != 2 or address.field_path[0] != "outputs":
         return None
 
+    task_node_id = _task_node_id_for_address(dag, address)
     return DagSelectionResult(
-        graph=ancestors_subgraph(dag, address.field_path[1]),
+        graph=task_output_ancestors_subgraph(dag, task_node_id, address.field_path[1]),
         resolved_label=label,
     )
 

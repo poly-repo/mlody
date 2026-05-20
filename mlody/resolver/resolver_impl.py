@@ -246,6 +246,20 @@ def _dag_target_name(value_struct: object) -> str:
     return getattr(source, "name", None) or getattr(value_struct, "name", None) or ""
 
 
+def _label_text(label: object) -> str:
+    """Normalize resolver labels to their canonical string form."""
+    if isinstance(label, str):
+        return label
+
+    formatter = getattr(label, "format_inner", None)
+    if callable(formatter):
+        formatted = formatter()
+        if isinstance(formatted, str):
+            return formatted
+
+    return str(label) if label is not None else ""
+
+
 class StructTraversalStrategy:
     """Attribute-path traversal via getattr on a Starlark Struct.
 
@@ -336,8 +350,15 @@ class StructTraversalStrategy:
                     and getattr(obj, "kind", None) == "value"
                 ):
                     _port_name = _dag_target_name(obj)
+                    _label_text_value = _label_text(label)
+                    _derived_parent_label = (
+                        _label_text_value.removesuffix("." + field_name)
+                        if _label_text_value.endswith("." + field_name)
+                        else ""
+                    )
                     _parent_label = (
-                        getattr(obj, "label", None)
+                        _derived_parent_label
+                        or getattr(obj, "label", None)
                         or getattr(obj, "_resolved_label", None)
                         or ""
                     )
@@ -1582,8 +1603,15 @@ class ValueTraversalStrategy:
                     and getattr(obj, "kind", None) == "value"
                 ):
                     _port_name = _dag_target_name(obj)
+                    _label_text_value = _label_text(label)
+                    _derived_parent_label = (
+                        _label_text_value.removesuffix("." + segment)
+                        if _label_text_value.endswith("." + segment)
+                        else ""
+                    )
                     _parent_label = (
-                        getattr(obj, "label", None)
+                        _derived_parent_label
+                        or getattr(obj, "label", None)
                         or getattr(obj, "_resolved_label", None)
                         or ""
                     )

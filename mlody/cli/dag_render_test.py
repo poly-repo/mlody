@@ -121,6 +121,25 @@ def _make_graph() -> networkx.MultiDiGraph:
     return dag
 
 
+def _make_graph_with_output_name_collision() -> networkx.MultiDiGraph:
+    dag = _make_graph()
+    shadow_struct = _make_task_struct(
+        "shadow",
+        "report_action",
+        outputs=["model_checkpoint"],
+        action_outputs=["model_checkpoint"],
+    )
+    dag.add_node(
+        "task/other:shadow",
+        task=TaskNode(
+            node_id="task/other:shadow",
+            name="shadow",
+            task=shadow_struct,  # type: ignore[arg-type]
+        ),
+    )
+    return dag
+
+
 def test_short_type_name_prefers_nested_type_name() -> None:
     value = SimpleNamespace(type=SimpleNamespace(name="dataset"))
 
@@ -300,3 +319,34 @@ def test_resolve_show_output_selection_only_accepts_output_labels() -> None:
         "task/test:downstream",
     }
     assert task_selection is None
+
+
+def test_output_selection_uses_task_qualified_output_instead_of_global_port_name() -> None:
+    dag = _make_graph_with_output_name_collision()
+
+    selection = resolve_dag_selection(
+        dag,
+        "//test:downstream.outputs.model_checkpoint",
+    )
+
+    assert set(selection.graph.nodes) == {
+        "task/test:upstream",
+        "task/test:downstream",
+    }
+    assert "task/other:shadow" not in selection.graph.nodes
+
+
+def test_show_output_selection_uses_task_qualified_output_instead_of_global_port_name() -> None:
+    dag = _make_graph_with_output_name_collision()
+
+    selection = resolve_show_output_selection(
+        dag,
+        "//test:downstream.outputs.model_checkpoint",
+    )
+
+    assert selection is not None
+    assert set(selection.graph.nodes) == {
+        "task/test:upstream",
+        "task/test:downstream",
+    }
+    assert "task/other:shadow" not in selection.graph.nodes

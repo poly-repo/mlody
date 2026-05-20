@@ -645,6 +645,16 @@ o_py_test(
 )
 
 o_py_test(
+    name = "action_graph_test",
+    srcs = ["action_graph_test.py"],
+    deps = [
+        ":core_lib",
+        "@pip//networkx",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
     name = "registry_view_test",
     srcs = ["registry_view_test.py"],
     deps = [

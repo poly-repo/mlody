@@ -91,7 +91,7 @@ class TestMakeActionGraphVirtualValue:
 
         with (
             patch(
-                "mlody.core.action_graph.selection_for_port",
+                "mlody.core.action_graph.selection_for_label",
                 return_value=selection,
             ) as mock_select,
             patch(
@@ -108,8 +108,7 @@ class TestMakeActionGraphVirtualValue:
 
         mock_select.assert_called_once_with(
             ws,
-            "my_output",
-            requested_label=":task.outputs.my_output",
+            ":task.outputs.my_output",
         )
         mock_build.assert_called_once_with(selection)
         assert materialized is expected

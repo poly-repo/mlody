@@ -8,7 +8,12 @@ from pathlib import Path
 
 import networkx
 
-from mlody.core.dag import TaskNode, ValueNode, ancestors_subgraph
+from mlody.core.dag import (
+    TaskNode,
+    ValueNode,
+    ancestors_subgraph,
+    task_output_ancestors_subgraph,
+)
 from mlody.core.targets import TargetAddress, parse_target
 from mlody.core.workspace import Workspace
 
@@ -75,7 +80,7 @@ def _registry_stem_for_address(workspace: Workspace, address: TargetAddress) -> 
     return "/".join(part for part in stem_parts if part)
 
 
-def _task_node_id_for_address(workspace: Workspace, address: TargetAddress) -> str:
+def task_node_id_for_address(workspace: Workspace, address: TargetAddress) -> str:
     stem = _registry_stem_for_address(workspace, address)
     return f"task/{stem}:{address.target_name}" if stem else f"task/:{address.target_name}"
 
@@ -115,13 +120,18 @@ def selection_for_label(workspace: Workspace, label: str) -> ActionGraphSelectio
             graph=networkx.MultiDiGraph(),
         )
     if len(address.field_path) >= 2 and address.field_path[0] == "outputs":
+        task_node_id = task_node_id_for_address(workspace, address)
         return ActionGraphSelection(
             requested_label=label,
             kind="task-output",
-            graph=ancestors_subgraph(dag, address.field_path[1]),
+            graph=task_output_ancestors_subgraph(
+                dag,
+                task_node_id,
+                address.field_path[1],
+            ),
         )
 
-    task_node_id = _task_node_id_for_address(workspace, address)
+    task_node_id = task_node_id_for_address(workspace, address)
     if task_node_id in dag.nodes:
         return ActionGraphSelection(
             requested_label=label,

@@ -57,10 +57,22 @@ class TestMakeDagVirtualValue:
         result = make_dag_virtual_value(ws, "my_output", label)
         assert result.label == label
 
-    def test_materialiser_returns_networkx_graph(self) -> None:
+    def test_materialiser_uses_task_qualified_selector_for_output_labels(self) -> None:
         full_dag: networkx.MultiDiGraph = networkx.MultiDiGraph()
         full_dag.add_node("task/pkg:producer", task=MagicMock(output_ports=("out",)))
         ws = self._make_workspace(full_dag)
+
+        with patch("mlody.core.dag.task_output_ancestors_subgraph") as mock_sub:
+            expected = networkx.MultiDiGraph()
+            mock_sub.return_value = expected
+            result = make_dag_virtual_value(ws, "out", "//pkg:producer.outputs.out.dag")
+            materialized = force_virtual_value(result)
+
+        mock_sub.assert_called_once_with(full_dag, "task/pkg:producer", "out")
+        assert materialized is expected
+
+    def test_materialiser_falls_back_to_global_port_selector_for_non_label_input(self) -> None:
+        ws = self._make_workspace(networkx.MultiDiGraph())
 
         with patch("mlody.core.dag.ancestors_subgraph") as mock_sub:
             expected = networkx.MultiDiGraph()
@@ -68,7 +80,7 @@ class TestMakeDagVirtualValue:
             result = make_dag_virtual_value(ws, "out", "label")
             materialized = force_virtual_value(result)
 
-        mock_sub.assert_called_once_with(full_dag, "out")
+        mock_sub.assert_called_once_with(ws.dag, "out")
         assert materialized is expected
 
     def test_materialiser_uses_workspace_dag_property(self) -> None:

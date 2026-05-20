@@ -49,7 +49,25 @@ def make_dag_virtual_value(
     from mlody.core.virtual_value import make_virtual_value  # noqa: PLC0415
 
     def _materializer(_v: object) -> "networkx.MultiDiGraph":
-        from mlody.core.dag import ancestors_subgraph  # noqa: PLC0415
+        from mlody.core.action_graph import task_node_id_for_address  # noqa: PLC0415
+        from mlody.core.dag import (  # noqa: PLC0415
+            ancestors_subgraph,
+            task_output_ancestors_subgraph,
+        )
+        from mlody.core.targets import parse_target  # noqa: PLC0415
+
+        requested_label = label.removesuffix(".dag")
+        try:
+            address = parse_target(requested_label)
+        except ValueError:
+            return ancestors_subgraph(workspace.dag, port_name)
+
+        if len(address.field_path) >= 2 and address.field_path[0] == "outputs":
+            return task_output_ancestors_subgraph(
+                workspace.dag,
+                task_node_id_for_address(workspace, address),
+                address.field_path[1],
+            )
 
         return ancestors_subgraph(workspace.dag, port_name)
 

@@ -511,6 +511,35 @@ def ancestors_subgraph(
     return result
 
 
+def task_output_ancestors_subgraph(
+    dag: networkx.MultiDiGraph,
+    task_node_id: str | None,
+    target_output: str,
+) -> networkx.MultiDiGraph:
+    """Return the ancestor subgraph for one concrete task output.
+
+    Unlike ``ancestors_subgraph()``, this selector is task-qualified: it only
+    succeeds when ``task_node_id`` exists, refers to a task node, and that task
+    actually declares ``target_output`` as one of its outputs.
+    """
+    if not task_node_id or task_node_id not in dag.nodes:
+        return networkx.MultiDiGraph()
+
+    task_node: TaskNode | None = dag.nodes[task_node_id].get("task")
+    if task_node is None:
+        return networkx.MultiDiGraph()
+
+    declared_outputs = {
+        getattr(value_struct, "name", "")
+        for value_struct in iter_port_values(getattr(task_node.task, "outputs", None))
+    }
+    if target_output not in declared_outputs:
+        return networkx.MultiDiGraph()
+
+    relevant_nodes = networkx.ancestors(dag, task_node_id) | {task_node_id}
+    return dag.subgraph(relevant_nodes).copy()
+
+
 def validate_paths(dag: networkx.MultiDiGraph) -> list[PathError]:
     """Validate all ``Edge.dst_path`` values against the destination task struct.
 

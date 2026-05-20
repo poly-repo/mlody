@@ -31,16 +31,12 @@ def make_action_graph_virtual_value(
     """Return a virtual value Struct whose materialiser returns an action graph."""
     from mlody.core.action_graph import (  # noqa: PLC0415
         build_action_graph,
-        selection_for_port,
+        selection_for_label,
     )
     from mlody.core.virtual_value import make_virtual_value  # noqa: PLC0415
 
     def _materializer(_v: object) -> "networkx.DiGraph":
-        selection = selection_for_port(
-            workspace,
-            port_name,
-            requested_label=label.removesuffix(".agraph"),
-        )
+        selection = selection_for_label(workspace, label.removesuffix(".agraph"))
         return build_action_graph(selection)
 
     return make_virtual_value(

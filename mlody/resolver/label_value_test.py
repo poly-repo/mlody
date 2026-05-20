@@ -3175,6 +3175,19 @@ class TestDagVirtualAttribute:
         assert isinstance(result, MlodyValueValue)
         assert getattr(result.struct, "name", None) == "result"
 
+    def test_dag_segment_label_keeps_task_qualified_output(
+        self, fs: FakeFilesystem
+    ) -> None:
+        ws = _make_workspace(
+            fs,
+            extra_files={"teams/myroot/pkg/foo.mlody": TASK_WITH_VALUE_OUTPUTS_MLODY},
+        )
+        label = parse_label("@myroot//pkg/foo:my_task.outputs.result.dag")
+        result = resolve_label_to_value(label, ws)
+
+        assert isinstance(result, MlodyValueValue)
+        assert getattr(result.struct, "label", None) == label.format_inner()
+
     def test_dag_segment_without_workspace_returns_unresolved(
         self, fs: FakeFilesystem
     ) -> None:
