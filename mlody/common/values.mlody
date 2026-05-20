@@ -383,6 +383,7 @@ value = rule(
 def cached_value(
     *,
     name,
+    description=None,
     type=None,
     source=None,
     location=None,
@@ -393,6 +394,8 @@ def cached_value(
     remote_name=None,
 ):
     validate_attr_value("name", name, "string")
+    if description != None:
+        validate_attr_value("description", description, "string")
     if remote_name != None:
         validate_attr_value("remote_name", remote_name, "string")
     if source == None:
@@ -417,6 +420,7 @@ def cached_value(
 
     value(
         name=synthesized_remote_name,
+        description=("[remote] " + description) if description != None else None,
         type=type,
         location=remote_location,
         freshness=manual(),
@@ -426,6 +430,7 @@ def cached_value(
 
     return value(
         name=name,
+        description=description,
         type=type,
         location=local_location,
         freshness=freshness,

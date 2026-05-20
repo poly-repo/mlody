@@ -14,6 +14,7 @@ load("//mlody/common/representation.mlody", "csv", "html", "json")
 
 cached_value(
     name = "country-stats-page",
+    description = "HTML source page containing the country population table used by the Hooli basics demo.",
     type = opaque(),
     source = remote(uri = "https://tinyurl.com/mry64ebh"),
     location = posix(path = "~/.cache/mlody/artifacts/hooli/basics/country_stats_page.html"),
@@ -23,6 +24,7 @@ cached_value(
 
 typedef(
     name = "country-stats-row",
+    description = "Canonical row schema for country-level population change records.",
     base = record(
         fields = [
             value(name = "country", type = string()),
@@ -37,6 +39,7 @@ typedef(
 
 value(
     name = "country-stats",
+    description = "Derived CSV table of country population statistics parsed from the cached HTML page.",
     type = vector(element_type = ":country-stats-row"),
     source = ":country-stats-page",
     location = posix(path = "~/.cache/mlody/artifacts/hooli/basics/country_stats.csv"),
@@ -45,6 +48,7 @@ value(
 
 typedef(
     name = "country-stats-check-report",
+    description = "Validation report emitted after checking the normalized country statistics table.",
     base = record(
         fields = [
             value(name = "passed", type = bool()),
@@ -57,6 +61,7 @@ typedef(
 
 typedef(
     name = "continent-coefficient",
+    description = "Single regression coefficient describing the effect of one continent in the population-change model.",
     base = record(
         fields = [
             value(name = "continent", type = string()),
@@ -67,6 +72,7 @@ typedef(
 
 typedef(
     name = "population-change-model",
+    description = "Serialized regression model trained to explain country-level population change by continent.",
     base = record(
         fields = [
             value(name = "intercept", type = float()),
@@ -81,6 +87,7 @@ typedef(
 
 typedef(
     name = "continent-stats-row",
+    description = "Aggregated continent-level population statistics enriched with model-derived change factors.",
     base = record(
         fields = [
             value(name = "continent", type = string()),
@@ -94,6 +101,7 @@ typedef(
 
 task(
     name = "check_country_stats",
+    description = "Validate the derived country statistics table and emit a structured check report.",
     inputs = [
         value(
             name = "input_table",
@@ -132,6 +140,7 @@ task(
 
 task(
     name = "change_model",
+    description = "Train a simple population-change regression model from the normalized country statistics table.",
     inputs = [
         value(
             name = "input_table",
@@ -170,6 +179,7 @@ task(
 
 task(
     name = "continent_stats",
+    description = "Aggregate the country statistics by continent and combine them with the trained change model.",
     inputs = [
         value(
             name = "input_table",

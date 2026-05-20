@@ -937,6 +937,26 @@ def test_cached_value_supports_non_tabular_html_representation() -> None:
     assert local_value._source_value.name == "raw_page-remote"
 
 
+def test_cached_value_propagates_descriptions_to_local_and_remote_values() -> None:
+    ev = _eval(
+        'cached_value(\n'
+        '  name="raw_page",\n'
+        '  description="Cached HTML report page.",\n'
+        '  type=opaque(),\n'
+        '  source=remote(uri="https://example.com/page.html"),\n'
+        '  location=posix(path="~/.cache/mlody/page.html"),\n'
+        '  representation=html(),\n'
+        '  freshness=ttl(duration="1day"),\n'
+        ')\n'
+    )
+
+    local_value = ev.registry.values.by_name["raw_page"]
+    remote_value = ev.registry.values.by_name["raw_page-remote"]
+
+    assert local_value.description == "Cached HTML report page."
+    assert remote_value.description == "[remote] Cached HTML report page."
+
+
 def test_cached_value_respects_custom_remote_name() -> None:
     ev = _eval(
         'cached_value(\n'
