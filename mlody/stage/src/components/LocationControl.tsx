@@ -1,5 +1,7 @@
 import { Anchor } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type {
   LocationCrumb,
   LocationPiece,
@@ -80,6 +82,8 @@ export function LocationControl({
   onWorkspaceChange,
 }: LocationControlProps) {
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [workspacePickerStyle, setWorkspacePickerStyle] =
+    useState<CSSProperties>();
   const workspacePickerRef = useRef<HTMLDivElement>(null);
   const workspaceButtonRef = useRef<HTMLButtonElement>(null);
   const branch = getRecordValue(workspace?.info ?? null, "branch");
@@ -113,6 +117,109 @@ export function LocationControl({
 
     return [...ordered, ...remaining];
   }, [availableWorkspaces, workspace]);
+
+  useLayoutEffect(() => {
+    if (!workspacePickerOpen) {
+      setWorkspacePickerStyle(undefined);
+      return;
+    }
+
+    function updateWorkspacePickerLayout() {
+      const button = workspaceButtonRef.current;
+      const picker = workspacePickerRef.current;
+      if (!button || !picker) {
+        return;
+      }
+
+      const buttonRect = button.getBoundingClientRect();
+      const pickerComputedStyle = window.getComputedStyle(picker);
+      const pickerGap = Number.parseFloat(pickerComputedStyle.gap) || 0;
+      const paddingTop = Number.parseFloat(pickerComputedStyle.paddingTop) || 0;
+      const paddingBottom = Number.parseFloat(pickerComputedStyle.paddingBottom) || 0;
+      const header = picker.querySelector<HTMLElement>(
+        ".LocationControl-workspacePickerHeader",
+      );
+      const list = picker.querySelector<HTMLElement>(
+        ".LocationControl-workspacePickerList",
+      );
+      const firstChoice = list?.querySelector<HTMLElement>(
+        ".LocationControl-workspacePickerChoice",
+      );
+      const listComputedStyle = list ? window.getComputedStyle(list) : null;
+      const listGap = listComputedStyle
+        ? Number.parseFloat(listComputedStyle.rowGap || listComputedStyle.gap) || 0
+        : 0;
+      const headerHeight = header?.getBoundingClientRect().height ?? 0;
+      const choiceHeight = firstChoice?.getBoundingClientRect().height ?? 0;
+      const estimatedListHeight =
+        workspaceChoices.length > 0 && choiceHeight > 0
+          ? choiceHeight * workspaceChoices.length +
+            listGap * Math.max(0, workspaceChoices.length - 1)
+          : 0;
+      const estimatedHeight = Math.ceil(
+        paddingTop +
+          paddingBottom +
+          headerHeight +
+          (estimatedListHeight > 0 ? pickerGap + estimatedListHeight : 0),
+      );
+      const naturalHeight = Math.max(picker.scrollHeight, estimatedHeight);
+      const edgePadding = 4;
+      const anchorGap = 8;
+      const heightSlack = 4;
+      const maxWidth = Math.min(512, window.innerWidth - edgePadding * 2);
+      const buttonCenterX = buttonRect.left + buttonRect.width / 2;
+      const minCenterX = edgePadding + maxWidth / 2;
+      const maxCenterX = window.innerWidth - edgePadding - maxWidth / 2;
+      const centerX = Math.min(maxCenterX, Math.max(minCenterX, buttonCenterX));
+      const spaceAbove = Math.max(0, buttonRect.top - edgePadding - anchorGap);
+      const spaceBelow = Math.max(
+        0,
+        window.innerHeight - buttonRect.bottom - edgePadding - anchorGap,
+      );
+      const viewportMaxHeight = Math.max(0, window.innerHeight - edgePadding * 2);
+      const pickerHeight = Math.ceil(naturalHeight + heightSlack);
+      const fitsAbove = pickerHeight <= spaceAbove;
+      const fitsBelow = pickerHeight <= spaceBelow;
+      const shouldOpenUp = fitsAbove || (!fitsBelow && spaceAbove >= spaceBelow);
+      const useViewportFallback = !fitsAbove && !fitsBelow;
+      const maxHeight = Math.max(
+        0,
+        Math.floor(useViewportFallback ? viewportMaxHeight : shouldOpenUp ? spaceAbove : spaceBelow),
+      );
+
+      setWorkspacePickerStyle({
+        left: `${centerX}px`,
+        width: `${maxWidth}px`,
+        height: `${Math.min(pickerHeight, maxHeight)}px`,
+        maxHeight: `${Math.min(pickerHeight, maxHeight)}px`,
+        transform: "translateX(-50%)",
+        ...(useViewportFallback
+          ? shouldOpenUp
+            ? {
+                top: `${edgePadding}px`,
+              }
+            : {
+                bottom: `${edgePadding}px`,
+              }
+          : shouldOpenUp
+          ? {
+              bottom: `${Math.ceil(window.innerHeight - buttonRect.top + anchorGap)}px`,
+            }
+          : {
+              top: `${Math.ceil(buttonRect.bottom + anchorGap)}px`,
+            }),
+      });
+    }
+
+    updateWorkspacePickerLayout();
+    window.addEventListener("resize", updateWorkspacePickerLayout);
+    window.addEventListener("scroll", updateWorkspacePickerLayout, true);
+
+    return () => {
+      window.removeEventListener("resize", updateWorkspacePickerLayout);
+      window.removeEventListener("scroll", updateWorkspacePickerLayout, true);
+    };
+  }, [workspacePickerOpen, workspaceChoices.length]);
 
   useEffect(() => {
     if (!workspacePickerOpen) {
@@ -279,60 +386,66 @@ export function LocationControl({
         )}
       </div>
 
-      {workspacePickerOpen ? (
-        <div
-          ref={workspacePickerRef}
-          className="LocationControl-workspacePicker"
-          role="dialog"
-          aria-label="Workspace picker"
-        >
-          <div className="LocationControl-workspacePickerHeader">
-            <span className="LocationControl-workspacePickerEyebrow">
-              Available workspaces
-            </span>
-            <span className="LocationControl-workspacePickerCurrent">
-              {workspace ? getWorkspaceTopdir(workspace) : "Unavailable"}
-            </span>
-          </div>
-          {workspaceChoices.length === 0 ? (
-            <p className="LocationControl-workspacePickerEmpty">
-              No workspace entries are available yet.
-            </p>
-          ) : (
-            <div className="LocationControl-workspacePickerList">
-              {workspaceChoices.map((candidate) => {
-                const candidateTopdir = getWorkspaceTopdir(candidate);
-                const isSelected =
-                  workspace !== null &&
-                  workspace.workspaceRoot === candidate.workspaceRoot;
-                const candidateSha = getRecordValue(candidate.info ?? null, "sha");
+      {workspacePickerOpen
+        ? createPortal(
+            <div
+              ref={workspacePickerRef}
+              className="LocationControl-workspacePicker"
+              role="dialog"
+              aria-label="Workspace picker"
+              style={workspacePickerStyle}
+            >
+              <div className="LocationControl-workspacePickerHeader">
+                <span className="LocationControl-workspacePickerEyebrow">
+                  Available workspaces
+                </span>
+                <span className="LocationControl-workspacePickerCurrent">
+                  {workspace ? getWorkspaceTopdir(workspace) : "Unavailable"}
+                </span>
+              </div>
+              {workspaceChoices.length === 0 ? (
+                <p className="LocationControl-workspacePickerEmpty">
+                  No workspace entries are available yet.
+                </p>
+              ) : (
+                <div className="LocationControl-workspacePickerList">
+                  {workspaceChoices.map((candidate) => {
+                    const candidateTopdir = getWorkspaceTopdir(candidate);
+                    const isSelected =
+                      workspace !== null &&
+                      workspace.workspaceRoot === candidate.workspaceRoot;
+                    const candidateSha = getRecordValue(candidate.info ?? null, "sha");
 
-                return (
-                  <button
-                    key={candidate.workspaceRoot}
-                    type="button"
-                    className="LocationControl-workspacePickerChoice"
-                    data-selected={isSelected ? "true" : undefined}
-                    onClick={() => handleWorkspaceSelect(candidate)}
-                  >
-                    <span className="LocationControl-workspacePickerLabelRow">
-                      <span className="LocationControl-workspacePickerLabel">
-                        {candidateTopdir}
-                      </span>
-                      <span className="LocationControl-workspacePickerMode">
-                        {candidateSha ? candidateSha.slice(0, 8) : getWorkspaceMode(candidate)}
-                      </span>
-                    </span>
-                    <span className="LocationControl-workspacePickerPath">
-                      {getWorkspaceTopdir(candidate)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      ) : null}
+                    return (
+                      <button
+                        key={candidate.workspaceRoot}
+                        type="button"
+                        className="LocationControl-workspacePickerChoice"
+                        data-selected={isSelected ? "true" : undefined}
+                        onClick={() => handleWorkspaceSelect(candidate)}
+                      >
+                        <span className="LocationControl-workspacePickerLabelRow">
+                          <span className="LocationControl-workspacePickerLabel">
+                            {candidateTopdir}
+                          </span>
+                          <span className="LocationControl-workspacePickerMode">
+                            {candidateSha
+                              ? candidateSha.slice(0, 8)
+                              : getWorkspaceMode(candidate)}
+                          </span>
+                        </span>
+                        <span className="LocationControl-workspacePickerPath">
+                          {getWorkspaceTopdir(candidate)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

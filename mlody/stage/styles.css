@@ -2476,13 +2476,10 @@ textarea {
 }
 
 .LocationControl-workspacePicker {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 10px);
+  position: fixed;
   z-index: 24;
   display: flex;
-  width: min(28rem, calc(100vw - 2rem));
-  min-width: 18rem;
+  min-width: 0;
   flex-direction: column;
   gap: 12px;
   border: 1px solid rgba(120, 138, 174, 0.24);
@@ -2526,7 +2523,7 @@ textarea {
 .LocationControl-workspacePickerList {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .LocationControl-workspacePickerChoice {
@@ -2534,11 +2531,11 @@ textarea {
   width: 100%;
   min-width: 0;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   border: 1px solid rgba(120, 138, 174, 0.18);
   border-radius: 14px;
   background: rgba(77, 103, 217, 0.04);
-  padding: 10px 12px;
+  padding: 8px 10px;
   text-align: left;
   cursor: pointer;
   transition:
@@ -2596,8 +2593,10 @@ textarea {
   color: var(--stage-ink-soft);
   font-family: var(--font-mono);
   font-size: 0.76rem;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .LocationControl-workspacePickerEmpty {
@@ -3349,11 +3348,6 @@ textarea {
     right: 0;
   }
 
-  .LocationControl-workspacePicker {
-    right: 0;
-    width: min(30rem, calc(100vw - 1.5rem));
-  }
-
   .CommandToolbar-userPicker {
     right: 0;
     width: min(34rem, calc(100vw - 1.5rem));
@@ -3395,12 +3389,6 @@ textarea {
     padding: 10px 12px;
   }
 
-  .LocationControl-workspacePicker {
-    right: -2px;
-    width: min(26rem, calc(100vw - 1rem));
-    padding: 12px;
-  }
-
   .CommandToolbar-userPicker {
     right: -2px;
     width: min(30rem, calc(100vw - 1rem));
@@ -3433,5 +3421,1032 @@ textarea {
 
   .StageLogsBlock-field {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Linear-style stage theme override */
+
+:root {
+  color-scheme: dark;
+  --font-sans: "Geist Sans", "Inter", "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", "Fira Code", monospace;
+
+  --stage-bg: #050506;
+  --stage-bg-accent: #0a0a0c;
+  --stage-ink: #ededef;
+  --stage-ink-soft: #8a8f98;
+  --stage-line: rgba(255, 255, 255, 0.06);
+  --stage-card: rgba(12, 12, 16, 0.74);
+  --stage-card-strong: rgba(16, 16, 20, 0.92);
+  --stage-card-border: rgba(255, 255, 255, 0.08);
+  --stage-card-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 24px 64px rgba(0, 0, 0, 0.48),
+    0 0 120px rgba(94, 106, 210, 0.08);
+  --stage-toolbar-glow: rgba(94, 106, 210, 0.22);
+  --stage-primary: #5e6ad2;
+  --stage-primary-soft: rgba(94, 106, 210, 0.14);
+  --stage-success: #38b26b;
+  --stage-error: #dc5d5d;
+  --stage-output-line: rgba(255, 255, 255, 0.045);
+  --stage-radius: 24px;
+
+  --stage-admonition-red-bg:
+    linear-gradient(180deg, rgba(58, 22, 25, 0.9), rgba(37, 14, 17, 0.92));
+  --stage-admonition-red-border: rgba(220, 93, 93, 0.3);
+  --stage-admonition-red-accent: #ff8f8f;
+  --stage-admonition-red-label: rgba(255, 206, 206, 0.74);
+  --stage-admonition-red-ink: rgba(255, 234, 234, 0.94);
+  --stage-admonition-green-bg:
+    linear-gradient(180deg, rgba(19, 51, 35, 0.9), rgba(13, 33, 23, 0.92));
+  --stage-admonition-green-border: rgba(56, 178, 107, 0.3);
+  --stage-admonition-green-accent: #7fe0a4;
+  --stage-admonition-green-label: rgba(203, 245, 219, 0.72);
+  --stage-admonition-green-ink: rgba(227, 255, 237, 0.94);
+  --stage-admonition-yellow-bg:
+    linear-gradient(180deg, rgba(54, 42, 16, 0.92), rgba(36, 28, 12, 0.92));
+  --stage-admonition-yellow-border: rgba(210, 157, 41, 0.28);
+  --stage-admonition-yellow-accent: #f3c86b;
+  --stage-admonition-yellow-label: rgba(252, 232, 176, 0.72);
+  --stage-admonition-yellow-ink: rgba(255, 245, 214, 0.94);
+  --stage-admonition-black-bg:
+    linear-gradient(180deg, rgba(19, 20, 25, 0.96), rgba(10, 10, 13, 0.96));
+  --stage-admonition-black-border: rgba(255, 255, 255, 0.08);
+  --stage-admonition-black-accent: #f0f3ff;
+  --stage-admonition-black-label: rgba(240, 243, 255, 0.72);
+  --stage-admonition-black-ink: rgba(255, 255, 255, 0.94);
+  --stage-admonition-gray-bg:
+    linear-gradient(180deg, rgba(30, 32, 39, 0.9), rgba(17, 18, 23, 0.92));
+  --stage-admonition-gray-border: rgba(255, 255, 255, 0.08);
+  --stage-admonition-gray-accent: #aeb6cb;
+  --stage-admonition-gray-label: rgba(210, 216, 230, 0.72);
+  --stage-admonition-gray-ink: rgba(236, 239, 246, 0.92);
+}
+
+@keyframes StageAmbientFloat {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  50% {
+    transform: translate3d(-1.5%, -2%, 0) scale(1.04);
+  }
+
+  100% {
+    transform: translate3d(2%, 1%, 0) scale(1.02);
+  }
+}
+
+@keyframes StageGlowPulse {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+
+  50% {
+    opacity: 0.72;
+  }
+}
+
+body {
+  position: relative;
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse at top, #0a0a0f 0%, #050506 48%, #020203 100%);
+  color: var(--stage-ink);
+}
+
+body::before,
+body::after {
+  position: fixed;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+}
+
+body::before {
+  z-index: -2;
+  inset: -18%;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(94, 106, 210, 0.26), transparent 22%),
+    radial-gradient(circle at 84% 8%, rgba(122, 98, 255, 0.14), transparent 18%),
+    radial-gradient(circle at 72% 78%, rgba(94, 106, 210, 0.18), transparent 24%),
+    radial-gradient(circle at 36% 92%, rgba(255, 255, 255, 0.06), transparent 16%);
+  filter: blur(110px);
+  animation: StageAmbientFloat 18s ease-in-out infinite alternate;
+  opacity: 0.92;
+}
+
+body::after {
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.18'/%3E%3C/svg%3E");
+  background-size: 64px 64px, 64px 64px, 220px 220px;
+  background-position: center;
+  opacity: 0.22;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.78), transparent 94%);
+}
+
+::selection {
+  background: rgba(94, 106, 210, 0.32);
+  color: #ffffff;
+}
+
+.Layout {
+  isolation: isolate;
+  gap: 22px;
+  padding: 18px 20px 84px;
+}
+
+.Layout::before {
+  background:
+    radial-gradient(circle at top center, rgba(94, 106, 210, 0.1), transparent 36%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: auto, 64px 64px, 64px 64px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.72), transparent 84%);
+  opacity: 0.68;
+}
+
+.Layout::after {
+  position: fixed;
+  inset: auto auto 4rem 50%;
+  z-index: -1;
+  width: min(74vw, 960px);
+  height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(94, 106, 210, 0.14), transparent 66%);
+  filter: blur(54px);
+  transform: translateX(-50%);
+  content: "";
+  animation: StageGlowPulse 9s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.OutputPane-header,
+.ExecutionBlock-header,
+.StageTableBlock-header,
+.StageLineageBlock-header,
+.StageLogsBlock-header,
+.StageScalarBlock-header,
+.StageTaskBlock-header,
+.StageSourceCodeBlock-header,
+.StageDagBlock-header,
+.StageActionGraphBlock-header,
+.StageResultBlock-errorHeader {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
+    radial-gradient(circle at top center, rgba(94, 106, 210, 0.1), transparent 58%);
+}
+
+.OutputPane-eyebrow,
+.StageTableBlock-label,
+.StageLineageBlock-label,
+.StageLogsBlock-label,
+.StageScalarBlock-label,
+.StageTaskBlock-label,
+.StageSourceCodeBlock-label,
+.StageDagBlock-label,
+.StageActionGraphBlock-label,
+.StageResultBlock-errorLabel,
+.SystemAdmonition-label,
+.LocationControl-popupEyebrow,
+.LocationControl-workspacePickerEyebrow,
+.CommandToolbar-userPickerEyebrow,
+.CommandToolbar-commandTooltipTitle {
+  color: rgba(208, 214, 255, 0.76);
+  letter-spacing: 0.16em;
+}
+
+.OutputPane-count,
+.StageTableBlock-count,
+.StageLineageBlock-count,
+.StageLogsBlock-count,
+.StageDagBlock-count,
+.StageActionGraphBlock-count,
+.StageTaskBlock-context,
+.StageSourceCodeBlock-path,
+.StageLogsBlock-requestId,
+.StageLogsBlock-fieldKey,
+.StageLogsBlock-eventTimestamp,
+.StageTableBlock-value--muted,
+.StageTaskBlock-empty,
+.StageTaskBlock-portDescription--empty,
+.LocationControl-topdir,
+.LocationControl-popupState,
+.LocationControl-rootDescription,
+.LocationControl-workspacePickerPath,
+.CommandToolbar-userRole,
+.SettingsPage p {
+  color: var(--stage-ink-soft);
+}
+
+.ExecutionBlock,
+.StageScalarBlock,
+.StageTaskBlock,
+.StageSourceCodeBlock,
+.StageLogsBlock,
+.StageTableBlock,
+.StageLineageBlock,
+.StageDagBlock,
+.StageActionGraphBlock,
+.CommandShell,
+.SettingsPage,
+.SystemAdmonition {
+  border: 1px solid var(--stage-card-border);
+  background:
+    linear-gradient(180deg, rgba(18, 18, 22, 0.94), rgba(10, 10, 12, 0.92)),
+    radial-gradient(circle at top right, rgba(94, 106, 210, 0.11), transparent 42%);
+  box-shadow: var(--stage-card-shadow);
+  backdrop-filter: blur(22px);
+}
+
+.ExecutionBlock,
+.StageScalarBlock,
+.StageTaskBlock,
+.StageSourceCodeBlock,
+.StageLogsBlock,
+.StageTableBlock,
+.StageLineageBlock,
+.SystemAdmonition,
+.LocationControl-shell,
+.CommandToolbar-userCard,
+.UiSelectTrigger,
+.StageLogsBlock-event,
+.StageTaskBlock-attributeCard,
+.StageTaskBlock-portCard {
+  transition:
+    transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ExecutionBlock:hover,
+.StageScalarBlock:hover,
+.StageTaskBlock:hover,
+.StageSourceCodeBlock:hover,
+.StageLogsBlock:hover,
+.StageTableBlock:hover,
+.StageLineageBlock:hover,
+.SystemAdmonition:hover,
+.LocationControl:hover .LocationControl-shell,
+.CommandToolbar-userCard:hover,
+.UiSelectTrigger:hover,
+.StageLogsBlock-event:hover,
+.StageTaskBlock-attributeCard:hover,
+.StageTaskBlock-portCard:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 28px 74px rgba(0, 0, 0, 0.56),
+    0 0 96px rgba(94, 106, 210, 0.1);
+}
+
+.OutputPane-empty {
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(15, 15, 19, 0.88), rgba(9, 9, 11, 0.9));
+  color: var(--stage-ink-soft);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 24px 60px rgba(0, 0, 0, 0.34);
+}
+
+.ExecutionBlock-command,
+.CommandToolbar-option strong,
+.LocationControl-segment--link,
+.StageScalarBlock-value--numeric,
+.StageTableBlock-value--numeric,
+.JsonSyntaxBlock-token--number {
+  color: var(--stage-primary);
+}
+
+.ExecutionBlock-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(19, 19, 24, 0.98), rgba(11, 11, 14, 0.96)),
+    radial-gradient(circle at 52% 0%, rgba(94, 106, 210, 0.16), transparent 40%);
+}
+
+.ExecutionBlock-timestamp {
+  color: rgba(174, 180, 197, 0.82);
+  font-family: var(--font-mono);
+}
+
+.ExecutionBlock-viewSwitch {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.ExecutionBlock-viewButton {
+  color: rgba(186, 193, 213, 0.86);
+}
+
+.ExecutionBlock-viewButton:hover {
+  color: #f3f5ff;
+}
+
+.ExecutionBlock-viewButton--active {
+  background:
+    linear-gradient(180deg, rgba(94, 106, 210, 0.22), rgba(94, 106, 210, 0.12));
+  color: #f7f8ff;
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 106, 210, 0.2),
+    0 10px 24px rgba(0, 0, 0, 0.28);
+}
+
+.ExecutionBlock-copyButton,
+.ExecutionBlock-toggleButton {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  color: rgba(214, 219, 235, 0.84);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.ExecutionBlock-copyButton:hover,
+.ExecutionBlock-toggleButton:hover {
+  border-color: rgba(94, 106, 210, 0.3);
+}
+
+.ExecutionBlock-copyButton--copied {
+  border-color: rgba(56, 178, 107, 0.34);
+  background: rgba(56, 178, 107, 0.16);
+  color: #a7ebc4;
+}
+
+.ExecutionBlock-copyButton--error {
+  border-color: rgba(220, 93, 93, 0.34);
+  background: rgba(220, 93, 93, 0.16);
+  color: #ffb1b1;
+}
+
+.ExecutionBlock-status {
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.ExecutionBlock-viewSwitch,
+.ExecutionBlock-copyButton,
+.ExecutionBlock-toggleButton,
+.LocationControl-stateBadge,
+.StageScalarBlock-type,
+.StageTaskBlock-sectionCount,
+.StageTaskBlock-portType,
+.StageTableBlock-badge,
+.StageTableBlock-pill,
+.StageLogsBlock-eventBadge,
+.CommandShell-prompt {
+  border-color: rgba(94, 106, 210, 0.24);
+  background: rgba(94, 106, 210, 0.1);
+  color: rgba(222, 228, 255, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.ExecutionBlock-viewButton:hover,
+.ExecutionBlock-viewButton--active,
+.ExecutionBlock-copyButton:hover,
+.ExecutionBlock-toggleButton:hover {
+  background: rgba(94, 106, 210, 0.16);
+  color: #f6f7ff;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.32),
+    0 0 30px rgba(94, 106, 210, 0.16);
+}
+
+.ExecutionBlock-viewButton:focus-visible,
+.ExecutionBlock-copyButton:focus-visible,
+.ExecutionBlock-toggleButton:focus-visible,
+.LocationControl-topdirButton:focus-visible,
+.UiSelectTrigger:focus-visible {
+  outline: 2px solid rgba(94, 106, 210, 0.46);
+  outline-offset: 2px;
+}
+
+.ExecutionBlock-line,
+.StageScalarBlock-value--string,
+.StageLogsBlock-event,
+.StageTaskBlock-attributeCard,
+.StageTaskBlock-portCard,
+.LocationControl-workspacePickerChoice,
+.CommandToolbar-userPickerChoice,
+.LocationControl-rootChip {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.ExecutionBlock-line--stderr,
+.StageLogsBlock-empty--error,
+.StageResultBlock-errorMessage {
+  color: #ff9b9b;
+}
+
+.ExecutionBlock-line--stageJson,
+.StageSourceCodeBlock-code,
+.JsonSyntaxBlock {
+  background:
+    linear-gradient(180deg, rgba(12, 12, 16, 0.98), rgba(15, 15, 20, 0.94));
+}
+
+.StageLogsBlock-eventSummary,
+.StageScalarBlock-title,
+.StageTaskBlock-title,
+.StageTaskBlock-portName,
+.StageSourceCodeBlock-title,
+.StageTableBlock-title,
+.StageLineageBlock-source,
+.StageActionGraphNode-title,
+.StageDagNode-title,
+.CommandToolbar-userName,
+.LocationControl-workspacePickerLabel,
+.StageResultBlock-errorLabel,
+.SettingsPage h1 {
+  color: var(--stage-ink);
+}
+
+.StageLogsBlock-filterSelect,
+.CommandShell-textarea,
+.UiSelectTrigger,
+.LocationControl-popup,
+.LocationControl-workspacePicker,
+.CommandToolbar-userPopup,
+.CommandToolbar-userPicker,
+.CommandToolbar-commandTooltip,
+.UiSelectContent {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(18, 18, 22, 0.96), rgba(10, 10, 12, 0.96));
+  color: var(--stage-ink);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 24px 60px rgba(0, 0, 0, 0.52),
+    0 0 72px rgba(94, 106, 210, 0.08);
+  backdrop-filter: blur(22px);
+}
+
+.CommandToolbar {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at center top, rgba(94, 106, 210, 0.22), transparent 46%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
+}
+
+.CommandToolbar-path,
+.CommandToolbar-commandTooltip,
+.CommandToolbar-option,
+.CommandToolbar-userRole,
+.CommandToolbar-userPickerTeam,
+.CommandToolbar-userPickerLabel,
+.LocationControl-unavailable,
+.StageTaskBlock-description,
+.StageTaskBlock-portDescription,
+.StageResultBlock-errorMessage,
+.JsonSyntaxBlock-token--plain,
+.JsonSyntaxBlock-token--null,
+.UiSelectLabel,
+.UiBreadcrumbSeparator,
+.UiBreadcrumbEllipsisIcon {
+  color: var(--stage-ink-soft);
+}
+
+.CommandShell-entry,
+.CommandShell-historyPanel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+}
+
+.CommandShell-prompt {
+  text-shadow: 0 0 18px rgba(94, 106, 210, 0.2);
+}
+
+.CommandShell-textarea,
+.CommandInputEditor .cm-editor,
+.CommandInputEditor .cm-content,
+.CommandShell-historyQuery {
+  color: var(--stage-ink);
+}
+
+.CommandShell-textarea::placeholder,
+.CommandInputEditor .cm-placeholder {
+  color: rgba(138, 143, 152, 0.72);
+}
+
+.CommandInputEditor .cm-cursor,
+.CommandInputEditor .cm-dropCursor {
+  border-left-color: var(--stage-primary);
+}
+
+.CommandInputEditor .cm-selectionBackground,
+.CommandInputEditor.cm-focused .cm-selectionBackground,
+.CommandInputEditor .cm-content ::selection {
+  background: rgba(94, 106, 210, 0.2);
+}
+
+.CommandInputEditor .cm-tooltip {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(18, 18, 22, 0.98), rgba(10, 10, 12, 0.98)),
+    radial-gradient(circle at top right, rgba(94, 106, 210, 0.12), transparent 48%);
+  color: var(--stage-ink);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 24px 60px rgba(0, 0, 0, 0.52),
+    0 0 72px rgba(94, 106, 210, 0.08);
+  backdrop-filter: blur(22px);
+}
+
+.CommandInputEditor .cm-tooltip-autocomplete {
+  overflow: hidden;
+  min-width: 14rem;
+  padding: 6px;
+}
+
+.CommandInputEditor .cm-tooltip-autocomplete > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: min(18rem, 40vh);
+  overflow-y: auto;
+}
+
+.CommandInputEditor .cm-tooltip-autocomplete > ul > li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: rgba(228, 232, 245, 0.88);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  transition:
+    background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.CommandInputEditor .cm-tooltip-autocomplete > ul > li:hover,
+.CommandInputEditor .cm-tooltip-autocomplete > ul > li[aria-selected="true"] {
+  background:
+    linear-gradient(180deg, rgba(94, 106, 210, 0.2), rgba(94, 106, 210, 0.1));
+  color: #f6f7ff;
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 106, 210, 0.18),
+    0 8px 20px rgba(0, 0, 0, 0.22);
+}
+
+.CommandInputEditor .cm-completionIcon {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.12), transparent 50%),
+    rgba(94, 106, 210, 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 106, 210, 0.26),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.CommandInputEditor .cm-completionIcon::after {
+  color: #dfe4ff;
+}
+
+.CommandInputEditor .cm-completionLabel {
+  min-width: 0;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.CommandInputEditor .cm-completionMatchedText {
+  color: #ffffff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.CommandInputEditor .cm-completionDetail,
+.CommandInputEditor .cm-completionInfo {
+  color: var(--stage-ink-soft);
+}
+
+.CommandInputEditor .cm-completionInfo {
+  padding: 12px 14px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.CommandShell-shortcut {
+  color: rgba(166, 173, 196, 0.86);
+}
+
+.CommandShell-shortcut kbd {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(234, 238, 248, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 6px 16px rgba(0, 0, 0, 0.24);
+}
+
+.CommandShell-historyPanel {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.CommandShell-historyLabel,
+.LocationControl-rootName,
+.LocationControl-workspacePickerMode,
+.CommandToolbar-userPickerCurrent {
+  color: rgba(200, 208, 255, 0.9);
+}
+
+.LocationControl-shell {
+  background:
+    linear-gradient(180deg, rgba(17, 18, 23, 0.98), rgba(10, 10, 12, 0.94)),
+    radial-gradient(circle at top left, rgba(94, 106, 210, 0.14), transparent 44%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 18px 42px rgba(0, 0, 0, 0.36);
+}
+
+.LocationControl-popup {
+  top: calc(100% + 10px);
+  bottom: auto;
+}
+
+.LocationControl-workspacePicker {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.LocationControl-breadcrumbs,
+.UiBreadcrumb,
+.UiBreadcrumbList {
+  min-width: 0;
+}
+
+.LocationControl-segment,
+.LocationControl-piece--entity,
+.LocationControl-piece--query {
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(235, 239, 248, 0.9);
+}
+
+.LocationControl-segment--current,
+.LocationControl-piece--mlody-folder {
+  background:
+    linear-gradient(180deg, rgba(94, 106, 210, 0.18), rgba(94, 106, 210, 0.08));
+  color: #dfe4ff;
+}
+
+.LocationControl-piece--mlody-source {
+  background: rgba(56, 178, 107, 0.16);
+  color: #9ee7bd;
+}
+
+.LocationControl-piece--wildcard {
+  border-color: rgba(243, 200, 107, 0.28);
+  background: rgba(243, 200, 107, 0.08);
+  color: #f3c86b;
+}
+
+.LocationControl-workspacePickerChoice[data-selected="true"],
+.CommandToolbar-userPickerChoice[data-selected="true"] {
+  border-color: rgba(94, 106, 210, 0.34);
+  background:
+    linear-gradient(180deg, rgba(94, 106, 210, 0.18), rgba(94, 106, 210, 0.08));
+}
+
+.CommandToolbar-userCard,
+.UiAvatar,
+.UiAvatarGroupCount {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+}
+
+.CommandToolbar-avatar.UiAvatar--lg,
+.CommandToolbar-userPickerAvatar.UiAvatar--default,
+.UiAvatarGroup > .UiAvatar,
+.UiAvatarBadge {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 10px 22px rgba(0, 0, 0, 0.32);
+}
+
+.UiAvatarFallback,
+.UiAvatarGroupCount {
+  color: #eef1ff;
+}
+
+.UiSelectTrigger,
+.StageLogsBlock-filterSelect {
+  min-height: 42px;
+}
+
+.UiSelectTrigger:hover,
+.StageLogsBlock-filterSelect:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.UiSelectItem,
+.UiSelectScrollButton,
+.UiSelectTriggerIcon,
+.StageLogsBlock-filterLabel {
+  color: var(--stage-ink-soft);
+}
+
+.UiSelectItem[data-highlighted] {
+  background: rgba(94, 106, 210, 0.16);
+  color: #f7f8ff;
+}
+
+.StageTableBlock-th,
+.StageLineageBlock-th {
+  color: rgba(210, 216, 235, 0.72);
+}
+
+.StageTableBlock-tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.StageTableBlock-tr:hover,
+.StageSourceCodeBlock-line:hover {
+  background: rgba(94, 106, 210, 0.08);
+}
+
+.StageTableBlock-value,
+.StageTableBlock-media,
+.StageTableBlock-code,
+.StageLineageBlock-source,
+.StageLineageBlock-detail,
+.StageTaskBlock-attributeDetails,
+.StageTaskBlock-portDetails,
+.StageSourceCodeBlock-code,
+.StageLogsBlock-fieldText,
+.StageScalarBlock-value,
+.JsonSyntaxBlock {
+  color: rgba(236, 239, 246, 0.94);
+}
+
+.StageTableBlock-badge--true {
+  border-color: rgba(56, 178, 107, 0.26);
+  background: rgba(56, 178, 107, 0.14);
+  color: #9ee7bd;
+}
+
+.StageTableBlock-badge--false {
+  border-color: rgba(243, 200, 107, 0.24);
+  background: rgba(243, 200, 107, 0.12);
+  color: #f3c86b;
+}
+
+.StageLogsBlock-event--debug {
+  border-color: rgba(145, 151, 171, 0.14);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.StageLogsBlock-event--info {
+  border-color: rgba(94, 106, 210, 0.18);
+  background: rgba(94, 106, 210, 0.06);
+}
+
+.StageLogsBlock-event--warning {
+  border-color: rgba(243, 200, 107, 0.22);
+  background: rgba(243, 200, 107, 0.06);
+}
+
+.StageLogsBlock-event--error,
+.StageLogsBlock-event--critical {
+  border-color: rgba(220, 93, 93, 0.22);
+  background: rgba(220, 93, 93, 0.06);
+}
+
+.StageLogsBlock-eventBadge--debug {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(190, 196, 211, 0.9);
+}
+
+.StageLogsBlock-eventBadge--warning {
+  background: rgba(243, 200, 107, 0.16);
+  color: #f3c86b;
+}
+
+.StageLogsBlock-eventBadge--error,
+.StageLogsBlock-eventBadge--critical {
+  background: rgba(220, 93, 93, 0.16);
+  color: #ffadad;
+}
+
+.StageSourceCodeBlock-lineNumber,
+.StageSourceCodeBlock-token--comment {
+  color: rgba(138, 143, 152, 0.86);
+}
+
+.StageSourceCodeBlock-token--plain,
+.JsonSyntaxBlock-token--plain {
+  color: rgba(236, 239, 246, 0.9);
+}
+
+.StageSourceCodeBlock-token--string,
+.JsonSyntaxBlock-token--string {
+  color: #7fe0a4;
+}
+
+.StageSourceCodeBlock-token--keyword,
+.JsonSyntaxBlock-token--key {
+  color: #b8c2ff;
+}
+
+.StageSourceCodeBlock-token--number,
+.StageSourceCodeBlock-token--decorator,
+.StageSourceCodeBlock-token--constant {
+  color: #f3c86b;
+}
+
+.JsonSyntaxBlock-token--boolean {
+  color: #ffcf8a;
+}
+
+.StageResultBlock-errorLabel,
+.StageResultBlock-errorMessage {
+  color: #ffb2aa;
+}
+
+.StageDagBlock-canvasFrame,
+.StageActionGraphBlock-canvasFrame {
+  background:
+    radial-gradient(circle at top left, rgba(94, 106, 210, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(94, 106, 210, 0.1), transparent 32%),
+    linear-gradient(180deg, rgba(11, 11, 14, 0.98), rgba(7, 7, 9, 0.98));
+}
+
+.StageDagNode,
+.StageActionGraphNode {
+  border-color: rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(20, 21, 26, 0.98), rgba(12, 12, 15, 0.96));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 20px 36px rgba(0, 0, 0, 0.44);
+}
+
+.StageDagNode--task {
+  box-shadow:
+    inset 3px 0 0 rgba(243, 200, 107, 0.94),
+    0 20px 36px rgba(0, 0, 0, 0.44);
+}
+
+.StageDagNode--value {
+  box-shadow:
+    inset 3px 0 0 rgba(94, 106, 210, 0.94),
+    0 20px 36px rgba(0, 0, 0, 0.44);
+}
+
+.StageActionGraphNode--task {
+  box-shadow:
+    inset 3px 0 0 rgba(243, 200, 107, 0.94),
+    0 20px 36px rgba(0, 0, 0, 0.44);
+}
+
+.StageActionGraphNode--value {
+  box-shadow:
+    inset 3px 0 0 rgba(94, 106, 210, 0.94),
+    0 20px 36px rgba(0, 0, 0, 0.44);
+}
+
+.StageActionGraphNode--resolve {
+  box-shadow:
+    inset 3px 0 0 rgba(92, 208, 225, 0.94),
+    0 20px 36px rgba(0, 0, 0, 0.44);
+}
+
+.StageActionGraphNode--prepare {
+  box-shadow:
+    inset 3px 0 0 rgba(127, 224, 164, 0.94),
+    0 20px 36px rgba(0, 0, 0, 0.44);
+}
+
+.StageActionGraphNode--action {
+  box-shadow:
+    inset 3px 0 0 rgba(186, 154, 255, 0.94),
+    0 20px 36px rgba(0, 0, 0, 0.44);
+}
+
+.StageDagNode-header,
+.StageActionGraphNode-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.StageDagNode-portRow,
+.StageActionGraphNode-port,
+.StageActionGraphNode-executor {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.StageDagNode-portRow:hover {
+  background: rgba(94, 106, 210, 0.12);
+}
+
+.StageDagNode-portLabel,
+.StageActionGraphNode-operation,
+.StageActionGraphNode-subtitle,
+.StageActionGraphNode-description,
+.StageActionGraphNode-executor,
+.StageActionGraphNode-executorDetail {
+  color: rgba(228, 232, 245, 0.9);
+}
+
+.StageDagNode-portDot,
+.StageActionGraphNode-portDot {
+  background: #dbe0ff;
+  box-shadow: 0 0 0 1px rgba(94, 106, 210, 0.36);
+}
+
+.SystemAdmonition {
+  border-radius: 18px;
+}
+
+.SystemAdmonition::after {
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 36%),
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.12), transparent 36%);
+}
+
+.SettingsPage {
+  padding: 36px 32px;
+  border-radius: 28px;
+}
+
+.SettingsPage h1 {
+  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.SettingsPage-back {
+  color: rgba(222, 228, 255, 0.86);
+}
+
+.SettingsPage-back:hover {
+  color: #ffffff;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(94, 106, 210, 0.66), rgba(94, 106, 210, 0.34));
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  .Layout::after {
+    animation: none;
+  }
+
+  .ExecutionBlock,
+  .StageScalarBlock,
+  .StageTaskBlock,
+  .StageSourceCodeBlock,
+  .StageLogsBlock,
+  .StageTableBlock,
+  .StageLineageBlock,
+  .SystemAdmonition,
+  .LocationControl-shell,
+  .CommandToolbar-userCard,
+  .UiSelectTrigger,
+  .StageLogsBlock-event,
+  .StageTaskBlock-attributeCard,
+  .StageTaskBlock-portCard {
+    transition: none;
   }
 }
