@@ -886,6 +886,43 @@ builtins.register("root", Struct(
         assert ws.info.branch == "release"
         assert ws.resolve("@lexica//a_entity:artifact._source_range.start_line") == 321
 
+    def test_mlody_resolve_returns_plain_struct_for_registered_entities(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/downloader.mlody"),
+            contents="""\
+builtins.register("task", Struct(
+    kind="task",
+    name="downloader",
+    description="initial",
+    inputs=[],
+    outputs=[],
+    config=[],
+    action=Struct(kind="action", name="fetch", inputs=[], outputs=[], config=[]),
+))
+""",
+        )
+
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        result = ws._resolve_for_mlody("@lexica//downloader:downloader")
+
+        assert isinstance(result, Struct)
+        assert result.kind == "task"  # type: ignore[attr-defined]
+        assert result._resolved_label == "@lexica//downloader:downloader"  # type: ignore[attr-defined]
+        assert isinstance(result.action, Struct)  # type: ignore[attr-defined]
+        assert result.action.kind == "action"  # type: ignore[attr-defined]
+
+        updated = ws._setf_for_mlody(base=result, selector=".description", value="release")
+
+        assert isinstance(updated, Struct)
+        assert updated.description == "release"  # type: ignore[attr-defined]
+        assert ws.resolve("@lexica//downloader:downloader.description") == "release"
+
 
 class TestExpandWildcardLabel:
     def test_query_only_mlody_wildcard_returns_matching_entities(

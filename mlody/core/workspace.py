@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 from rich.console import Console
 
-from mlody.common.struct import Struct, is_struct_like
+from mlody.common.struct import Struct, is_struct_like, struct_like_to_struct
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from mlody.common.context import build_ctx
 from mlody.core.anchor import (
@@ -316,7 +316,12 @@ class Workspace:
         if is_virtual_value(value):
             return value
         if is_struct_like(value):
-            return value.updated(_resolved_label=label)
+            # Starlarkish-facing resolve() should hand back a plain Struct snapshot,
+            # not a Python-side registered dataclass wrapper, so shell/.mlody code
+            # can carry transient label metadata without mutating registry objects.
+            normalized = struct_like_to_struct(value)
+            if isinstance(normalized, Struct):
+                return normalized.updated(_resolved_label=label)
         return value
 
     @staticmethod
