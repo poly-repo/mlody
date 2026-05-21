@@ -60,6 +60,7 @@ class WorkspaceRequest:
     print_fn: Callable[..., None]
     console: object | None
     resolved_sha: str | None
+    eval_files: tuple[Path, ...] = ()
 
     def cache_key(self) -> WorkspaceRequest:
         """Return self — WorkspaceRequest is its own cache key."""
@@ -145,6 +146,7 @@ def _load_baseline_workspace(
         extra_roots=dict(request.extra_roots) if request.extra_roots else None,
         lazy_roots=dict(request.lazy_roots) if request.lazy_roots else None,
         workspace_root=request.workspace_root if request.workspace_root != request.monorepo_root else None,
+        eval_files=list(request.eval_files) if request.eval_files else None,
     )
     workspace.load(reporter=reporter)
     return build_baseline_workspace(workspace)
@@ -905,6 +907,7 @@ def _make_workspace_request(
     extra_roots: dict[str, str] | None = None,
     lazy_roots: dict[str, str] | None = None,
     resolved_sha: str | None = None,
+    eval_files: tuple[Path, ...] = (),
 ) -> WorkspaceRequest:
     """Build a WorkspaceRequest from individual kwargs, applying defaults."""
     effective_workspace_root = workspace_root if workspace_root is not None else monorepo_root
@@ -922,6 +925,7 @@ def _make_workspace_request(
         print_fn=print_fn,
         console=console,
         resolved_sha=resolved_sha,
+        eval_files=eval_files,
     )
 
 
@@ -935,6 +939,7 @@ def resolve_workspace_baseline(
     git_client: GitClient | None = None,
     cache_root: Path | None = None,
     verbose: bool = False,
+    eval_files: tuple[Path, ...] = (),
 ) -> tuple[Workspace, str | None]:
     """Resolve a raw label to a loaded baseline workspace and optional SHA."""
     committoid, _inner_label = parse_label(label)
@@ -952,6 +957,7 @@ def resolve_workspace_baseline(
             print_fn=print_fn,
             extra_roots=extra_roots,
             lazy_roots=lazy_roots,
+            eval_files=eval_files,
         )
         baseline = get_or_build_baseline_workspace(request, reporter)
         return (baseline, None)
@@ -1001,6 +1007,7 @@ def resolve_workspace(
     cache_root: Path | None = None,
     verbose: bool = False,
     value_description: str | None = None,
+    eval_files: tuple[Path, ...] = (),
 ) -> tuple[Workspace, str | None]:
     """Resolve a raw label to a ready Workspace and optional resolved SHA.
 
@@ -1035,6 +1042,7 @@ def resolve_workspace(
         git_client=git_client,
         cache_root=cache_root,
         verbose=verbose,
+        eval_files=eval_files,
     )
 
     workspace = baseline

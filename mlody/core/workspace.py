@@ -114,6 +114,7 @@ class Workspace:
         extra_roots: dict[str, str] | None = None,
         lazy_roots: dict[str, str] | None = None,
         workspace_root: Path | None = None,
+        eval_files: list[Path] | None = None,
         state_kind: WorkspaceStateKind = WorkspaceStateKind.LOADED,
     ) -> None:
         self._monorepo_root = monorepo_root
@@ -146,6 +147,7 @@ class Workspace:
         # lazy_roots are available for on-demand resolution but are not
         # eagerly globbed (for example, @mlody for the full monorepo tree).
         self._lazy_roots: dict[str, str] = lazy_roots or {}
+        self._eval_files: list[Path] = eval_files or []
         self._workspace_attributes: dict[str, object] = {
             "info": self._build_workspace_info(),
         }
@@ -664,6 +666,7 @@ class Workspace:
             resolve_value_sources=self._resolve_value_sources,
             after_root_discovery=self._refresh_workspace_attributes,
             reporter=reporter,
+            extra_eval_files=self._eval_files,
         )
         loader.load(workspace=self)
         self._refresh_workspace_attributes()

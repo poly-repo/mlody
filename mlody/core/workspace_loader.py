@@ -59,6 +59,7 @@ class WorkspaceLoader:
         resolve_value_sources: Callable[[], None],
         after_root_discovery: Callable[[], None] | None = None,
         reporter: Any | None = None,
+        extra_eval_files: list[Path] | None = None,
     ) -> None:
         self._monorepo_root = monorepo_root
         self._workspace_root = workspace_root if workspace_root is not None else monorepo_root
@@ -75,6 +76,7 @@ class WorkspaceLoader:
         # This avoids a circular import with mlody.resolver.resolver.
         self._reporter: Any = reporter if reporter is not None else _NOOP_LOADER_REPORTER
         self._last_phase2_files_loaded: int = 0
+        self._extra_eval_files: list[Path] = extra_eval_files or []
 
     def load(self, *, workspace: object | None = None) -> None:
         verbose = self._reporter.verbose
@@ -109,11 +111,18 @@ class WorkspaceLoader:
 
         if load_errors:
             raise WorkspaceLoadError(load_errors)
+        self._eval_extra_files()
         self._ensure_synthetic_mav_user()
         self._registry.resolve_all()
         self._convert_ports_to_structs()
         self._resolve_value_sources()
         validate_context_restricted_values_registry(self._registry)
+
+    def _eval_extra_files(self) -> None:
+        for actual_path in self._extra_eval_files:
+            virtual_path = self._monorepo_root / actual_path.name
+            self._registry.register_path_redirect(virtual_path, actual_path)
+            self._registry.eval_file(virtual_path)
 
     def _phase1_root_discovery(self) -> None:
         if self._roots_file.exists():

@@ -166,6 +166,9 @@ class RegistryView:
     def type_by_name(self, type_name: str) -> object | None:
         return self._evaluator.registry.types.by_name.get(type_name)
 
+    def register_path_redirect(self, virtual_path: Path, actual_path: Path) -> None:
+        self._evaluator.register_path_redirect(virtual_path, actual_path)
+
     def ensure_module_loaded(self, file_path: Path) -> None:
         if not self.is_loaded(file_path):
             self.eval_file(file_path)

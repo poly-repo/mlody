@@ -1542,6 +1542,7 @@ def show(
 
     verbose: bool = ctx.obj.get("verbose", False)
     full_workspace: bool = ctx.obj.get("full_workspace", False)
+    eval_files: tuple[Path, ...] = ctx.obj.get("eval_files", ())
     rendered_any_output = False
 
     for target in targets:
@@ -1555,6 +1556,7 @@ def show(
                 roots_file=roots,
                 full_workspace=full_workspace,
                 verbose=verbose,
+                eval_files=eval_files,
             )
             selected_user = _selected_show_user(workspace, run_as)
 

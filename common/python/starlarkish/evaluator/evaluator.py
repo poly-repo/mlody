@@ -1014,6 +1014,7 @@ class Evaluator:
                 self.decorate_registered_value("type", _sentinel),
             )  # bare key — no file ctx at init time
         self._module_globals: dict[Path, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
+        self._path_redirects: dict[Path, Path] = {}
         # Names injected sandbox-wide: seeded into every new file's sandbox_globals.
         # workspace_loader populates this after evaluating mm.mlody so that `mm`
         # and `defmethod` are available in all subsequent user files without an
@@ -1239,6 +1240,7 @@ class Evaluator:
         forked._file_ranges = {
             file_path: dict(ranges) for file_path, ranges in self._file_ranges.items()
         }
+        forked._path_redirects = dict(self._path_redirects)
         return forked
 
     def _decorate_source_range(self, value: Struct) -> Struct:
@@ -1567,9 +1569,10 @@ class Evaluator:
         try:
             self.loaded_files.add(file_path)
 
+            read_from = self._path_redirects.get(file_path, file_path)
             _log.debug("Evaluating %s", file_path)
 
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(read_from, "r", encoding="utf-8") as f:
                 script_content = f.read()
 
             _validate_loads_at_top(script_content, file_path)
@@ -1616,6 +1619,16 @@ class Evaluator:
             entrypoint_file: The path to the root script to execute.
         """
         self._execute_file(entrypoint_file)
+
+    def register_path_redirect(self, virtual_path: Path, actual_path: Path) -> None:
+        """Register a redirect: reads actual_path but registers contents under virtual_path.
+
+        When eval_file(virtual_path) is subsequently called, the file content is read
+        from actual_path while all entity registrations, module globals, and cache keys
+        use virtual_path.  This lets an external file appear as if it lived at virtual_path
+        within the monorepo.
+        """
+        self._path_redirects[virtual_path] = actual_path
 
     def resolve(self) -> None:
         """Resolution phase: replace string labels in actions/tasks with entity references.

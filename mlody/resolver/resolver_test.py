@@ -992,6 +992,7 @@ class TestResolveWorkspaceCwdPath:
             extra_roots=None,
             lazy_roots=None,
             workspace_root=None,
+            eval_files=None,
         )
         mock_ws.load.assert_called_once()
         mock_configure.assert_called_once_with(mock_ws, [])
@@ -1196,6 +1197,7 @@ class TestResolveWorkspaceCommittoidPath:
             extra_roots=None,
             lazy_roots=None,
             workspace_root=None,
+            eval_files=None,
         )
         mock_ws.load.assert_called_once()
         mock_configure.assert_called_once_with(mock_ws, [])
