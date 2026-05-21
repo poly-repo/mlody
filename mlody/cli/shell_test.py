@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from mlody.cli.main import cli
-from mlody.cli.shell import _build_repl_namespace, _get_history_path, _launch_repl
+from mlody.cli.shell import (
+    _build_repl_namespace,
+    _configure_result_pretty_printer,
+    _format_shell_result,
+    _format_shell_result_ansi,
+    _get_history_path,
+    _launch_repl,
+)
+from mlody.common.struct import Struct
 
 
 # ---------------------------------------------------------------------------
@@ -153,12 +164,139 @@ class TestShellCommand:
         with patch.dict(sys.modules, {"ptpython.repl": fake_repl_module}):
             _launch_repl({"answer": 42}, tmp_path / "repl_history")
 
-        embed_mock.assert_called_once_with(
-            globals={"answer": 42},
-            locals={"answer": 42},
-            history_filename=str(tmp_path / "repl_history"),
-            title="mlody shell",
+        embed_mock.assert_called_once()
+        assert embed_mock.call_args.kwargs == {
+            "globals": {"answer": 42},
+            "locals": {"answer": 42},
+            "configure": ANY,
+            "history_filename": str(tmp_path / "repl_history"),
+            "title": "mlody shell",
+        }
+        assert callable(embed_mock.call_args.kwargs["configure"])
+
+    def test_format_shell_result_normalizes_dataclass_wrappers(self) -> None:
+        @dataclass(frozen=True)
+        class Inner:
+            value: int
+
+        @dataclass(frozen=True)
+        class Outer:
+            inner: Inner
+            child: object
+
+        rendered = _format_shell_result(
+            {"outer": Outer(inner=Inner(7), child=Struct(name="node"))},
+            max_width=20,
         )
+
+        assert "Outer(" not in rendered
+        assert "Inner(" not in rendered
+        assert "struct(" not in rendered
+        assert "'outer'" in rendered
+        assert "'child'" in rendered
+        assert "\n" in rendered
+
+    def test_format_shell_result_pretty_prints_struct_values(self) -> None:
+        rendered = _format_shell_result(
+            Struct(
+                name="node",
+                child=Struct(
+                    name="leaf",
+                    values=[1, 2, 3],
+                ),
+            ),
+            max_width=20,
+        )
+
+        assert "struct(" not in rendered
+        assert "'name': 'node'" in rendered
+        assert "'values':" in rendered
+        assert "1" in rendered and "2" in rendered and "3" in rendered
+        assert "\n" in rendered
+
+    def test_format_shell_result_limits_depth(self) -> None:
+        rendered = _format_shell_result(
+            {
+                "level1": {
+                    "level2": {
+                        "level3": {
+                            "level4": {
+                                "leaf": "too-deep",
+                            }
+                        }
+                    }
+                }
+            },
+            max_width=40,
+            max_depth=3,
+        )
+
+        assert "'level1'" in rendered
+        assert "'level2'" in rendered
+        assert "'level3'" in rendered
+        assert "'level4'" not in rendered
+        assert "..." in rendered
+
+    def test_format_shell_result_ansi_uses_rich_styling(self) -> None:
+        rendered = _format_shell_result_ansi({"name": "node"}, max_width=40)
+        formatted = rendered.__pt_formatted_text__()  # type: ignore[attr-defined]
+
+        assert any(style for style, _text in formatted)
+        assert "node" in "".join(text for _style, text in formatted)
+
+    def test_format_shell_result_ansi_does_not_write_to_stdout(self) -> None:
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            rendered = _format_shell_result_ansi({"name": "node"}, max_width=40)
+
+        assert stdout.getvalue() == ""
+        formatted = rendered.__pt_formatted_text__()  # type: ignore[attr-defined]
+        assert "node" in "".join(text for _style, text in formatted)
+
+    def test_configure_result_pretty_printer_formats_eval_results(self) -> None:
+        original_show_result = MagicMock()
+        printer = MagicMock()
+        printer.output.get_size.return_value = SimpleNamespace(columns=80)
+        repl = SimpleNamespace(
+            _show_result=original_show_result,
+            _get_output_printer=lambda: printer,
+            get_output_prompt=lambda: "Out[1]: ",
+            enable_pager=True,
+        )
+
+        _configure_result_pretty_printer(repl)
+        repl._show_result({"entity": Struct(name="node", child=Struct(name="leaf"))})
+
+        original_show_result.assert_not_called()
+        printer.display_result.assert_called_once()
+        call_kwargs = printer.display_result.call_args.kwargs
+        assert call_kwargs["reformat"] is False
+        assert call_kwargs["highlight"] is False
+        assert call_kwargs["paginate"] is True
+        rendered = call_kwargs["result"].__pt_repr__()
+        formatted = rendered.__pt_formatted_text__()  # type: ignore[attr-defined]
+        assert any(style for style, _text in formatted)
+        assert "node" in "".join(text for _style, text in formatted)
+
+    def test_configure_result_pretty_printer_falls_back_to_default_renderer(self) -> None:
+        original_show_result = MagicMock()
+        printer = MagicMock()
+        printer.output.get_size.return_value = SimpleNamespace(columns=80)
+        repl = SimpleNamespace(
+            _show_result=original_show_result,
+            _get_output_printer=lambda: printer,
+            get_output_prompt=lambda: "Out[1]: ",
+            enable_pager=False,
+        )
+
+        _configure_result_pretty_printer(repl)
+        with patch("mlody.cli.shell._format_shell_result_ansi", side_effect=ValueError("boom")):
+            result = object()
+            repl._show_result(result)
+
+        original_show_result.assert_called_once_with(result)
+        printer.display_result.assert_not_called()
 
     def test_shell_uses_host_module_globals_for_prelude_exports(self, tmp_path: Path) -> None:
         prelude_path = tmp_path / "mlody" / "shell" / "prelude.mlody"

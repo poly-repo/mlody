@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+from io import StringIO
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
+from rich.console import Console
+from rich.pretty import Pretty
+from rich.pretty import pretty_repr
 
 from mlody.cli.main import cli
 from mlody.cli.show import show_fn
+from mlody.common.struct import is_struct_like, struct_like_as_mapping
 from mlody.core.workspace import Workspace
 
 if TYPE_CHECKING:
     pass
+
+
+_SHELL_RESULT_MAX_DEPTH = 4
 
 
 def _get_history_path() -> Path:
@@ -88,6 +96,99 @@ def _build_shell_session_globals(
     )
 
 
+class _PrettyPrintedShellResult:
+    def __init__(self, rendered: object) -> None:
+        self._rendered = rendered
+
+    def __pt_repr__(self) -> object:
+        return self._rendered
+
+
+def _normalize_shell_result_value(value: object) -> object:
+    if is_struct_like(value):
+        return {
+            key: _normalize_shell_result_value(child)
+            for key, child in struct_like_as_mapping(value).items()
+        }
+    if isinstance(value, dict):
+        return {key: _normalize_shell_result_value(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [_normalize_shell_result_value(child) for child in value]
+    if isinstance(value, tuple):
+        return tuple(_normalize_shell_result_value(child) for child in value)
+    if callable(value) and not isinstance(value, type):
+        return "<function>"
+    return value
+
+
+def _format_shell_result(
+    result: object,
+    *,
+    max_width: int = 88,
+    max_depth: int = _SHELL_RESULT_MAX_DEPTH,
+) -> str:
+    return pretty_repr(
+        _normalize_shell_result_value(result),
+        max_width=max_width,
+        max_depth=max_depth,
+    )
+
+
+def _format_shell_result_ansi(
+    result: object,
+    *,
+    max_width: int = 88,
+    max_depth: int = _SHELL_RESULT_MAX_DEPTH,
+) -> object:
+    from prompt_toolkit.formatted_text import ANSI
+
+    buffer = StringIO()
+    console = Console(
+        file=buffer,
+        force_terminal=True,
+        color_system="truecolor",
+        width=max_width,
+        highlight=True,
+        soft_wrap=False,
+    )
+    console.print(
+        Pretty(
+            _normalize_shell_result_value(result),
+            max_depth=max_depth,
+        )
+    )
+    return ANSI(buffer.getvalue().rstrip("\n"))
+
+
+def _configure_result_pretty_printer(repl: Any) -> None:  # pyright: ignore[reportExplicitAny]
+    from prompt_toolkit.formatted_text import fragment_list_width, to_formatted_text
+
+    default_show_result = repl._show_result
+
+    def _show_result(result: object) -> None:
+        try:
+            printer = repl._get_output_printer()
+            out_prompt = to_formatted_text(repl.get_output_prompt())
+            width = max(
+                20,
+                printer.output.get_size().columns - fragment_list_width(out_prompt),
+            )
+            rendered = _format_shell_result_ansi(result, max_width=width)
+            printer.display_result(
+                result=_PrettyPrintedShellResult(rendered),
+                out_prompt=out_prompt,
+                reformat=False,
+                highlight=False,
+                paginate=repl.enable_pager,
+            )
+        except (GeneratorExit, KeyboardInterrupt):
+            raise
+        except BaseException:
+            default_show_result(result)
+
+    repl._show_result = _show_result
+
+
 def _launch_repl(session_globals: dict[str, object], history_file: Path) -> None:
     """Launch the ptpython REPL with the given restricted session globals.
 
@@ -99,6 +200,7 @@ def _launch_repl(session_globals: dict[str, object], history_file: Path) -> None
     embed(
         globals=session_globals,  # type: ignore[arg-type]  # dict[str, object] ≈ dict[str, Any]
         locals=session_globals,  # type: ignore[arg-type]  # dict[str, object] ≈ dict[str, Any]
+        configure=_configure_result_pretty_printer,
         history_filename=str(history_file),
         title="mlody shell",
     )
