@@ -274,6 +274,29 @@ class TestEntitySpecQuery:
         assert result.entity_query == '@mlody _.kind == "action"'
         assert result.format_inner() == '//...:[@mlody _.kind == "action"].sha'
 
+    def test_query_with_separator_slash_after_entity_name_is_allowed(self) -> None:
+        result = parse_label(
+            '@hooli//basics/basic:country-stats/[@sql where "country or territory" = India]'
+        )
+        assert result.entity is not None
+        assert result.entity.root == "hooli"
+        assert result.entity.path == "basics/basic"
+        assert result.entity.name == "country-stats"
+        assert result.entity_query == '@sql where "country or territory" = India'
+        assert (
+            result.format_inner()
+            == '@hooli//basics/basic:country-stats[@sql where "country or territory" = India]'
+        )
+
+    def test_query_only_wildcard_entity_with_separator_slash_is_allowed(self) -> None:
+        result = parse_label('//.../[@mlody _.kind == "user"]')
+        assert result.entity is not None
+        assert result.entity.wildcard is True
+        assert result.entity.path is None
+        assert result.entity.name is None
+        assert result.entity_query == '@mlody _.kind == "user"'
+        assert result.format_inner() == '//...:[@mlody _.kind == "user"]'
+
 
 class TestAttributePath:
     """Requirement: Attribute path is parsed after the tick (')."""

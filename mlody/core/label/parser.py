@@ -154,6 +154,9 @@ def _parse_entity_fragment(raw: str, fragment: str) -> tuple[EntitySpec, str | N
             entity_fragment=fragment,
         ) from exc
 
+    if query is not None and body.endswith("/"):
+        body = body[:-1]
+
     remainder = body
 
     # Optional @root prefix in "@root//path" or bare "@root" form
