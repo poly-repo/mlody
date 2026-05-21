@@ -1120,12 +1120,15 @@ def _stage_table_result(
 def _stage_query_list_result(
     title: str,
     rows: Sequence[object],
+    *,
+    entity: str,
 ) -> dict[str, object]:
     return {
         "kind": "result",
         "view": {
             "type": "query-list",
             "title": title,
+            "entity": entity,
             "columns": [
                 {"key": "name", "label": "Name"},
                 {"key": "description", "label": "Description"},
@@ -1176,6 +1179,13 @@ def _stage_query_entity_description(entity: object) -> str | None:
                 return description
 
     return None
+
+
+def _stage_query_entity_payload(entity: object) -> Mapping[str, object]:
+    payload = _runtime_json_data(entity)
+    if isinstance(payload, Mapping):
+        return payload
+    return {}
 
 
 def _iter_workspace_registry_rows(
@@ -1246,6 +1256,44 @@ def _stage_query_rows_for_kind(
     return rows
 
 
+def _stage_query_user_rows(workspace: object) -> list[dict[str, object]]:
+    matching_rows = [
+        (stem, name, value)
+        for raw_kind, stem, name, value in _iter_workspace_registry_rows(workspace)
+        if raw_kind == "user"
+    ]
+
+    rows: list[dict[str, object]] = []
+    for stem, name, value in sorted(matching_rows, key=lambda row: (row[1], row[0])):
+        payload = _stage_query_entity_payload(value)
+        row: dict[str, object] = {"name": name}
+
+        description = _stage_query_entity_description(value)
+        if description is not None:
+            row["description"] = description
+
+        avatar = payload.get("avatar")
+        if isinstance(avatar, str) and avatar.strip():
+            row["avatar"] = avatar.strip()
+
+        team = payload.get("team")
+        if isinstance(team, str) and team.strip():
+            row["team"] = team.strip()
+
+        groups = payload.get("groups")
+        if isinstance(groups, Sequence) and not isinstance(groups, (str, bytes)):
+            normalized_groups = [
+                group.strip()
+                for group in groups
+                if isinstance(group, str) and group.strip()
+            ]
+            if normalized_groups:
+                row["groups"] = normalized_groups
+
+        rows.append(row)
+    return rows
+
+
 def _is_team_root_path(path: str) -> bool:
     normalized_path = path.lstrip("/")
     return normalized_path.startswith("mlody/teams/") or normalized_path.startswith(
@@ -1301,9 +1349,10 @@ def execute_stage_query_list_response(
 
     if request.entity == "teams":
         rows = _stage_query_team_rows(workspace)
+    elif request.entity == "users":
+        rows = _stage_query_user_rows(workspace)
     else:
         registry_kind = {
-            "users": "user",
             "tasks": "task",
             "types": "type",
             "locations": "location",
@@ -1311,7 +1360,11 @@ def execute_stage_query_list_response(
         }[request.entity]
         rows = _stage_query_rows_for_kind(workspace, kind=registry_kind)
 
-    return _stage_query_list_result(_stage_query_list_title(request.entity), rows)
+    return _stage_query_list_result(
+        _stage_query_list_title(request.entity),
+        rows,
+        entity=request.entity,
+    )
 
 
 def _stage_dag_result(

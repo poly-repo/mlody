@@ -101,6 +101,7 @@ type StageQueryListPayload = StageResultPayload & {
   view: {
     type: "query-list";
     title?: string;
+    entity?: string;
     rowCount?: number;
   };
   data: Record<string, unknown>[];

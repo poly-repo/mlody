@@ -2713,7 +2713,14 @@ class TestServerStartupErrors:
             },
             registry_view=SimpleNamespace(
                 iter_registry_items=lambda: (
-                    (("user", "", "maya"), SimpleNamespace(description="Maya Patel")),
+                    (
+                        ("user", "", "maya"),
+                        SimpleNamespace(
+                            description="Maya Patel",
+                            avatar="assets/images/avatars/avatars-1-0.png",
+                            groups=["framera", "framera-admin"],
+                        ),
+                    ),
                     (
                         ("task", "pipelines/train", "train_model"),
                         SimpleNamespace(description="Train the model"),
@@ -2775,12 +2782,23 @@ class TestServerStartupErrors:
                 assert payload["kind"] == "result"
                 assert payload["view"]["type"] == "query-list"
                 assert payload["view"]["title"] == title
-                assert payload["data"] == [
-                    {
-                        "name": name,
-                        "description": description,
-                    }
-                ]
+                assert payload["view"]["entity"] == entity
+                if entity == "users":
+                    assert payload["data"] == [
+                        {
+                            "name": name,
+                            "description": description,
+                            "avatar": "assets/images/avatars/avatars-1-0.png",
+                            "groups": ["framera", "framera-admin"],
+                        }
+                    ]
+                else:
+                    assert payload["data"] == [
+                        {
+                            "name": name,
+                            "description": description,
+                        }
+                    ]
 
             assert captured_workspace_roots == [
                 selected_workspace_root.resolve(),

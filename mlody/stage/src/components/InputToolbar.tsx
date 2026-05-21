@@ -21,6 +21,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select.js";
+import {
+  getTeamMemberships,
+  getUserDisplayName,
+  getUserInitials,
+} from "../userPresentation.js";
 
 interface InputToolbarProps {
   commandOptions: CommandOption[];
@@ -49,10 +54,6 @@ interface UserTeamRow {
   members: UserTeamMember[];
 }
 
-function getUserDisplayName(user: WorkspaceUser): string {
-  return user.description?.trim() || user.name;
-}
-
 function compareUserDisplayName(a: WorkspaceUser, b: WorkspaceUser): number {
   return (
     getUserDisplayName(a).localeCompare(getUserDisplayName(b)) ||
@@ -66,47 +67,6 @@ function compareTeamName(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
-function getTeamMemberships(user: WorkspaceUser): UserTeamMember[] {
-  const groups =
-    user.groups?.filter((group, index, allGroups) =>
-      group.trim() !== "" && allGroups.indexOf(group) === index,
-    ) ?? [];
-
-  if (groups.length === 0) {
-    return [{ team: "workspace", user, isAdmin: false }];
-  }
-
-  const memberships = new Map<string, UserTeamMember>();
-
-  for (const group of groups) {
-    if (group === "admin") {
-      memberships.set("admin", { team: "admin", user, isAdmin: true });
-      continue;
-    }
-
-    const adminMatch = group.match(/^(.*)-admin$/);
-    if (adminMatch) {
-      const baseTeam = adminMatch[1] ?? group;
-      const existingMembership = memberships.get(baseTeam);
-      memberships.set(baseTeam, {
-        team: baseTeam,
-        user,
-        isAdmin: existingMembership?.isAdmin || true,
-      });
-      continue;
-    }
-
-    const existingMembership = memberships.get(group);
-    memberships.set(group, {
-      team: group,
-      user,
-      isAdmin: existingMembership?.isAdmin ?? false,
-    });
-  }
-
-  return [...memberships.values()];
-}
-
 function buildUserTeamRows(users: WorkspaceUser[]): UserTeamRow[] {
   const rows = new Map<string, UserTeamMember[]>();
 
@@ -114,17 +74,22 @@ function buildUserTeamRows(users: WorkspaceUser[]): UserTeamRow[] {
     for (const membership of getTeamMemberships(user)) {
       const rowKey = membership.team;
       const row = rows.get(rowKey) ?? [];
+      const nextMembership: UserTeamMember = {
+        team: rowKey,
+        user,
+        isAdmin: membership.isAdmin,
+      };
       const existingIndex = row.findIndex(
-        (entry) => entry.user.name === membership.user.name,
+        (entry) => entry.user.name === user.name,
       );
       if (existingIndex >= 0) {
         row[existingIndex] = {
           team: rowKey,
-          user: membership.user,
+          user,
           isAdmin: row[existingIndex]!.isAdmin || membership.isAdmin,
         };
       } else {
-        row.push(membership);
+        row.push(nextMembership);
       }
       rows.set(rowKey, row);
     }
@@ -350,14 +315,7 @@ export function InputToolbar({
                       <div className="CommandToolbar-userPickerUsers">
                         {row.members.map(({ user, isAdmin }) => {
                           const displayName = getUserDisplayName(user);
-                          const initials =
-                            displayName
-                              .split(/\s+/)
-                              .filter(Boolean)
-                              .map((part) => part[0] ?? "")
-                              .join("")
-                              .slice(0, 2)
-                              .toUpperCase() || user.name.slice(0, 2).toUpperCase();
+                          const initials = getUserInitials(user);
                           const isSelected = user.name === currentUserName;
 
                           return (

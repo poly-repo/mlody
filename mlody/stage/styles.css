@@ -640,6 +640,99 @@ textarea {
   white-space: normal;
 }
 
+.StageQueryUserList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.StageQueryUserCard {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1.6fr) minmax(8rem, 0.7fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(123, 140, 177, 0.22);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.46);
+  padding: 14px 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.StageQueryUserCard-avatar {
+  box-shadow: 0 8px 18px rgba(57, 73, 111, 0.12);
+}
+
+.StageQueryUserCard-nameColumn,
+.StageQueryUserCard-teamColumn,
+.StageQueryUserCard-groupsColumn {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.StageQueryUserCard-displayName {
+  color: rgba(34, 48, 79, 0.98);
+  font-size: 0.96rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.StageQueryUserCard-shortName {
+  color: rgba(103, 118, 153, 0.94);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.StageQueryUserCard-metaLabel {
+  color: rgba(98, 116, 160, 0.96);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.StageQueryUserCard-teamValue {
+  color: rgba(40, 56, 97, 0.98);
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.StageQueryUserCard-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .StageQueryUserCard {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .StageQueryUserCard-teamColumn,
+  .StageQueryUserCard-groupsColumn {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 560px) {
+  .StageQueryUserCard {
+    grid-template-columns: 1fr;
+  }
+
+  .StageQueryUserCard-avatarColumn,
+  .StageQueryUserCard-nameColumn,
+  .StageQueryUserCard-teamColumn,
+  .StageQueryUserCard-groupsColumn {
+    grid-column: auto;
+  }
+}
+
 .StageLineageBlock {
   display: flex;
   min-width: 0;

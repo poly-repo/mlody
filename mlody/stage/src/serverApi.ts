@@ -85,7 +85,7 @@ export function resolveServerBaseUrl(): string {
   return DEFAULT_SERVER_BASE_URL;
 }
 
-function normalizeAvatarUrl(avatar?: string): string | undefined {
+export function normalizeAvatarUrl(avatar?: string): string | undefined {
   if (!avatar) return undefined;
   if (avatar.startsWith("http://") || avatar.startsWith("https://")) {
     return avatar;

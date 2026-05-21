@@ -160,6 +160,7 @@ export interface StageResultPayload {
   view: {
     type: string;
     title?: string;
+    entity?: string;
     columns?: StageViewColumn[];
     rowCount?: number;
     truncated?: boolean;
