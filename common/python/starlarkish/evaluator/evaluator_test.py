@@ -738,3 +738,39 @@ builtins.register("root", struct(name="callbacks", callback=read_payload))
     )
 
     assert result == "forked-ok"
+
+
+def test_host_module_globals_preserve_sandbox_builtins_for_exported_functions(
+    project_root: Path,
+    fs: FakeFilesystem,
+) -> None:
+    fs.create_file(
+        "/project/host_visible.mlody",
+        contents="""
+def _is_type_struct(value):
+    return type(value) == "struct" and python.getattr(value, "kind", None) == "type"
+
+def string():
+    return struct(kind="type", name="string")
+
+def _make_factory():
+    def factory(*, element_type):
+        if not _is_type_struct(element_type):
+            raise TypeError(f"expected type struct, got {type(element_type)!r}")
+        return struct(kind="type", name="vector", element_type=element_type)
+    return factory
+
+vector = _make_factory()
+""",
+    )
+    evaluator = Evaluator(project_root)
+    module_path = project_root / "host_visible.mlody"
+    evaluator.eval_file(module_path)
+
+    host_globals = evaluator.host_module_globals(module_path)
+
+    result = host_globals["vector"](element_type=host_globals["string"]())
+
+    assert result.kind == "type"  # type: ignore[attr-defined]
+    assert result.name == "vector"  # type: ignore[attr-defined]
+    assert result.element_type.name == "string"  # type: ignore[attr-defined]

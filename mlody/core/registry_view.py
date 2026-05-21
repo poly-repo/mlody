@@ -179,6 +179,9 @@ class RegistryView:
     def module_globals(self, file_path: Path) -> dict[str, object]:
         return self._evaluator._module_globals.get(file_path, {})  # type: ignore[return-value]
 
+    def host_module_globals(self, file_path: Path) -> dict[str, object]:
+        return self._evaluator.host_module_globals(file_path)  # type: ignore[return-value]
+
     def set_module_global(
         self,
         file_path: Path,

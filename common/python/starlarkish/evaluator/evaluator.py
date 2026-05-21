@@ -823,6 +823,49 @@ def _copy_function_with_globals(
     return copied
 
 
+def _clone_module_globals_for_host(
+    module_globals_by_path: dict[Path, dict[str, Any]],
+    *,
+    install_runtime_bindings: Callable[[Path, dict[str, Any]], None],
+    promote_builtin_names_as_globals: bool = False,
+) -> dict[Path, dict[str, Any]]:
+    """Clone module globals into host-callable sandboxes.
+
+    Host environments like the Python REPL can call sandbox-defined functions
+    directly, but those functions may depend on Starlarkish builtins such as the
+    string-returning `type()` helper. Rebinding each function to a fresh globals
+    dict with sandbox runtime bindings preserves those semantics outside `exec()`.
+    """
+    module_globals_map: dict[int, dict[str, Any]] = {
+        id(globals_dict): {} for globals_dict in module_globals_by_path.values()
+    }
+    function_cache: dict[tuple[int, int], types.FunctionType] = {}
+    clone_memo: dict[int, object] = {}
+
+    for file_path, globals_dict in module_globals_by_path.items():
+        cloned_globals = module_globals_map[id(globals_dict)]
+        install_runtime_bindings(file_path, cloned_globals)
+        if promote_builtin_names_as_globals:
+            sandbox_builtins = cast(dict[str, Any], cloned_globals["__builtins__"])
+            for name, value in sandbox_builtins.items():
+                cloned_globals.setdefault(name, value)
+        for name, value in globals_dict.items():
+            if name in _RUNTIME_SANDBOX_BINDING_NAMES:
+                continue
+            cloned_globals[name] = _clone_runtime_visible_value(
+                value,
+                module_globals_map=module_globals_map,
+                function_cache=function_cache,
+                memo=clone_memo,
+            )
+        install_runtime_bindings(file_path, cloned_globals)
+
+    return {
+        file_path: module_globals_map[id(globals_dict)]
+        for file_path, globals_dict in module_globals_by_path.items()
+    }
+
+
 def _clone_runtime_visible_value(
     value: object,
     *,
@@ -1180,33 +1223,19 @@ class Evaluator:
             force_hook=self._force_hook if force_hook is None else force_hook,
             setf_hook=self._setf_hook if setf_hook is None else setf_hook,
         )
+        cloned_module_globals = _clone_module_globals_for_host(
+            self._module_globals,
+            install_runtime_bindings=lambda file_path, sandbox_globals: forked._install_sandbox_runtime_bindings(
+                file_path=file_path,
+                sandbox_globals=sandbox_globals,
+            ),
+        )
         module_globals_map: dict[int, dict[str, Any]] = {
-            id(globals_dict): {} for globals_dict in self._module_globals.values()
+            id(globals_dict): cloned_module_globals[file_path]
+            for file_path, globals_dict in self._module_globals.items()
         }
         function_cache: dict[tuple[int, int], types.FunctionType] = {}
         clone_memo: dict[int, object] = {}
-        for file_path, globals_dict in self._module_globals.items():
-            cloned_globals = module_globals_map[id(globals_dict)]
-            # Seed sandbox builtins before cloning functions so copied Starlark
-            # callables bind to the fork's runtime helpers (for example the
-            # `python.*` helper object used by raw/lineage materializers).
-            forked._install_sandbox_runtime_bindings(
-                file_path=file_path,
-                sandbox_globals=cloned_globals,
-            )
-            for name, value in globals_dict.items():
-                if name in _RUNTIME_SANDBOX_BINDING_NAMES:
-                    continue
-                cloned_globals[name] = _clone_runtime_visible_value(
-                    value,
-                    module_globals_map=module_globals_map,
-                    function_cache=function_cache,
-                    memo=clone_memo,
-                )
-            forked._install_sandbox_runtime_bindings(
-                file_path=file_path,
-                sandbox_globals=cloned_globals,
-            )
         forked.loaded_files = set(self.loaded_files)
         forked.registry = self.registry.fork(
             value_transform=lambda value: _clone_runtime_visible_value(
@@ -1226,8 +1255,7 @@ class Evaluator:
             ),
         )
         forked._module_globals = {
-            file_path: module_globals_map[id(globals_dict)]
-            for file_path, globals_dict in self._module_globals.items()
+            file_path: cloned_module_globals[file_path] for file_path in self._module_globals
         }
         forked._persistent_injections = cast(
             dict[str, Any],
@@ -1244,6 +1272,21 @@ class Evaluator:
         forked._path_redirects = dict(self._path_redirects)
         forked._forbidden_load_prefixes = list(self._forbidden_load_prefixes)
         return forked
+
+    def host_module_globals(self, file_path: Path) -> dict[str, Any]:
+        """Return a host-callable clone of one module's globals dict."""
+        if file_path not in self._module_globals:
+            return {}
+        cloned = _clone_module_globals_for_host(
+            self._module_globals,
+            install_runtime_bindings=lambda current_file, sandbox_globals: self._install_sandbox_runtime_bindings(
+                file_path=current_file,
+                sandbox_globals=sandbox_globals,
+            ),
+            promote_builtin_names_as_globals=True,
+        )
+        original_globals = self._module_globals[file_path]
+        return {name: cloned[file_path][name] for name in original_globals}
 
     def _decorate_source_range(self, value: Struct) -> Struct:
         source_range_type = self.registry.types.by_name.get("mlody-source-range")

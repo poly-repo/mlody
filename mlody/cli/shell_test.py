@@ -141,6 +141,38 @@ class TestShellCommand:
         assert call_namespace["workspace"] is ws
         assert call_history == tmp_path / "repl_history"
 
+    def test_shell_uses_host_module_globals_for_prelude_exports(self, tmp_path: Path) -> None:
+        prelude_path = tmp_path / "mlody" / "shell" / "prelude.mlody"
+        prelude_path.parent.mkdir(parents=True)
+        prelude_path.write_text("# test prelude\n", encoding="utf-8")
+
+        registry_view = MagicMock()
+        registry_view.host_module_globals.return_value = {"vector": "host-visible"}
+        workspace = MagicMock()
+        workspace.registry_view = registry_view
+
+        with patch("mlody.cli.shell._launch_repl") as mock_launch, patch(
+            "mlody.cli.shell._get_history_path"
+        ) as mock_hist, patch("mlody.resolver.resolve_workspace", return_value=(workspace, None)):
+            mock_hist.return_value = tmp_path / "repl_history"
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["shell"],
+                obj={
+                    "monorepo_root": tmp_path,
+                    "workspace_root": tmp_path,
+                    "verbose": False,
+                },
+            )
+
+        assert result.exit_code == 0
+        registry_view.eval_file.assert_called_once_with(prelude_path)
+        registry_view.host_module_globals.assert_called_once_with(prelude_path)
+        registry_view.module_globals.assert_not_called()
+        call_namespace, _call_history = mock_launch.call_args.args
+        assert call_namespace["vector"] == "host-visible"
+
     def test_shell_appears_in_cli_help(self) -> None:
         """Requirement: main() entry point imports and invokes — shell registered."""
         # shell_test imports mlody.cli.shell which registers the @cli.command(),
