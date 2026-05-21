@@ -177,7 +177,6 @@ def cli(
 
 def main() -> None:
     """Entry point. Import subcommands and invoke the CLI group."""
-    import mlody.cli.eval  # noqa: F401
     import mlody.cli.shell  # noqa: F401
     import mlody.cli.show  # noqa: F401
 

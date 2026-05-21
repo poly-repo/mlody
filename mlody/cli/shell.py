@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -79,8 +81,18 @@ def _launch_repl(namespace: dict[str, object], history_file: Path) -> None:
 
 
 @cli.command()
+@click.option(
+    "--eval",
+    "eval_files",
+    type=click.Path(path_type=Path, dir_okay=False),
+    multiple=True,
+    help=(
+        "Inject a .mlody file as a monorepo-root module before starting the shell. "
+        "Repeatable: --eval a.mlody --eval b.mlody"
+    ),
+)
 @click.pass_context
-def shell(ctx: click.Context) -> None:
+def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
     """Launch an interactive Python REPL with the mlody namespace pre-loaded.
 
     Available in the REPL:
@@ -103,17 +115,25 @@ def shell(ctx: click.Context) -> None:
     roots: Path | None = ctx.obj.get("roots")
     full_workspace: bool = ctx.obj.get("full_workspace", False)
 
+    bwd = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
+    base = Path(bwd) if bwd else Path.cwd()
+    resolved_eval_files: list[Path] = []
+    for ef in eval_files:
+        p = ef if ef.is_absolute() else (base / ef).resolve()
+        if not p.exists():
+            click.echo(f"Error: --eval file not found: {p}", err=True)
+            sys.exit(1)
+        resolved_eval_files.append(p)
+
     from mlody.resolver import resolve_workspace
 
-    # Load the cwd workspace to expose as the `workspace` REPL variable.
-    # An @-prefixed dummy label with just the root marker is used to trigger
-    # the cwd path through resolve_workspace.
     workspace_obj, _sha = resolve_workspace(
         "//mlody:_shell_init",
         monorepo_root=monorepo_root,
         workspace_root=workspace_root,
         roots_file=roots,
         full_workspace=full_workspace,
+        eval_files=tuple(resolved_eval_files),
     )
     history_file = _get_history_path()
     namespace = _build_repl_namespace(workspace_obj, monorepo_root, workspace_root, full_workspace)
