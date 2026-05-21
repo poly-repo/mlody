@@ -5,10 +5,11 @@ o_py_library(
     srcs = [
         "__init__.py",
         "action_graph_render.py",
-        "autocomplete.py",
         "asset_render.py",
+        "autocomplete.py",
         "dag_gui.py",
         "dag_render.py",
+        "eval.py",
         "lineage_render.py",
         "main.py",
         "server.py",
@@ -19,10 +20,11 @@ o_py_library(
     visibility = ["//:__subpackages__"],
     deps = [
         "//common/python/console:console_lib",
+        "//common/python/starlarkish/core:core_lib",
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody/common:context_lib",  # keep
         "//mlody/core:core_lib",
-        "//mlody/core/assets:assets",
+        "//mlody/core/assets",
         "//mlody/core/label:label_lib",
         "//mlody/core/sql:sql_query_lib",
         "//mlody/core/tabular:derived_source_lib",
@@ -31,6 +33,7 @@ o_py_library(
         "//mlody/db:db_lib",
         "//mlody/lsp:lsp_lib",
         "//mlody/resolver:resolver_lib",
+        "//mlody/resolver/values:values_lib",
         "@pip//click",
         "@pip//matplotlib",  # keep — lazy import in dag_gui.show_dag_gui
         "@pip//networkx",
@@ -90,12 +93,12 @@ o_py_test(
 o_py_binary(
     name = "mlody",
     srcs = ["__main__.py"],
-    main = "__main__.py",
-    package_collisions = "warning",
     data = [
-        "//mlody/assets/images/avatars:avatars",
+        "//mlody/assets/images/avatars",
         "//mlody/stage:app",
     ],
+    main = "__main__.py",
+    package_collisions = "warning",
     visibility = ["//visibility:public"],
     deps = [":cli_lib"],
 )
@@ -107,11 +110,15 @@ o_py_test(
         ":cli_lib",
         "//common/python/starlarkish/core:core_lib",
         "//mlody/core:core_lib",
+        "//mlody/core/assets:interfaces_lib",
+        "//mlody/core/assets:metadata_lib",
         "//mlody/resolver:resolver_lib",
+        "//mlody/resolver/values:values_lib",
         "@pip//click",
         "@pip//networkx",  # keep — TestShowCommandDagPlan
         "@pip//pyarrow",  # keep — derived value test tables
         "@pip//pytest",
+        "@pip//rich",
     ],
 )
 
@@ -141,8 +148,12 @@ o_py_test(
     srcs = ["server_test.py"],
     deps = [
         ":cli_lib",
+        "//common/python/starlarkish/core:core_lib",
         "//mlody/core:core_lib",
         "//mlody/resolver:resolver_lib",
+        "//mlody/resolver/values:values_lib",
+        "@pip//click",
+        "@pip//networkx",
         "@pip//pytest",
     ],
 )

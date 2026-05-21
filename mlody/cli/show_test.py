@@ -253,7 +253,6 @@ class TestShowCommandCwdTarget:
             roots_file=None,
             full_workspace=False,
             verbose=False,
-            eval_files=(),
         )
 
     def test_cwd_target_with_legacy_workspace_injection(self) -> None:
@@ -361,7 +360,6 @@ class TestShowCommandCommittoidTarget:
             roots_file=None,
             full_workspace=False,
             verbose=False,
-            eval_files=(),
         )
 
     def test_committoid_target_calls_resolve_label_to_value_with_inner_label(
@@ -489,7 +487,6 @@ class TestShowCommandAsUser:
             roots_file=None,
             full_workspace=False,
             verbose=False,
-            eval_files=(),
         )
 
     def test_as_accepts_full_description_and_prints_canonical_user(
@@ -524,7 +521,6 @@ class TestShowCommandAsUser:
             roots_file=None,
             full_workspace=False,
             verbose=False,
-            eval_files=(),
         )
 
     def test_as_rejects_unknown_user_before_rendering(

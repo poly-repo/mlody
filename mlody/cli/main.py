@@ -84,16 +84,6 @@ def verify_monorepo_root() -> Path:
     ),
 )
 @click.option(
-    "--eval",
-    "eval_files",
-    type=click.Path(path_type=Path, dir_okay=False),
-    multiple=True,
-    help=(
-        "Path to a .mlody file evaluated as if it were at the monorepo root. "
-        "Repeatable: --eval a.mlody --eval b.mlody"
-    ),
-)
-@click.option(
     "--server",
     "server_mode",
     is_flag=True,
@@ -127,7 +117,6 @@ def cli(
     verbose: bool,
     full_workspace: bool,
     workspace_dir: Path | None,
-    eval_files: tuple[Path, ...],
     server_mode: bool,
     server_host: str,
     server_port: int,
@@ -160,17 +149,6 @@ def cli(
     else:
         ctx.obj["workspace_root"] = monorepo_root
 
-    bwd = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
-    base = Path(bwd) if bwd else Path.cwd()
-    resolved_eval_files: list[Path] = []
-    for ef in eval_files:
-        p = ef if ef.is_absolute() else (base / ef).resolve()
-        if not p.exists():
-            click.echo(f"Error: --eval file not found: {p}", err=True)
-            sys.exit(1)
-        resolved_eval_files.append(p)
-    ctx.obj["eval_files"] = tuple(resolved_eval_files)
-
     if server_mode and ctx.invoked_subcommand is not None:
         raise click.UsageError("--server cannot be combined with a subcommand.")
 
@@ -199,6 +177,7 @@ def cli(
 
 def main() -> None:
     """Entry point. Import subcommands and invoke the CLI group."""
+    import mlody.cli.eval  # noqa: F401
     import mlody.cli.shell  # noqa: F401
     import mlody.cli.show  # noqa: F401
 

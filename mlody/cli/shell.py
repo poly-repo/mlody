@@ -102,7 +102,6 @@ def shell(ctx: click.Context) -> None:
     workspace_root = ctx.obj.get("workspace_root", monorepo_root)
     roots: Path | None = ctx.obj.get("roots")
     full_workspace: bool = ctx.obj.get("full_workspace", False)
-    eval_files: tuple[Path, ...] = ctx.obj.get("eval_files", ())
 
     from mlody.resolver import resolve_workspace
 
@@ -115,7 +114,6 @@ def shell(ctx: click.Context) -> None:
         workspace_root=workspace_root,
         roots_file=roots,
         full_workspace=full_workspace,
-        eval_files=eval_files,
     )
     history_file = _get_history_path()
     namespace = _build_repl_namespace(workspace_obj, monorepo_root, workspace_root, full_workspace)
