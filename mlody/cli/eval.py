@@ -41,7 +41,7 @@ def eval_cmd(ctx: click.Context, files: tuple[Path, ...]) -> None:
     from mlody.resolver import resolve_workspace
 
     workspace_obj, _sha = resolve_workspace(
-        "@//:_shell_init",
+        "//mlody:_shell_init",
         monorepo_root=monorepo_root,
         workspace_root=workspace_root,
         roots_file=roots,
