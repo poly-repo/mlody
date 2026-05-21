@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from mlody.cli.main import cli
-from mlody.cli.shell import _build_repl_namespace, _get_history_path
+from mlody.cli.shell import _build_repl_namespace, _get_history_path, _launch_repl
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +126,9 @@ class TestShellCommand:
         # _launch_repl is the test seam — mocking it avoids starting an
         # interactive process while still verifying the wiring is correct.
         ws = MagicMock()
+        ws.registry_view.host_session_globals.side_effect = (
+            lambda _path, *, initial_globals=None: dict(initial_globals or {})
+        )
 
         with patch("mlody.cli.shell._launch_repl") as mock_launch, patch(
             "mlody.cli.shell._get_history_path"
@@ -141,12 +146,29 @@ class TestShellCommand:
         assert call_namespace["workspace"] is ws
         assert call_history == tmp_path / "repl_history"
 
+    def test_launch_repl_passes_same_globals_and_locals(self, tmp_path: Path) -> None:
+        embed_mock = MagicMock()
+        fake_repl_module = SimpleNamespace(embed=embed_mock)
+
+        with patch.dict(sys.modules, {"ptpython.repl": fake_repl_module}):
+            _launch_repl({"answer": 42}, tmp_path / "repl_history")
+
+        embed_mock.assert_called_once_with(
+            globals={"answer": 42},
+            locals={"answer": 42},
+            history_filename=str(tmp_path / "repl_history"),
+            title="mlody shell",
+        )
+
     def test_shell_uses_host_module_globals_for_prelude_exports(self, tmp_path: Path) -> None:
         prelude_path = tmp_path / "mlody" / "shell" / "prelude.mlody"
         prelude_path.parent.mkdir(parents=True)
         prelude_path.write_text("# test prelude\n", encoding="utf-8")
 
         registry_view = MagicMock()
+        registry_view.host_session_globals.side_effect = (
+            lambda _path, *, initial_globals=None: {"builtins": "safe", **dict(initial_globals or {})}
+        )
         registry_view.host_module_globals.return_value = {"vector": "host-visible"}
         workspace = MagicMock()
         workspace.registry_view = registry_view
@@ -167,11 +189,49 @@ class TestShellCommand:
             )
 
         assert result.exit_code == 0
+        registry_view.host_session_globals.assert_called_once()
+        call_args, call_kwargs = registry_view.host_session_globals.call_args
+        assert call_args == (tmp_path / "__shell_session__.mlody",)
+        assert set(call_kwargs["initial_globals"]) == {"show", "workspace"}
         registry_view.eval_file.assert_called_once_with(prelude_path)
         registry_view.host_module_globals.assert_called_once_with(prelude_path)
         registry_view.module_globals.assert_not_called()
         call_namespace, _call_history = mock_launch.call_args.args
+        assert call_namespace["builtins"] == "safe"
         assert call_namespace["vector"] == "host-visible"
+
+    def test_shell_merges_eval_file_exports_into_shared_session_globals(self, tmp_path: Path) -> None:
+        eval_file = tmp_path / "extra.mlody"
+        eval_file.write_text("# injected\n", encoding="utf-8")
+
+        registry_view = MagicMock()
+        registry_view.host_session_globals.side_effect = (
+            lambda _path, *, initial_globals=None: dict(initial_globals or {})
+        )
+        registry_view.host_module_globals.side_effect = (
+            lambda path: {path.name: f"from-{path.name}"}
+        )
+        workspace = MagicMock()
+        workspace.registry_view = registry_view
+
+        with patch("mlody.cli.shell._launch_repl") as mock_launch, patch(
+            "mlody.cli.shell._get_history_path"
+        ) as mock_hist, patch("mlody.resolver.resolve_workspace", return_value=(workspace, None)):
+            mock_hist.return_value = tmp_path / "repl_history"
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["shell", "--eval", str(eval_file)],
+                obj={
+                    "monorepo_root": tmp_path,
+                    "workspace_root": tmp_path,
+                    "verbose": False,
+                },
+            )
+
+        assert result.exit_code == 0
+        call_namespace, _call_history = mock_launch.call_args.args
+        assert call_namespace["extra.mlody"] == "from-extra.mlody"
 
     def test_shell_appears_in_cli_help(self) -> None:
         """Requirement: main() entry point imports and invokes — shell registered."""

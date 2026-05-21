@@ -1,4 +1,4 @@
-"""shell subcommand — interactive ptpython REPL with pre-populated mlody namespace."""
+"""shell subcommand — restricted ptpython REPL with mlody session globals."""
 
 from __future__ import annotations
 
@@ -65,8 +65,31 @@ def _build_repl_namespace(
     }
 
 
-def _launch_repl(namespace: dict[str, object], history_file: Path) -> None:
-    """Launch the ptpython REPL with the given namespace and history file.
+def _session_file_path(monorepo_root: Path, workspace_root: Path | None = None) -> Path:
+    root = workspace_root if workspace_root is not None else monorepo_root
+    return root / "__shell_session__.mlody"
+
+
+def _build_shell_session_globals(
+    workspace: Workspace,
+    monorepo_root: Path,
+    workspace_root: Path | None = None,
+    full_workspace: bool = False,
+) -> dict[str, object]:
+    shell_helpers = _build_repl_namespace(
+        workspace,
+        monorepo_root,
+        workspace_root,
+        full_workspace,
+    )
+    return workspace.registry_view.host_session_globals(
+        _session_file_path(monorepo_root, workspace_root),
+        initial_globals=shell_helpers,
+    )
+
+
+def _launch_repl(session_globals: dict[str, object], history_file: Path) -> None:
+    """Launch the ptpython REPL with the given restricted session globals.
 
     Isolated as a separate function to act as a test seam — callers mock this
     to verify namespace construction without starting an interactive process.
@@ -74,7 +97,8 @@ def _launch_repl(namespace: dict[str, object], history_file: Path) -> None:
     from ptpython.repl import embed  # deferred import — ptpython is heavyweight
 
     embed(
-        locals=namespace,  # type: ignore[arg-type]  # dict[str, object] ≈ dict[str, Any]
+        globals=session_globals,  # type: ignore[arg-type]  # dict[str, object] ≈ dict[str, Any]
+        locals=session_globals,  # type: ignore[arg-type]  # dict[str, object] ≈ dict[str, Any]
         history_filename=str(history_file),
         title="mlody shell",
     )
@@ -93,7 +117,7 @@ def _launch_repl(namespace: dict[str, object], history_file: Path) -> None:
 )
 @click.pass_context
 def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
-    """Launch an interactive Python REPL with the mlody namespace pre-loaded.
+    """Launch a restricted Starlarkish-safe Python REPL with mlody session globals.
 
     Available in the REPL:
       show("@root//pkg:target")  — resolve and return a pipeline value
@@ -106,8 +130,13 @@ def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
         workspace_root: Path | None = ctx.obj.get("workspace_root")
         full_workspace: bool = ctx.obj.get("full_workspace", False)
         history_file = _get_history_path()
-        namespace = _build_repl_namespace(workspace, monorepo_root, workspace_root, full_workspace)
-        _launch_repl(namespace, history_file)
+        session_globals = _build_shell_session_globals(
+            workspace,
+            monorepo_root,
+            workspace_root,
+            full_workspace,
+        )
+        _launch_repl(session_globals, history_file)
         return
 
     monorepo_root = ctx.obj["monorepo_root"]
@@ -136,12 +165,17 @@ def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
         eval_files=tuple(resolved_eval_files),
     )
     history_file = _get_history_path()
-    namespace = _build_repl_namespace(workspace_obj, monorepo_root, workspace_root, full_workspace)
+    session_globals = _build_shell_session_globals(
+        workspace_obj,
+        monorepo_root,
+        workspace_root,
+        full_workspace,
+    )
     prelude_path = monorepo_root / "mlody" / "shell" / "prelude.mlody"
     if prelude_path.exists():
         workspace_obj.registry_view.eval_file(prelude_path)
-        namespace.update(workspace_obj.registry_view.host_module_globals(prelude_path))
+        session_globals.update(workspace_obj.registry_view.host_module_globals(prelude_path))
     for ef in resolved_eval_files:
         virtual_path = monorepo_root / ef.name
-        namespace.update(workspace_obj.registry_view.host_module_globals(virtual_path))
-    _launch_repl(namespace, history_file)
+        session_globals.update(workspace_obj.registry_view.host_module_globals(virtual_path))
+    _launch_repl(session_globals, history_file)

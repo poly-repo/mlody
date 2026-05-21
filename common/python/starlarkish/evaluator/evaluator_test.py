@@ -774,3 +774,142 @@ vector = _make_factory()
     assert result.kind == "type"  # type: ignore[attr-defined]
     assert result.name == "vector"  # type: ignore[attr-defined]
     assert result.element_type.name == "string"  # type: ignore[attr-defined]
+
+
+def test_host_session_globals_blocks_top_level_import(
+    project_root: Path,
+) -> None:
+    evaluator = Evaluator(project_root)
+    session_globals = evaluator.host_session_globals(project_root / "__shell_session__.mlody")
+
+    with pytest.raises(ImportError, match="__import__"):
+        exec("import os", session_globals, session_globals)
+
+
+def test_host_session_globals_blocks_open(
+    project_root: Path,
+) -> None:
+    evaluator = Evaluator(project_root)
+    session_globals = evaluator.host_session_globals(project_root / "__shell_session__.mlody")
+
+    with pytest.raises(NameError, match="open"):
+        eval("open('/etc/hosts')", session_globals, session_globals)
+
+
+def test_host_session_globals_persist_assignments_across_exec_calls(
+    project_root: Path,
+) -> None:
+    evaluator = Evaluator(project_root)
+    session_globals = evaluator.host_session_globals(project_root / "__shell_session__.mlody")
+
+    exec("answer = 41", session_globals, session_globals)
+    exec("answer += 1", session_globals, session_globals)
+
+    assert session_globals["answer"] == 42
+
+
+def test_host_session_globals_use_sandbox_type_semantics_with_mlody_exports(
+    project_root: Path,
+    fs: FakeFilesystem,
+) -> None:
+    fs.create_file(
+        "/project/session_types.mlody",
+        contents="""
+def _is_type_struct(value):
+    return type(value) == "struct" and python.getattr(value, "kind", None) == "type"
+
+def string():
+    return struct(kind="type", name="string")
+
+def _make_factory():
+    def factory(*, element_type):
+        if not _is_type_struct(element_type):
+            raise TypeError(f"expected type struct, got {type(element_type)!r}")
+        return struct(kind="type", name="vector", element_type=element_type)
+    return factory
+
+vector = _make_factory()
+""",
+    )
+    evaluator = Evaluator(project_root)
+    types_path = project_root / "session_types.mlody"
+    evaluator.eval_file(types_path)
+    session_globals = evaluator.host_session_globals(project_root / "__shell_session__.mlody")
+    session_globals.update(evaluator.host_module_globals(types_path))
+
+    result = eval("type(string())", session_globals, session_globals)
+
+    assert result == "struct"
+
+
+def test_host_session_globals_support_functions_using_mlody_factories(
+    project_root: Path,
+    fs: FakeFilesystem,
+) -> None:
+    fs.create_file(
+        "/project/session_types.mlody",
+        contents="""
+def _is_type_struct(value):
+    return type(value) == "struct" and python.getattr(value, "kind", None) == "type"
+
+def string():
+    return struct(kind="type", name="string")
+
+def _make_factory():
+    def factory(*, element_type):
+        if not _is_type_struct(element_type):
+            raise TypeError(f"expected type struct, got {type(element_type)!r}")
+        return struct(kind="type", name="vector", element_type=element_type)
+    return factory
+
+vector = _make_factory()
+""",
+    )
+    evaluator = Evaluator(project_root)
+    types_path = project_root / "session_types.mlody"
+    evaluator.eval_file(types_path)
+    session_globals = evaluator.host_session_globals(project_root / "__shell_session__.mlody")
+    session_globals.update(evaluator.host_module_globals(types_path))
+
+    exec(
+        "def build_vector():\n"
+        "    return vector(element_type=string())\n",
+        session_globals,
+        session_globals,
+    )
+    result = session_globals["build_vector"]()
+
+    assert result.kind == "type"  # type: ignore[attr-defined]
+    assert result.name == "vector"  # type: ignore[attr-defined]
+    assert result.element_type.name == "string"  # type: ignore[attr-defined]
+
+
+def test_host_session_globals_register_updates_registry_state(
+    project_root: Path,
+) -> None:
+    evaluator = Evaluator(project_root)
+    session_globals = evaluator.host_session_globals(project_root / "__shell_session__.mlody")
+
+    exec(
+        'builtins.register("root", struct(name="session-root", value=99))',
+        session_globals,
+        session_globals,
+    )
+
+    assert evaluator.registry.roots.by_name["session-root"].value == 99  # type: ignore[attr-defined]
+
+
+def test_host_session_globals_load_resolves_relative_to_session_file(
+    project_root: Path,
+    fs: FakeFilesystem,
+) -> None:
+    fs.create_file(
+        "/project/helper.mlody",
+        contents='VALUE = 7\n',
+    )
+    evaluator = Evaluator(project_root)
+    session_globals = evaluator.host_session_globals(project_root / "__shell_session__.mlody")
+
+    exec('load(":helper.mlody")', session_globals, session_globals)
+
+    assert session_globals["VALUE"] == 7

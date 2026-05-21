@@ -52,7 +52,7 @@ import re
 import types
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable, Mapping, cast
 from urllib.parse import urlparse, urlunparse
 
 import uuid_utils
@@ -823,6 +823,13 @@ def _copy_function_with_globals(
     return copied
 
 
+def _promote_sandbox_builtins_as_globals(sandbox_globals: dict[str, Any]) -> None:
+    """Expose safe builtin names as direct globals for host-driven execution."""
+    sandbox_builtins = cast(dict[str, Any], sandbox_globals["__builtins__"])
+    for name, value in sandbox_builtins.items():
+        sandbox_globals.setdefault(name, value)
+
+
 def _clone_module_globals_for_host(
     module_globals_by_path: dict[Path, dict[str, Any]],
     *,
@@ -846,9 +853,7 @@ def _clone_module_globals_for_host(
         cloned_globals = module_globals_map[id(globals_dict)]
         install_runtime_bindings(file_path, cloned_globals)
         if promote_builtin_names_as_globals:
-            sandbox_builtins = cast(dict[str, Any], cloned_globals["__builtins__"])
-            for name, value in sandbox_builtins.items():
-                cloned_globals.setdefault(name, value)
+            _promote_sandbox_builtins_as_globals(cloned_globals)
         for name, value in globals_dict.items():
             if name in _RUNTIME_SANDBOX_BINDING_NAMES:
                 continue
@@ -1287,6 +1292,27 @@ class Evaluator:
         )
         original_globals = self._module_globals[file_path]
         return {name: cloned[file_path][name] for name in original_globals}
+
+    def host_session_globals(
+        self,
+        file_path: Path,
+        *,
+        initial_globals: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return a shared host-executable globals dict for one session module."""
+        session_globals = self._module_globals.get(file_path)
+        if session_globals is None:
+            session_globals = {}
+            self._module_globals[file_path] = session_globals
+        self._install_sandbox_runtime_bindings(
+            file_path=file_path,
+            sandbox_globals=session_globals,
+        )
+        _promote_sandbox_builtins_as_globals(session_globals)
+        if initial_globals:
+            for name, value in initial_globals.items():
+                session_globals.setdefault(name, value)
+        return session_globals
 
     def _decorate_source_range(self, value: Struct) -> Struct:
         source_range_type = self.registry.types.by_name.get("mlody-source-range")

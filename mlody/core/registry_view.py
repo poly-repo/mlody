@@ -182,6 +182,17 @@ class RegistryView:
     def host_module_globals(self, file_path: Path) -> dict[str, object]:
         return self._evaluator.host_module_globals(file_path)  # type: ignore[return-value]
 
+    def host_session_globals(
+        self,
+        file_path: Path,
+        *,
+        initial_globals: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        return self._evaluator.host_session_globals(  # type: ignore[return-value]
+            file_path,
+            initial_globals=initial_globals,
+        )
+
     def set_module_global(
         self,
         file_path: Path,
