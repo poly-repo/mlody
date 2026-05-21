@@ -300,6 +300,16 @@ export async function executeStageCommand(
   });
 }
 
+export async function fetchStageQueryList(
+  entity: string,
+  workspaceRoot: string | null,
+): Promise<StageResultPayload> {
+  return await postJson<StageResultPayload>("/api/query/stage/list", {
+    entity,
+    ...(workspaceRoot !== null ? { workspaceRoot } : {}),
+  });
+}
+
 export async function fetchStageAutocomplete(
   workspaceRoot: string | null,
   breadcrumb: string[],

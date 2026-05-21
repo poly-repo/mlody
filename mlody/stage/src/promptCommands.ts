@@ -37,6 +37,33 @@ interface StagePromptCommandDefinition {
   completeArgs?: (args: string) => StagePromptAutocompleteResult | null;
 }
 
+const STAGE_QUERY_LIST_ENTITIES = [
+  {
+    name: "teams",
+    description: "List team roots available in the selected workspace.",
+  },
+  {
+    name: "users",
+    description: "List registered users available in the selected workspace.",
+  },
+  {
+    name: "tasks",
+    description: "List registered tasks available in the selected workspace.",
+  },
+  {
+    name: "types",
+    description: "List registered types available in the selected workspace.",
+  },
+  {
+    name: "locations",
+    description: "List registered locations available in the selected workspace.",
+  },
+  {
+    name: "values",
+    description: "List top-level registered values available in the selected workspace.",
+  },
+] as const;
+
 function completeE2eArgs(args: string): StagePromptAutocompleteResult | null {
   if (/\s/.test(args)) {
     return null;
@@ -73,6 +100,42 @@ function completeServerArgs(args: string): StagePromptAutocompleteResult | null 
   };
 }
 
+function completeQueryArgs(args: string): StagePromptAutocompleteResult | null {
+  if (!/\s/.test(args)) {
+    return {
+      from: ",query ".length,
+      options: "list".startsWith(args)
+        ? [
+            {
+              label: "list",
+              detail: "List a supported entity type for the selected workspace.",
+              applySuffix: " ",
+              triggerCompletionAfterApply: true,
+            },
+          ]
+        : [],
+      validFor: STAGE_PROMPT_COMMAND_VALID_FOR,
+    };
+  }
+
+  const entityMatch = args.match(/^list\s+([A-Za-z0-9_-]*)$/);
+  if (entityMatch === null) {
+    return null;
+  }
+
+  const prefix = entityMatch[1] ?? "";
+  return {
+    from: ",query list ".length,
+    options: STAGE_QUERY_LIST_ENTITIES.filter((entity) =>
+      entity.name.startsWith(prefix),
+    ).map((entity) => ({
+      label: entity.name,
+      detail: entity.description,
+    })),
+    validFor: STAGE_PROMPT_COMMAND_VALID_FOR,
+  };
+}
+
 const STAGE_PROMPT_COMMANDS: readonly StagePromptCommandDefinition[] = [
   {
     name: "e2e",
@@ -83,6 +146,11 @@ const STAGE_PROMPT_COMMANDS: readonly StagePromptCommandDefinition[] = [
     name: "server",
     description: "Manage the local stage backend.",
     completeArgs: completeServerArgs,
+  },
+  {
+    name: "query",
+    description: "Inspect registered workspace entities.",
+    completeArgs: completeQueryArgs,
   },
 ];
 
@@ -100,6 +168,10 @@ export function listStagePromptCommandNames(): string[] {
 
 export function isStagePromptCommandName(name: string): boolean {
   return getStagePromptCommandDefinition(name) !== null;
+}
+
+export function listStageQueryListEntityNames(): string[] {
+  return STAGE_QUERY_LIST_ENTITIES.map((entity) => entity.name);
 }
 
 export function parseStagePromptCommand(

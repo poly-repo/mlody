@@ -12,7 +12,7 @@ frontend can consume incremental state updates for long-running commands.
 from __future__ import annotations
 
 import base64
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -107,6 +107,9 @@ _STATIC_TEXT_CONTENT_TYPES = {
 }
 _RUNFILES_MANIFEST: dict[str, Path] | None = None
 _MAX_STAGE_REQUEST_LOGS = 200
+_STAGE_QUERY_LIST_ENTITIES = frozenset(
+    {"teams", "users", "tasks", "types", "locations", "values"}
+)
 
 _RESTART_WATCHER_SCRIPT = """
 import json
@@ -188,6 +191,14 @@ class ServerCommandRequest:
     arguments: tuple[str, ...]
     options: dict[str, object]
     input_text: str = ""
+
+
+@dataclass(frozen=True)
+class StageQueryListRequest:
+    """Validated stage query/list request payload."""
+
+    entity: str
+    workspace_root: str | None
 
 
 class ServerRequestError(ValueError):
@@ -683,6 +694,32 @@ def parse_verbatim_command_request(payload: object) -> ServerCommandRequest:
     )
 
 
+def parse_stage_query_list_request(payload: object) -> StageQueryListRequest:
+    """Validate the stage query/list HTTP payload."""
+
+    if not isinstance(payload, Mapping):
+        raise ServerRequestError("Request body must be a JSON object.")
+
+    entity = payload.get("entity")
+    if not isinstance(entity, str) or not entity.strip():
+        raise ServerRequestError("Field 'entity' must be a non-empty string.")
+    normalized_entity = entity.strip().lower()
+    if normalized_entity not in _STAGE_QUERY_LIST_ENTITIES:
+        supported_entities = ", ".join(sorted(_STAGE_QUERY_LIST_ENTITIES))
+        raise ServerRequestError(
+            f"Field 'entity' must be one of: {supported_entities}."
+        )
+
+    workspace_root = payload.get("workspaceRoot")
+    if workspace_root is not None and not isinstance(workspace_root, str):
+        raise ServerRequestError("Field 'workspaceRoot' must be a string or null.")
+
+    return StageQueryListRequest(
+        entity=normalized_entity,
+        workspace_root=workspace_root,
+    )
+
+
 def _concrete_show_label(committoid: str | None, label_text: str) -> Label:
     if label_text == "":
         return Label(
@@ -1080,6 +1117,26 @@ def _stage_table_result(
     }
 
 
+def _stage_query_list_result(
+    title: str,
+    rows: Sequence[object],
+) -> dict[str, object]:
+    return {
+        "kind": "result",
+        "view": {
+            "type": "query-list",
+            "title": title,
+            "columns": [
+                {"key": "name", "label": "Name"},
+                {"key": "description", "label": "Description"},
+            ],
+            "rowCount": len(rows),
+            "truncated": False,
+        },
+        "data": _stage_json_data(list(rows)),
+    }
+
+
 def _stage_lineage_result(
     title: str,
     rows: Sequence[object],
@@ -1101,6 +1158,160 @@ def _stage_lineage_result(
             for row in rows
         ],
     }
+
+
+def _stage_query_entity_description(entity: object) -> str | None:
+    raw_description = getattr(entity, "description", None)
+    if isinstance(raw_description, str):
+        description = raw_description.strip()
+        if description:
+            return description
+
+    payload = _runtime_json_data(entity)
+    if isinstance(payload, Mapping):
+        fallback_description = payload.get("description")
+        if isinstance(fallback_description, str):
+            description = fallback_description.strip()
+            if description:
+                return description
+
+    return None
+
+
+def _iter_workspace_registry_rows(
+    workspace: object,
+) -> tuple[tuple[str, str, str, object], ...]:
+    registry_view = getattr(workspace, "registry_view", None)
+    iter_registry_items = getattr(registry_view, "iter_registry_items", None)
+    if callable(iter_registry_items):
+        raw_items = iter_registry_items()
+    else:
+        registry = getattr(getattr(workspace, "evaluator", None), "registry", None)
+        all_items = getattr(registry, "all", None)
+        raw_items = all_items.items() if isinstance(all_items, Mapping) else ()
+
+    rows: list[tuple[str, str, str, object]] = []
+    for raw_key, value in raw_items:
+        if not isinstance(raw_key, tuple) or len(raw_key) != 3:
+            continue
+        raw_kind, raw_stem, raw_name = raw_key
+        if (
+            not isinstance(raw_kind, str)
+            or not isinstance(raw_stem, str)
+            or not isinstance(raw_name, str)
+        ):
+            continue
+        rows.append((raw_kind, raw_stem, raw_name, value))
+    return tuple(rows)
+
+
+def _display_stage_query_name(
+    *,
+    stem: str,
+    name: str,
+    duplicate_names: set[str],
+) -> str:
+    if name not in duplicate_names or stem == "":
+        return name
+    return f"//{stem}:{name}"
+
+
+def _stage_query_rows_for_kind(
+    workspace: object,
+    *,
+    kind: str,
+) -> list[dict[str, object]]:
+    matching_rows = [
+        (stem, name, value)
+        for raw_kind, stem, name, value in _iter_workspace_registry_rows(workspace)
+        if raw_kind == kind
+    ]
+    duplicate_names = {
+        name for name, count in Counter(name for _stem, name, _value in matching_rows).items() if count > 1
+    }
+
+    rows: list[dict[str, object]] = []
+    for stem, name, value in sorted(matching_rows, key=lambda row: (row[1], row[0])):
+        row: dict[str, object] = {
+            "name": _display_stage_query_name(
+                stem=stem,
+                name=name,
+                duplicate_names=duplicate_names,
+            )
+        }
+        description = _stage_query_entity_description(value)
+        if description is not None:
+            row["description"] = description
+        rows.append(row)
+    return rows
+
+
+def _is_team_root_path(path: str) -> bool:
+    normalized_path = path.lstrip("/")
+    return normalized_path.startswith("mlody/teams/") or normalized_path.startswith(
+        "teams/"
+    )
+
+
+def _stage_query_team_rows(workspace: object) -> list[dict[str, object]]:
+    root_infos = getattr(workspace, "root_infos", None)
+    if not isinstance(root_infos, Mapping):
+        return []
+
+    rows: list[dict[str, object]] = []
+    for raw_name, root_info in root_infos.items():
+        name = raw_name if isinstance(raw_name, str) else getattr(root_info, "name", None)
+        path = getattr(root_info, "path", None)
+        if not isinstance(name, str) or not isinstance(path, str):
+            continue
+        if not _is_team_root_path(path):
+            continue
+        row: dict[str, object] = {"name": name}
+        description = _stage_query_entity_description(root_info)
+        if description is not None:
+            row["description"] = description
+        rows.append(row)
+
+    rows.sort(key=lambda row: cast(str, row["name"]))
+    return rows
+
+
+def _stage_query_list_title(entity: str) -> str:
+    if entity == "values":
+        return "Top-level Values"
+    return entity.replace("-", " ").title()
+
+
+def execute_stage_query_list_response(
+    config: ServerConfig,
+    request: StageQueryListRequest,
+) -> dict[str, object]:
+    workspace_root_request = ServerCommandRequest(
+        request_id="stage-query-list",
+        command="show",
+        arguments=("@query//list",),
+        options=(
+            {"workspaceRoot": request.workspace_root}
+            if request.workspace_root is not None
+            else {}
+        ),
+    )
+    workspace_root = _workspace_root_from_request(config, workspace_root_request)
+    workspace = _baseline_workspace_for_root(config, workspace_root)
+
+    if request.entity == "teams":
+        rows = _stage_query_team_rows(workspace)
+    else:
+        registry_kind = {
+            "users": "user",
+            "tasks": "task",
+            "types": "type",
+            "locations": "location",
+            "values": "value",
+        }[request.entity]
+        rows = _stage_query_rows_for_kind(workspace, kind=registry_kind)
+
+    return _stage_query_list_result(_stage_query_list_title(request.entity), rows)
 
 
 def _stage_dag_result(
@@ -2332,6 +2543,24 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                 self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001
                 _logger.exception("Failed to load stage autocomplete payload")
+                self._write_json_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": str(exc)},
+                )
+            return
+
+        if path == "/api/query/stage/list":
+            try:
+                request = parse_stage_query_list_request(payload)
+                response = execute_stage_query_list_response(
+                    self.server.server_config,
+                    request,
+                )
+                self._write_json_response(HTTPStatus.OK, response)
+            except ServerRequestError as exc:
+                self._write_json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                _logger.exception("Failed to load stage query list payload")
                 self._write_json_response(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": str(exc)},

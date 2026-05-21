@@ -2690,6 +2690,111 @@ class TestServerStartupErrors:
             http_server.server_close()
             server_thread.join(timeout=5)
 
+    def test_stage_query_list_endpoint_returns_supported_entity_rows(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        selected_workspace_root = tmp_path / "sandboxes" / "query"
+        selected_workspace_root.mkdir(parents=True)
+        captured_workspace_roots: list[Path] = []
+        fake_workspace = SimpleNamespace(
+            root_infos={
+                "lexica": SimpleNamespace(
+                    name="lexica",
+                    path="//mlody/teams/lexica",
+                    description="Text ML team",
+                ),
+                "workspace": SimpleNamespace(
+                    name="workspace",
+                    path="//sandboxes/query",
+                    description="Injected workspace root",
+                ),
+            },
+            registry_view=SimpleNamespace(
+                iter_registry_items=lambda: (
+                    (("user", "", "maya"), SimpleNamespace(description="Maya Patel")),
+                    (
+                        ("task", "pipelines/train", "train_model"),
+                        SimpleNamespace(description="Train the model"),
+                    ),
+                    (
+                        ("type", "mlody/common", "record"),
+                        SimpleNamespace(description="Record type"),
+                    ),
+                    (
+                        ("location", "mlody/common", "s3"),
+                        SimpleNamespace(description="Shared object storage"),
+                    ),
+                    (
+                        ("value", "pipelines/train", "artifact"),
+                        SimpleNamespace(description="Top-level artifact"),
+                    ),
+                )
+            ),
+        )
+
+        def _fake_workspace_for_root(_config: ServerConfig, workspace_root: Path) -> SimpleNamespace:
+            captured_workspace_roots.append(workspace_root)
+            return fake_workspace
+
+        monkeypatch.setattr(
+            "mlody.cli.server._baseline_workspace_for_root",
+            _fake_workspace_for_root,
+        )
+
+        http_server = create_http_server(_server_config(tmp_path))
+        server_thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+        server_thread.start()
+
+        try:
+            entity_expectations = {
+                "teams": ("Teams", "lexica", "Text ML team"),
+                "users": ("Users", "maya", "Maya Patel"),
+                "tasks": ("Tasks", "train_model", "Train the model"),
+                "types": ("Types", "record", "Record type"),
+                ("locations"): ("Locations", "s3", "Shared object storage"),
+                "values": ("Top-level Values", "artifact", "Top-level artifact"),
+            }
+
+            for entity, (title, name, description) in entity_expectations.items():
+                request = Request(
+                    f"http://127.0.0.1:{http_server.server_port}/api/query/stage/list",
+                    data=json.dumps(
+                        {
+                            "entity": entity,
+                            "workspaceRoot": "sandboxes/query",
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+
+                assert payload["kind"] == "result"
+                assert payload["view"]["type"] == "query-list"
+                assert payload["view"]["title"] == title
+                assert payload["data"] == [
+                    {
+                        "name": name,
+                        "description": description,
+                    }
+                ]
+
+            assert captured_workspace_roots == [
+                selected_workspace_root.resolve(),
+                selected_workspace_root.resolve(),
+                selected_workspace_root.resolve(),
+                selected_workspace_root.resolve(),
+                selected_workspace_root.resolve(),
+                selected_workspace_root.resolve(),
+            ]
+        finally:
+            http_server.shutdown()
+            http_server.server_close()
+            server_thread.join(timeout=5)
+
     def test_history_endpoint_returns_persisted_entries(
         self,
         tmp_path: Path,

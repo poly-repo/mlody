@@ -10,6 +10,7 @@ import type {
 import { StageActionGraphBlock } from "./StageActionGraphBlock.js";
 import { JsonSyntaxBlock } from "./JsonSyntaxBlock.js";
 import { StageDagBlock } from "./StageDagBlock.js";
+import { StageQueryListBlock } from "./StageQueryListBlock.js";
 import { StageEntityBlock } from "./StageTaskBlock.js";
 import { StageLineageBlock } from "./StageLineageBlock.js";
 import { StageScalarBlock } from "./StageScalarBlock.js";
@@ -96,7 +97,20 @@ type StageResultListPayload = StageResultPayload & {
   data: StageResultPayload[];
 };
 
+type StageQueryListPayload = StageResultPayload & {
+  view: {
+    type: "query-list";
+    title?: string;
+    rowCount?: number;
+  };
+  data: Record<string, unknown>[];
+};
+
 type StageSpecializedRenderer =
+  | {
+      kind: "query-list";
+      payload: StageQueryListPayload;
+    }
   | {
       kind: "table";
       payload: StageTablePayload;
@@ -154,6 +168,12 @@ function isTablePayload(
     Array.isArray(payload.view.columns) &&
     isTableRowArray(payload.data)
   );
+}
+
+function isQueryListPayload(
+  payload: StageResultPayload,
+): payload is StageQueryListPayload {
+  return payload.view.type === "query-list" && isTableRowArray(payload.data);
 }
 
 function isStageDagData(value: unknown): value is StageDagData {
@@ -353,6 +373,9 @@ function isResultListPayload(
 function resolveSpecializedRenderer(
   payload: StageResultPayload,
 ): StageSpecializedRenderer | null {
+  if (isQueryListPayload(payload)) {
+    return { kind: "query-list", payload };
+  }
   if (isTablePayload(payload)) {
     return { kind: "table", payload };
   }
@@ -431,6 +454,9 @@ export function StageResultBlock({
   }
   const specializedRenderer = resolveSpecializedRenderer(payload);
 
+  if (specializedRenderer?.kind === "query-list") {
+    return <StageQueryListBlock payload={specializedRenderer.payload} />;
+  }
   if (specializedRenderer?.kind === "table") {
     return <StageTableBlock payload={specializedRenderer.payload} />;
   }

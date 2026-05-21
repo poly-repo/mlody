@@ -11,6 +11,7 @@ import {
   resolveStageE2eWorkspaceRoot,
 } from "../e2eTests.js";
 import {
+  listStageQueryListEntityNames,
   listStagePromptCommandNames,
   parseStagePromptCommand,
 } from "../promptCommands.js";
@@ -18,6 +19,7 @@ import {
   createServerBootstrapController,
   fetchServerStatus,
   fetchStageBootstrap,
+  fetchStageQueryList,
   restartStageServer,
 } from "../serverApi.js";
 import type {
@@ -69,6 +71,8 @@ const INITIAL_LOCATION: LocationCrumb[] = [];
 const DEFAULT_CURRENT_USER = "mav";
 const LOCATION_COMMANDS = new Set(["show"]);
 const INITIAL_TOPDIR = "";
+const STAGE_QUERY_LIST_ENTITY_NAMES = listStageQueryListEntityNames();
+const STAGE_QUERY_LIST_ENTITY_SET = new Set(STAGE_QUERY_LIST_ENTITY_NAMES);
 
 function createExecutionId(): string {
   if (typeof globalThis.crypto?.randomUUID === "function") {
@@ -631,6 +635,84 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     );
   }
 
+  async function runQueryCommand(
+    rawCommand: string,
+    args: string,
+    fallbackUserName: string,
+    fallbackWorkspaceRoot: string | null,
+  ): Promise<void> {
+    const trimmedArgs = args.trim();
+    const tokens = trimmedArgs.split(/\s+/).filter(Boolean);
+    if (tokens.length !== 2 || tokens[0] !== "list") {
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",query",
+          commandInput: args,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async () => {
+          throw new Error(
+            `Unknown query syntax. Use ',query list <entity>'. Supported entities: ${STAGE_QUERY_LIST_ENTITY_NAMES.join(", ")}.`,
+          );
+        },
+      );
+      return;
+    }
+
+    const entityName = tokens[1] ?? "";
+    if (!STAGE_QUERY_LIST_ENTITY_SET.has(entityName)) {
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",query",
+          commandInput: args,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async () => {
+          throw new Error(
+            `Unknown query entity '${entityName}'. Supported entities: ${STAGE_QUERY_LIST_ENTITY_NAMES.join(", ")}.`,
+          );
+        },
+      );
+      return;
+    }
+
+    await queueExecution(
+      {
+        id: createExecutionId(),
+        command: rawCommand,
+        commandName: ",query",
+        commandInput: args,
+        copyCommand: null,
+        runAs: fallbackUserName,
+        workspaceRoot: fallbackWorkspaceRoot,
+        submittedAt: new Date().toISOString(),
+        status: "running",
+        output: [],
+      },
+      async (onChunk) => {
+        onChunk({
+          kind: "stage-json",
+          value: await fetchStageQueryList(entityName, fallbackWorkspaceRoot),
+        });
+        return "done";
+      },
+    );
+  }
+
   const handleSubmit = ({
     command,
     input,
@@ -673,6 +755,16 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
 
       if (commandName === "server") {
         void runServerCommand(
+          parsedPromptCommand.raw,
+          parsedPromptCommand.args,
+          submittedUserName,
+          submittedWorkspace?.workspaceRoot ?? null,
+        );
+        return;
+      }
+
+      if (commandName === "query") {
+        void runQueryCommand(
           parsedPromptCommand.raw,
           parsedPromptCommand.args,
           submittedUserName,

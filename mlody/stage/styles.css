@@ -597,6 +597,49 @@ textarea {
   color: rgba(103, 118, 153, 0.94);
 }
 
+.StageQueryListBlock-content {
+  gap: 12px;
+}
+
+.StageQueryListBlock-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.StageQueryListBlock-headingGroup {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.StageQueryListBlock-empty {
+  margin: 0;
+  color: var(--stage-ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.StageQueryListBlock .StageTableBlock-th:first-child,
+.StageQueryListBlock .StageTableBlock-td:first-child {
+  padding-left: 0;
+}
+
+.StageQueryListBlock .StageTableBlock-th:last-child,
+.StageQueryListBlock .StageTableBlock-td:last-child {
+  padding-right: 0;
+}
+
+.StageQueryListBlock .StageTableBlock-th {
+  padding-top: 0;
+}
+
+.StageQueryListBlock-description {
+  white-space: normal;
+}
+
 .StageLineageBlock {
   display: flex;
   min-width: 0;
