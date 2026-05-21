@@ -1015,6 +1015,7 @@ class Evaluator:
             )  # bare key — no file ctx at init time
         self._module_globals: dict[Path, dict[str, Any]] = {}  # pyright: ignore[reportExplicitAny]
         self._path_redirects: dict[Path, Path] = {}
+        self._forbidden_load_prefixes: list[tuple[Path, str]] = []
         # Names injected sandbox-wide: seeded into every new file's sandbox_globals.
         # workspace_loader populates this after evaluating mm.mlody so that `mm`
         # and `defmethod` are available in all subsequent user files without an
@@ -1241,6 +1242,7 @@ class Evaluator:
             file_path: dict(ranges) for file_path, ranges in self._file_ranges.items()
         }
         forked._path_redirects = dict(self._path_redirects)
+        forked._forbidden_load_prefixes = list(self._forbidden_load_prefixes)
         return forked
 
     def _decorate_source_range(self, value: Struct) -> Struct:
@@ -1531,6 +1533,12 @@ class Evaluator:
             # resolve relative to current file
             target_path = (current_file.parent / path).resolve()
 
+        for forbidden_prefix, error_msg in self._forbidden_load_prefixes:
+            if target_path.is_relative_to(forbidden_prefix) and not current_file.is_relative_to(forbidden_prefix):
+                raise ImportError(
+                    f"{error_msg} (load({path!r}) in {current_file})"
+                )
+
         # Execute (or fetch cached execution) of target file; returns its globals dict
         target_globals = self._execute_file(target_path)
 
@@ -1629,6 +1637,15 @@ class Evaluator:
         within the monorepo.
         """
         self._path_redirects[virtual_path] = actual_path
+
+    def register_forbidden_load_prefix(self, prefix: Path, error_message: str) -> None:
+        """Prevent load() of any file under prefix from outside prefix.
+
+        When a .mlody file tries to load() a path whose resolved absolute location
+        is under prefix, and the calling file is NOT under prefix, an ImportError
+        is raised with error_message.  Direct eval_file() calls are unaffected.
+        """
+        self._forbidden_load_prefixes.append((prefix, error_message))
 
     def resolve(self) -> None:
         """Resolution phase: replace string labels in actions/tasks with entity references.

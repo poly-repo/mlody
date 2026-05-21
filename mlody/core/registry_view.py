@@ -169,6 +169,9 @@ class RegistryView:
     def register_path_redirect(self, virtual_path: Path, actual_path: Path) -> None:
         self._evaluator.register_path_redirect(virtual_path, actual_path)
 
+    def register_forbidden_load_prefix(self, prefix: Path, error_message: str) -> None:
+        self._evaluator.register_forbidden_load_prefix(prefix, error_message)
+
     def ensure_module_loaded(self, file_path: Path) -> None:
         if not self.is_loaded(file_path):
             self.eval_file(file_path)

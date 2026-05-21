@@ -94,6 +94,7 @@ o_py_binary(
     srcs = ["__main__.py"],
     data = [
         "//mlody/assets/images/avatars",
+        "//mlody/shell:prelude.mlody",
         "//mlody/stage:app",
     ],
     main = "__main__.py",

@@ -46,7 +46,10 @@ from mlody.core.workspace_loader import WorkspaceLoader
 from mlody.core.workspace_models import RootInfo, WorkspaceLoadError
 
 _logger = logging.getLogger(__name__)
-_DEFAULT_SKIPPED_MLODY_PATHS = ("mlody/common/sandbox.mlody",)
+_DEFAULT_SKIPPED_MLODY_PATHS = (
+    "mlody/common/sandbox.mlody",
+    "mlody/shell/...",
+)
 
 # Resolver traversal hook — registered by mlody.resolver.label_value at import
 # time.  workspace.py itself never imports from mlody.resolver; this breaks the
@@ -139,6 +142,11 @@ class Workspace:
         self._registry = RegistryView(
             self._evaluator,
             workspace_attribute_writer=self._set_workspace_attribute,
+        )
+        self._registry.register_forbidden_load_prefix(
+            monorepo_root / "mlody" / "shell",
+            "mlody/shell/ files are for interactive shell use only"
+            " and cannot be loaded from production .mlody files",
         )
         self._root_infos: dict[str, RootInfo] = {}
         # extra_roots are eagerly globbed during Phase 2 (for example, a

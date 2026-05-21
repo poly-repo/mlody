@@ -1,0 +1,24 @@
+# Shell prelude — loaded automatically by `mlody shell` to provide a rich set
+# of built-in symbols for exploratory REPL work.  It re-exports every public
+# symbol from mlody/common so that interactive sessions do not need explicit
+# load() calls.
+#
+# NOT for use in production .mlody files.  Loading any file from mlody/shell/
+# in a non-shell context is a workspace load error.
+
+load("//mlody/common/action.mlody")
+load("//mlody/common/attrs.mlody")
+load("//mlody/common/build_ref.mlody")
+load("//mlody/common/config.mlody")
+load("//mlody/common/execution.mlody")
+load("//mlody/common/freshness.mlody")
+load("//mlody/common/implementation.mlody")
+load("//mlody/common/locations.mlody")
+load("//mlody/common/mm.mlody")
+load("//mlody/common/render.mlody")
+load("//mlody/common/representation.mlody")
+load("//mlody/common/sandbox.mlody")
+load("//mlody/common/task.mlody")
+load("//mlody/common/types.mlody")
+load("//mlody/common/user.mlody")
+load("//mlody/common/values.mlody")

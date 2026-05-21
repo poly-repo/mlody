@@ -137,6 +137,10 @@ def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
     )
     history_file = _get_history_path()
     namespace = _build_repl_namespace(workspace_obj, monorepo_root, workspace_root, full_workspace)
+    prelude_path = monorepo_root / "mlody" / "shell" / "prelude.mlody"
+    if prelude_path.exists():
+        workspace_obj.registry_view.eval_file(prelude_path)
+        namespace.update(workspace_obj.registry_view.module_globals(prelude_path))
     for ef in resolved_eval_files:
         virtual_path = monorepo_root / ef.name
         namespace.update(workspace_obj.registry_view.module_globals(virtual_path))

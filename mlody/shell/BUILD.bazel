@@ -1,0 +1,4 @@
+exports_files(
+    ["prelude.mlody"],
+    visibility = ["//visibility:public"],
+)
