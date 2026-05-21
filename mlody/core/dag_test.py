@@ -44,6 +44,7 @@ _FRESHNESS_MLODY = (_THIS_DIR.parent / "common" / "freshness.mlody").read_text()
 _LOCATIONS_MLODY = (_THIS_DIR.parent / "common" / "locations.mlody").read_text()
 _VALUES_MLODY = (_THIS_DIR.parent / "common" / "values.mlody").read_text()
 _ACTION_MLODY = (_THIS_DIR.parent / "common" / "action.mlody").read_text()
+_BUILD_REF_MLODY = (_THIS_DIR.parent / "common" / "build_ref.mlody").read_text()
 _TASK_MLODY = (_THIS_DIR.parent / "common" / "task.mlody").read_text()
 
 BASE_FILES: dict[str, str] = {
@@ -54,6 +55,7 @@ BASE_FILES: dict[str, str] = {
     "mlody/common/locations.mlody": _LOCATIONS_MLODY,
     "mlody/common/values.mlody": _VALUES_MLODY,
     "mlody/common/action.mlody": _ACTION_MLODY,
+    "mlody/common/build_ref.mlody": _BUILD_REF_MLODY,
     "mlody/common/task.mlody": _TASK_MLODY,
 }
 

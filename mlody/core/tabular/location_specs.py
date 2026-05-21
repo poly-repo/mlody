@@ -280,7 +280,7 @@ def source_from_value(value_struct: object) -> TabularSource | None:
         representation_name = _representation_name(value_struct)
         if representation_name == "csv":
             return _csv_source_from_paths(posix_spec.paths, value_struct=value_struct)
-        if representation_name == "parquet":
+        if representation_name is None or representation_name == "parquet":
             from mlody.core.tabular.parquet_source import ParquetSource
 
             return ParquetSource(paths=posix_spec.paths)
