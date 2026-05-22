@@ -69,6 +69,9 @@ root(name="lexica", path="//mlody/teams/lexica", description="text ML team")
 """
 
 TYPES_MLODY = """\
+# Register mm.vector so render.mlody can use mm.vector(...) patterns.
+# After task 7.1, mm.vector is no longer a fixed attr on MmNamespace.
+builtins.register_mm_pattern("type", "vector", {"element_type": None})
 builtins.register("type", struct(
     kind="type", type="mlody-source-range", name="mlody-source-range",
     fields=[
@@ -478,6 +481,9 @@ class TestTwoPhaseLoading:
         root = Path("/no_roots")
         root.mkdir()
         fs.create_file(str(root / "mlody/roots.mlody"), contents="# no roots here\n")
+        # types.mlody registers mm.vector so render.mlody can use mm.vector(...).
+        # Phase 1 loads mm.mlody first (setting up MmNamespace), then types.mlody.
+        fs.create_file(str(root / "mlody/common/types.mlody"), contents=TYPES_MLODY)
         # mm.mlody is required by workspace_loader when roots.mlody exists.
         _add_mm_files(fs, root)
         ws = Workspace(monorepo_root=root)
@@ -1455,6 +1461,10 @@ def _make_record_project(fs: FakeFilesystem, entity_mlody: str) -> Path:
     root = Path("/rec_project")
     fs.create_file(str(root / "mlody/core/builtins.mlody"), contents=_RECORD_PORT_BUILTINS)
     fs.create_file(str(root / "mlody/roots.mlody"), contents=_RECORD_ROOTS_MLODY)
+    # types.mlody must be present so register_mm_pattern("type", "vector", ...)
+    # fires after mm.mlody initialises MmNamespace, enabling render.mlody to use
+    # mm.vector(...) patterns.  Phase 1 loads mm.mlody first, then types.mlody.
+    fs.create_file(str(root / "mlody/common/types.mlody"), contents=TYPES_MLODY)
     # mm.mlody is required by workspace_loader when roots.mlody exists.
     _add_mm_files(fs, root)
     fs.create_dir(str(root / "mlody/teams/bert"))

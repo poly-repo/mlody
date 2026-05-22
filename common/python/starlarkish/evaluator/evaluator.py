@@ -1025,6 +1025,16 @@ class Builtins:
     # dispatch_fn can call it without a Python-style import (imports are blocked
     # in the sandbox because __import__ is stripped from SAFE_BUILTINS).
     dispatch_method: Callable[[str, Any, list[Any]], Any] | None = None
+    # unify exposes mlody.core.unification.unify to the sandbox.  Default None
+    # so existing Builtins(...) construction sites do not need updating.
+    unify: Callable[[object, object], dict[str, object] | None] | None = None
+    # make_mm_namespace constructs a MmNamespace instance from keyword attrs.
+    # Optional so evaluator tests that don't load mm.mlody don't need updating.
+    make_mm_namespace: Callable[..., Any] | None = None
+    # register_mm_pattern is called from rule.mlody after a typedef() succeeds,
+    # auto-generating mm.<entity_name> as a pattern constructor.  Default None
+    # so existing Builtins(...) construction sites do not need updating.
+    register_mm_pattern: Callable[[str, str, object], None] | None = None
 
 
 class Evaluator:
@@ -1080,6 +1090,9 @@ class Evaluator:
         self._resolve_hook = resolve_hook
         self._force_hook = force_hook
         self._setf_hook = setf_hook
+        # MmNamespace singleton captured when make_mm_namespace is called.
+        # Used by _register_mm_pattern_impl to auto-register entity constructors.
+        self._mm_namespace: Any = None
         if init_files:
             for init_file in init_files:
                 path_to_load = init_file
@@ -1174,12 +1187,59 @@ class Evaluator:
 
         return _md(name, tuple(args), methods)
 
+    def _register_mm_pattern_impl(
+        self,
+        entity_kind: str,
+        entity_name: str,
+        attrs: object,
+    ) -> None:
+        """Register an auto-generated mm pattern constructor for a rule() entity.
+
+        Called from rule.mlody immediately after a typedef() succeeds.  Mangles
+        hyphens to underscores so that e.g. "celebA-row" becomes mm.celebA_row.
+        Silently ignores collisions (same entity loaded twice from cache).
+        """
+        mm_ns = self._mm_namespace
+        if mm_ns is None:
+            return
+        from mlody.common.mm_namespace import _make_entity_pattern_constructor  # noqa: PLC0415
+
+        attr_name = entity_name.replace("-", "_")
+        constructor = _make_entity_pattern_constructor(entity_kind, entity_name, attrs)
+        try:
+            mm_ns._register(attr_name, constructor)
+        except ValueError:
+            # Collision: entity already registered (e.g. from a previous load of
+            # the same file — common during cached workspace reloads).
+            pass
+
     def _install_sandbox_runtime_bindings(
         self,
         *,
         file_path: Path,
         sandbox_globals: dict[str, Any],
     ) -> None:
+        # Lazy optional imports: mlody/core and mlody/common depend on
+        # evaluator_lib, so we cannot add BUILD deps.  In isolated evaluator
+        # tests the modules won't be present; in mlody tests they will be.
+        try:
+            from mlody.core.unification import unify as _unify  # noqa: PLC0415
+            _unify_fn: Callable[[object, object], dict[str, object] | None] | None = _unify
+        except ModuleNotFoundError:
+            _unify_fn = None
+
+        try:
+            from mlody.common.mm_namespace import MmNamespace as _MmNamespace  # noqa: PLC0415
+
+            def _make_mm_namespace_impl(**kwargs: Any) -> Any:
+                ns = _MmNamespace(**kwargs)
+                # Capture the singleton so _register_mm_pattern_impl can reach it.
+                self._mm_namespace = ns
+                return ns
+
+        except ModuleNotFoundError:
+            _make_mm_namespace_impl = None  # type: ignore[assignment]
+
         sandbox_globals["__builtins__"] = {**SAFE_BUILTINS, "print": self._print_fn}
         sandbox_globals["__MLODY__"] = True
         sandbox_globals["builtins"] = Builtins(
@@ -1190,6 +1250,9 @@ class Evaluator:
             register_method=self._register_method_impl,
             get_methods=self._get_methods_impl,
             dispatch_method=self._dispatch_method_impl,
+            unify=_unify_fn,
+            make_mm_namespace=_make_mm_namespace_impl,
+            register_mm_pattern=self._register_mm_pattern_impl,
         )
         if self._resolve_hook is not None:
             sandbox_globals["resolve"] = self._resolve_hook

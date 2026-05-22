@@ -24,6 +24,15 @@ _MM_MLODY = (_THIS_DIR.parent / "common" / "mm.mlody").read_text()
 _RENDER_MLODY = (_THIS_DIR.parent / "common" / "render.mlody").read_text()
 _CONFIG_MLODY = (_THIS_DIR.parent / "common" / "config.mlody").read_text()
 
+# Minimal types.mlody stub: registers just mm.vector so render.mlody can use
+# mm.vector(...) patterns.  After task 7.1 mm.vector is no longer a fixed attr
+# on MmNamespace — it is auto-generated from typedef(name="vector", ...) in the
+# real types.mlody.  This stub replicates that auto-registration without
+# pulling in the full types.mlody dependency chain.
+_TYPES_STUB_MLODY = (
+    'builtins.register_mm_pattern("type", "vector", {"element_type": None})\n'
+)
+
 
 def _setup_project(
     fs: FakeFilesystem,
@@ -38,6 +47,9 @@ def _setup_project(
         fs.create_file(str(project / "mlody/common/mm.mlody"), contents=_MM_MLODY)
         fs.create_file(str(project / "mlody/common/render.mlody"), contents=_RENDER_MLODY)
         fs.create_file(str(project / "mlody/common/config.mlody"), contents=_CONFIG_MLODY)
+        # Provide a minimal types.mlody stub so WorkspaceLoader._phase1_root_discovery
+        # can auto-register mm.vector before render.mlody uses mm.vector(...) patterns.
+        fs.create_file(str(project / "mlody/common/types.mlody"), contents=_TYPES_STUB_MLODY)
 
     # Minimal roots.mlody — registers one root pointing at the user dir
     fs.create_file(

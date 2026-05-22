@@ -120,6 +120,9 @@ root(name="myroot", path="//teams/myroot", description="test root")
 """
 
 TYPES_MLODY = """\
+# Register mm.vector so render.mlody can use mm.vector(...) patterns.
+# After task 7.1, mm.vector is no longer a fixed attr on MmNamespace.
+builtins.register_mm_pattern("type", "vector", {"element_type": None})
 builtins.register("type", struct(
     kind="type", type="mlody-source-range", name="mlody-source-range",
     fields=[

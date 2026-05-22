@@ -514,6 +514,22 @@ test_suite(
 )
 
 o_py_library(
+    name = "unification",
+    srcs = ["unification.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_test(
+    name = "unification_test",
+    srcs = ["unification_test.py"],
+    deps = [
+        ":unification",
+        "//common/python/starlarkish/core:core_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_library(
     name = "core_lib",
     srcs = [
         "__init__.py",
@@ -540,6 +556,7 @@ o_py_library(
         "traversal_parser.py",
         "traversal_runtime.py",
         "type_display.py",
+        "unification.py",
         "value_context_validation.py",
         "virtual_value.py",
         "workspace.py",

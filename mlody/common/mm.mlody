@@ -143,16 +143,16 @@ def _posix_impl(path_pattern):
     return struct(kind="mm_posix_pattern", path_pattern=path_pattern)
 
 
-def _vector_impl(element_type=None):
-    et = element_type if element_type != None else ANY
-    return struct(kind="mm_vector_pattern", element_type=et)
-
-
 def _value_impl(**field_patterns):
-    return struct(kind="mm_value_pattern", fields=field_patterns)
+    # Produces an mm_entity_pattern that matches any value-kind struct
+    # (entity_name="" acts as a wildcard — any value, regardless of its name).
+    return struct(kind="mm_entity_pattern", entity_kind="value", entity_name="", field_patterns=field_patterns)
 
 
-source_range = struct(kind="mm_source_range_pattern")
+# source_range is kept as a struct constant (not a callable) so that existing
+# call sites using [mm.source_range] (without parens) continue to work.
+# entity_name="" matches any mlody-source-range instance regardless of name.
+source_range = struct(kind="mm_entity_pattern", entity_kind="mlody-source-range", entity_name="", field_patterns={})
 
 
 # ---------------------------------------------------------------------------
@@ -164,10 +164,14 @@ def _defmethod_impl(generic, patterns, body):
 
 
 # ---------------------------------------------------------------------------
-# Assemble the mm namespace struct and inject
+# Assemble the mm namespace and inject
+#
+# MmNamespace is a Python class (not a Starlark struct) so that Phase-2 entity
+# definitions can register new pattern constructors via _register() on the same
+# shared instance.  Immutable Starlark structs cannot support this.
 # ---------------------------------------------------------------------------
 
-mm = struct(
+mm = builtins.make_mm_namespace(
     ANY=ANY,
     generic=_generic_impl,
     method=_method_impl,
@@ -179,7 +183,6 @@ mm = struct(
     console=console,
     stage=stage,
     posix=_posix_impl,
-    vector=_vector_impl,
     value=_value_impl,
     source_range=source_range,
 )

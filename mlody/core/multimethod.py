@@ -122,66 +122,110 @@ class MmPosixPattern:
         return _posix_match_score(path_pattern, path)
 
 
-@register_pattern("mm_vector_pattern")
-class MmVectorPattern:
-    """Matches a vector type struct, recursing into element_type (score 3 + sub)."""
+@register_pattern("mm_var_pattern")
+class MmVarPattern:
+    """Matches any argument with score 1 — a named wildcard for unification.
+
+    Dispatch scoring is identical to mm.ANY: score 1 for everything. The var_name
+    field is used by the unification engine (task 4) to bind captured values;
+    the score method ignores it and accepts unconditionally.
+    """
 
     @classmethod
     def score(cls, pattern: object, arg: object) -> int | None:
-        if not _is_struct_kind(arg, "type"):
-            return None
-        arg_type_name = getattr(arg, "type_name", None) or getattr(arg, "name", None)
-        if arg_type_name != "vector":
-            return None
-        element_type = getattr(arg, "element_type", None)
-        # Real mlody vector types produced by _make_factory store element_type
-        # inside arg.attributes, not as a direct field.
-        if element_type is None:
-            _attrs = getattr(arg, "attributes", None)
-            if isinstance(_attrs, dict):
-                element_type = _attrs.get("element_type")
-        element_pattern = getattr(pattern, "element_type", None)
-        if element_pattern is None:
-            return 4  # 3 + 1 (default mm.ANY)
-        sub = _match_score(element_pattern, element_type) if element_type is not None else None
-        if sub is None:
-            return None
-        return 3 + sub
+        return 1
 
 
-@register_pattern("mm_value_pattern")
-class MmValuePattern:
-    """Matches a value struct by comparing named fields (score 3 + total)."""
+@register_pattern("mm_literal_pattern")
+class MmLiteralPattern:
+    """Matches an argument equal to pattern.value (score 2).
+
+    Same specificity as an exact string match; works for any Python value type.
+    """
 
     @classmethod
     def score(cls, pattern: object, arg: object) -> int | None:
-        if not _is_struct_kind(arg, "value"):
+        value = getattr(pattern, "value", None)
+        if value == arg:
+            return 2
+        return None
+
+
+@register_pattern("mm_or_pattern")
+class MmOrPattern:
+    """Matches when any branch matches; returns the maximum branch score.
+
+    For dispatch, the maximum score is used rather than first-match so that an
+    or-pattern registered alongside a specific method does not artificially
+    lower the winner's specificity (design.md Decision 7).
+    """
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        branches: list[object] = list(getattr(pattern, "patterns", []))
+        best: int | None = None
+        for branch in branches:
+            sub = _match_score(branch, arg)
+            if sub is not None:
+                best = sub if best is None else max(best, sub)
+        return best
+
+
+@register_pattern("mm_entity_pattern")
+class MmEntityPattern:
+    """Matches an entity struct by kind, name, and optional field sub-patterns.
+
+    This is the single handler for all auto-generated entity patterns and
+    replaces the hand-written MmVectorPattern, MmValuePattern, and
+    MmSourceRangePattern classes removed in task 7.3.
+
+    Scoring:
+      1. Check arg.kind == pattern.entity_kind.
+      2. If entity_name is non-empty, check arg's name against it (try
+         arg.type_name first, then arg.name). When entity_name is empty, the
+         check is skipped — this covers kind-level patterns like mm.value()
+         that match any entity of the given kind regardless of instance name.
+      3. For each (field, sub_pattern) in field_patterns: resolve the field
+         value from arg (direct attribute first, then arg.attributes dict as
+         a fallback for type structs that store attrs inside attributes).
+         Call _match_score; if any sub-score is None, return None.
+      4. Return 3 + sum(sub_scores).
+    """
+
+    @classmethod
+    def score(cls, pattern: object, arg: object) -> int | None:
+        entity_kind: str = getattr(pattern, "entity_kind", "")
+        entity_name: str = getattr(pattern, "entity_name", "")
+
+        if getattr(arg, "kind", None) != entity_kind:
             return None
-        raw_fields: Any = getattr(pattern, "fields", {}) or {}
-        # When mm.value() is called from Starlark, the struct() factory coerces
-        # the **kwargs dict into a Struct.  Normalise both cases to a mapping.
-        fields: Any = raw_fields.as_mapping() if hasattr(raw_fields, "as_mapping") else raw_fields
-        if not fields:
-            return 3
+
+        # When entity_name is non-empty, verify the arg's name matches.  An
+        # empty entity_name acts as a wildcard: match any entity of this kind
+        # (used by mm.value() and mm.source_range which cover all instances).
+        if entity_name:
+            arg_name = getattr(arg, "type_name", None) or getattr(arg, "name", None)
+            if arg_name != entity_name:
+                return None
+
+        field_patterns: dict[str, object] = getattr(pattern, "field_patterns", {}) or {}
         total = 0
-        for field_name, field_pattern in fields.items():
-            field_val = getattr(arg, field_name, None)
-            sub = _match_score(field_pattern, field_val)
+        for field, sub_pattern in field_patterns.items():
+            field_val = getattr(arg, field, None)
+            # Real mlody type structs (produced by _make_factory) store attrs
+            # inside an 'attributes' dict rather than as direct fields.  Fall
+            # back to attributes lookup so that e.g. element_type on a vector
+            # type struct is correctly resolved during dispatch.
+            if field_val is None:
+                _attrs = getattr(arg, "attributes", None)
+                if isinstance(_attrs, dict):
+                    field_val = _attrs.get(field)
+            sub = _match_score(sub_pattern, field_val)
             if sub is None:
                 return None
             total += sub
+
         return 3 + total
-
-
-@register_pattern("mm_source_range_pattern")
-class MmSourceRangePattern:
-    """Matches a mlody-source-range struct (score 3)."""
-
-    @classmethod
-    def score(cls, pattern: object, arg: object) -> int | None:
-        if _is_struct_kind(arg, "mlody-source-range"):
-            return 3
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -200,13 +244,13 @@ def _match_score(pattern: object, arg: object) -> int | None:
     - 3   : mm.T scalar type pattern
     - 3   : mm.json (or other bare repr constant) match
     - 3   : mm.posix exact path (no wildcards)
-    - 3 + sum(subscores) : mm.value composite pattern
-    - 3 + subscore       : mm.vector pattern
+    - 3 + sum(subscores) : mm_entity_pattern (mm.value, mm.vector, etc.)
 
     Field fallbacks for real mlody structs vs. test stubs:
-    - mm.T / mm.vector : reads `arg.type_name`, falls back to `arg.name`
-    - mm.json (repr)   : reads `arg.repr_name`, falls back to `arg.name`
-    - mm.posix (loc)   : reads `arg.location_type`, falls back to `arg.type`
+    - mm.T       : reads `arg.type_name`, falls back to `arg.name`
+    - mm.json    : reads `arg.repr_name`, falls back to `arg.name`
+    - mm.posix   : reads `arg.location_type`, falls back to `arg.type`
+    - mm.vector  : entity field lookup falls back to `arg.attributes` dict
     """
     # Exact string match is checked before registry lookup: str is not a
     # struct-like object with a `kind` field, so it cannot be registered.

@@ -128,15 +128,14 @@ class WorkspaceLoader:
         if self._roots_file.exists():
             self._registry.eval_file(self._roots_file)
 
-        types_path = self._monorepo_root / "mlody" / "common" / "types.mlody"
-        if not self._registry.is_loaded(types_path):
-            try:
-                self._registry.eval_file(types_path)
-            except Exception:
-                pass
-
         mm_path = self._monorepo_root / "mlody" / "common" / "mm.mlody"
         if self._roots_file.exists():
+            # Load mm.mlody before types.mlody so the MmNamespace singleton is
+            # already initialized when types.mlody calls register_mm_pattern().
+            # Auto-generated constructors (e.g. mm.vector) are registered from
+            # typedef() via rule.mlody → register_mm_pattern; they arrive after
+            # mm.mlody runs, so the namespace must exist first.
+            #
             # Only load mm.mlody in a proper mlody workspace (one with roots.mlody).
             # Sandboxes or test fixtures without a roots file are exempt.
             # When roots.mlody is present, mm.mlody is mandatory — raise if absent.
@@ -147,6 +146,13 @@ class WorkspaceLoader:
             self._registry.propagate_globals_as_persistent_injections(
                 mm_path, ["mm", "defmethod"]
             )
+
+        types_path = self._monorepo_root / "mlody" / "common" / "types.mlody"
+        if not self._registry.is_loaded(types_path):
+            try:
+                self._registry.eval_file(types_path)
+            except Exception:
+                pass
 
         render_path = self._monorepo_root / "mlody" / "common" / "render.mlody"
         if self._roots_file.exists():

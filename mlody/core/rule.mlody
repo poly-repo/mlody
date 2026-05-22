@@ -124,5 +124,10 @@ def rule(*, implementation, kind, attrs=None):
         _resolve_references(kwargs, state['attrs'])
         ctx = struct(kind=kind, attr=struct(**kwargs))
         thing = implementation(ctx)
+        # Auto-register mm.<entity_name> as a pattern constructor.  Only the
+        # original entity-specific attrs are passed (not _COMMON_ATTRS) so that
+        # mm.vector(element_type=...) has only entity fields in its pattern.
+        if builtins.register_mm_pattern != None:
+            builtins.register_mm_pattern(kind, ctx.attr.name, effective_attrs)
         return thing
     return f

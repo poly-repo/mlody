@@ -49,11 +49,23 @@ def posix_pattern(path_pattern: str) -> Struct:
 
 
 def vector_pattern(element_type: object = ANY) -> Struct:
-    return _make_struct(kind="mm_vector_pattern", element_type=element_type)
+    return _make_struct(
+        kind="mm_entity_pattern",
+        entity_kind="type",
+        entity_name="vector",
+        field_patterns={"element_type": element_type},
+    )
 
 
 def value_pattern(**field_patterns: object) -> Struct:
-    return _make_struct(kind="mm_value_pattern", fields=field_patterns)
+    # entity_name="" is the kind-level wildcard: matches any value struct
+    # regardless of its instance name (see MmEntityPattern.score).
+    return _make_struct(
+        kind="mm_entity_pattern",
+        entity_kind="value",
+        entity_name="",
+        field_patterns=field_patterns,
+    )
 
 
 # Argument helpers
@@ -529,21 +541,24 @@ def test_dispatch_composite_score_most_constrained_wins() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_pattern_registry_contains_exactly_expected_kinds() -> None:
-    """_PATTERN_REGISTRY contains exactly the 7 expected kind strings after import.
+def test_pattern_registry_contains_core_kinds() -> None:
+    """_PATTERN_REGISTRY contains the four original kinds and mm_entity_pattern.
+
+    After task 7.3, mm_vector_pattern, mm_value_pattern, and
+    mm_source_range_pattern were removed. The four surviving original kinds
+    plus mm_entity_pattern (and the three kinds from tasks 3.1-3.4) must
+    all be present.
 
     Ref: Scenario '_PATTERN_REGISTRY contains exactly the expected kinds after import'.
     """
-    expected = {
+    expected_subset = {
         "mm_any",
         "mm_scalar_pattern",
         "mm_repr_pattern",
         "mm_posix_pattern",
-        "mm_vector_pattern",
-        "mm_value_pattern",
-        "mm_source_range_pattern",
+        "mm_entity_pattern",
     }
-    assert set(_PATTERN_REGISTRY.keys()) == expected
+    assert expected_subset.issubset(set(_PATTERN_REGISTRY.keys()))
 
 
 def test_pattern_registry_all_values_have_callable_score() -> None:
@@ -690,3 +705,309 @@ def test_pattern_protocol_import_and_structural_subtype() -> None:
     assert callable(MyPattern.score)
     # runtime_checkable Protocol supports isinstance on instances
     assert isinstance(MyPattern(), Pattern)
+
+
+# ---------------------------------------------------------------------------
+# 13. MmVarPattern (task 3.1)
+# ---------------------------------------------------------------------------
+
+
+def test_mm_var_pattern_score_returns_1_for_string_arg() -> None:
+    """MmVarPattern.score returns 1 for a string argument.
+
+    Ref: task 3.1 — mm_var_pattern score returns 1 for any argument.
+    """
+    pattern = _make_struct(kind="mm_var_pattern", var_name="x")
+    assert _match_score(pattern, "train") == 1
+
+
+def test_mm_var_pattern_score_returns_1_for_struct_arg() -> None:
+    """MmVarPattern.score returns 1 for a struct argument.
+
+    Ref: task 3.1 — score is always 1, same specificity as mm.ANY.
+    """
+    pattern = _make_struct(kind="mm_var_pattern", var_name="x")
+    arg = _type_arg("string")
+    assert _match_score(pattern, arg) == 1
+
+
+def test_mm_var_pattern_score_returns_1_for_none_arg() -> None:
+    """MmVarPattern.score returns 1 for None.
+
+    Ref: task 3.1 — any argument, no exceptions.
+    """
+    pattern = _make_struct(kind="mm_var_pattern", var_name="x")
+    assert _match_score(pattern, None) == 1
+
+
+def test_mm_var_pattern_score_returns_1_for_integer_arg() -> None:
+    """MmVarPattern.score returns 1 for an integer.
+
+    Ref: task 3.1 — wildcard semantics identical to mm.ANY.
+    """
+    pattern = _make_struct(kind="mm_var_pattern", var_name="x")
+    assert _match_score(pattern, 42) == 1
+
+
+def test_mm_var_pattern_is_in_registry() -> None:
+    """'mm_var_pattern' is registered in _PATTERN_REGISTRY after import.
+
+    Ref: task 3.1 — @register_pattern("mm_var_pattern").
+    """
+    assert "mm_var_pattern" in _PATTERN_REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# 14. MmLiteralPattern (task 3.2)
+# ---------------------------------------------------------------------------
+
+
+def test_mm_literal_pattern_score_returns_2_on_equality() -> None:
+    """MmLiteralPattern.score returns 2 when pattern.value == arg.
+
+    Ref: task 3.2 — same specificity as exact string match.
+    """
+    pattern = _make_struct(kind="mm_literal_pattern", value="train")
+    assert _match_score(pattern, "train") == 2
+
+
+def test_mm_literal_pattern_score_returns_none_on_inequality() -> None:
+    """MmLiteralPattern.score returns None when pattern.value != arg.
+
+    Ref: task 3.2 — no match on inequality.
+    """
+    pattern = _make_struct(kind="mm_literal_pattern", value="train")
+    assert _match_score(pattern, "serve") is None
+
+
+def test_mm_literal_pattern_matches_integer_value() -> None:
+    """MmLiteralPattern.score works for non-string literal values too.
+
+    Ref: task 3.2 — value= can be any Python object; equality is used.
+    """
+    pattern = _make_struct(kind="mm_literal_pattern", value=42)
+    assert _match_score(pattern, 42) == 2
+    assert _match_score(pattern, 43) is None
+
+
+def test_mm_literal_pattern_is_in_registry() -> None:
+    """'mm_literal_pattern' is registered in _PATTERN_REGISTRY.
+
+    Ref: task 3.2 — @register_pattern("mm_literal_pattern").
+    """
+    assert "mm_literal_pattern" in _PATTERN_REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# 15. MmOrPattern (task 3.3)
+# ---------------------------------------------------------------------------
+
+
+def test_mm_or_pattern_score_returns_max_of_matching_branches() -> None:
+    """MmOrPattern.score returns the maximum score among matching branches.
+
+    Ref: task 3.3 — dispatch needs best score, not first-match.
+    """
+    branch_a = _make_struct(kind="mm_scalar_pattern", type_name="string")  # score 3
+    branch_b = _make_struct(kind="mm_any")  # score 1
+    pattern = _make_struct(kind="mm_or_pattern", patterns=[branch_a, branch_b])
+    arg = _type_arg("string")
+    # branch_a scores 3, branch_b scores 1; max = 3
+    assert _match_score(pattern, arg) == 3
+
+
+def test_mm_or_pattern_score_returns_none_when_all_branches_fail() -> None:
+    """MmOrPattern.score returns None when no branch matches.
+
+    Ref: task 3.3 — all-or-branches-fail edge case.
+    """
+    branch_a = _make_struct(kind="mm_scalar_pattern", type_name="string")
+    branch_b = _make_struct(kind="mm_scalar_pattern", type_name="integer")
+    pattern = _make_struct(kind="mm_or_pattern", patterns=[branch_a, branch_b])
+    arg = _type_arg("float")
+    assert _match_score(pattern, arg) is None
+
+
+def test_mm_or_pattern_score_single_matching_branch() -> None:
+    """MmOrPattern.score with one matching branch returns that branch's score.
+
+    Ref: task 3.3 — single-element or_ works correctly.
+    """
+    branch = _make_struct(kind="mm_literal_pattern", value="train")
+    pattern = _make_struct(kind="mm_or_pattern", patterns=[branch])
+    assert _match_score(pattern, "train") == 2
+    assert _match_score(pattern, "serve") is None
+
+
+def test_mm_or_pattern_score_uses_max_not_first() -> None:
+    """MmOrPattern.score uses max, not first-match — higher-scoring branch wins.
+
+    Ref: design.md Decision 7 — dispatch needs the best score.
+    """
+    # branch_b (score 2 exact) is listed second; branch_a (score 1 ANY) first.
+    branch_a = _make_struct(kind="mm_any")  # score 1
+    branch_b = "train"  # score 2 for arg "train"
+    pattern = _make_struct(kind="mm_or_pattern", patterns=[branch_a, branch_b])
+    assert _match_score(pattern, "train") == 2
+
+
+def test_mm_or_pattern_is_in_registry() -> None:
+    """'mm_or_pattern' is registered in _PATTERN_REGISTRY.
+
+    Ref: task 3.3 — @register_pattern("mm_or_pattern").
+    """
+    assert "mm_or_pattern" in _PATTERN_REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# 16. MmEntityPattern (task 3.4)
+# ---------------------------------------------------------------------------
+
+
+def _entity_pattern(
+    entity_kind: str,
+    entity_name: str,
+    field_patterns: dict[str, object] | None = None,
+) -> Struct:
+    """Build an mm_entity_pattern struct matching the spec-defined shape."""
+    return _make_struct(
+        kind="mm_entity_pattern",
+        entity_kind=entity_kind,
+        entity_name=entity_name,
+        field_patterns=field_patterns or {},
+    )
+
+
+def test_mm_entity_pattern_no_fields_returns_3() -> None:
+    """MmEntityPattern with no field_patterns returns score 3 on entity_kind/name match.
+
+    Ref: task 3.4 — empty field_patterns → 3 + sum([]) = 3.
+    """
+    pattern = _entity_pattern("type", "vector")
+    arg = _type_arg("vector")
+    assert _match_score(pattern, arg) == 3
+
+
+def test_mm_entity_pattern_name_mismatch_returns_none() -> None:
+    """MmEntityPattern returns None when entity_name does not match arg.
+
+    Ref: task 3.4 — name mismatch check.
+    """
+    pattern = _entity_pattern("type", "vector")
+    arg = _type_arg("string")
+    assert _match_score(pattern, arg) is None
+
+
+def test_mm_entity_pattern_kind_mismatch_returns_none() -> None:
+    """MmEntityPattern returns None when entity_kind does not match arg.kind.
+
+    Ref: task 3.4 — entity_kind check.
+    """
+    pattern = _entity_pattern("type", "vector")
+    arg = _make_struct(kind="representation", name="vector", type_name="vector")
+    assert _match_score(pattern, arg) is None
+
+
+def test_mm_entity_pattern_field_recursion_adds_sub_scores() -> None:
+    """MmEntityPattern with field_patterns returns 3 + sum(sub_scores).
+
+    Ref: task 3.4 — field recursion via _match_score.
+    """
+    element_type_arg = _type_arg("string")
+    arg = _make_struct(kind="type", name="vector", type_name="vector", element_type=element_type_arg)
+    # sub-pattern: mm_scalar_pattern matching "string" → score 3
+    sub_pattern = _make_struct(kind="mm_scalar_pattern", type_name="string")
+    pattern = _entity_pattern("type", "vector", {"element_type": sub_pattern})
+    assert _match_score(pattern, arg) == 6  # 3 + 3
+
+
+def test_mm_entity_pattern_field_failure_returns_none() -> None:
+    """MmEntityPattern returns None when any sub-pattern fails.
+
+    Ref: task 3.4 — field failure → None.
+    """
+    element_type_arg = _type_arg("integer")
+    arg = _make_struct(kind="type", name="vector", type_name="vector", element_type=element_type_arg)
+    sub_pattern = _make_struct(kind="mm_scalar_pattern", type_name="string")  # mismatch
+    pattern = _entity_pattern("type", "vector", {"element_type": sub_pattern})
+    assert _match_score(pattern, arg) is None
+
+
+def test_mm_entity_pattern_var_sub_pattern_contributes_score_1() -> None:
+    """MmEntityPattern with mm_var_pattern in field_patterns scores 3 + 1 = 4.
+
+    Ref: task 3.4 — mm.var sub-patterns contribute score 1.
+    """
+    element_type_arg = _type_arg("string")
+    arg = _make_struct(kind="type", name="vector", type_name="vector", element_type=element_type_arg)
+    sub_pattern = _make_struct(kind="mm_var_pattern", var_name="el")
+    pattern = _entity_pattern("type", "vector", {"element_type": sub_pattern})
+    assert _match_score(pattern, arg) == 4  # 3 + 1
+
+
+def test_mm_entity_pattern_uses_type_name_field_fallback() -> None:
+    """MmEntityPattern falls back to arg.type_name when arg.name is absent.
+
+    Ref: task 3.4 — try arg.type_name, fall back to arg.name.
+    """
+    # arg has type_name but no name — entity pattern should match via type_name
+    arg = _make_struct(kind="type", type_name="vector")
+    pattern = _entity_pattern("type", "vector")
+    assert _match_score(pattern, arg) == 3
+
+
+def test_mm_entity_pattern_uses_name_fallback_when_type_name_absent() -> None:
+    """MmEntityPattern falls back to arg.name when arg.type_name is absent.
+
+    Ref: task 3.4 — name fallback.
+    """
+    arg = _make_struct(kind="type", name="vector")
+    pattern = _entity_pattern("type", "vector")
+    assert _match_score(pattern, arg) == 3
+
+
+def test_mm_entity_pattern_source_range_kind() -> None:
+    """MmEntityPattern with entity_kind='mlody-source-range' matches hyphenated kind.
+
+    Ref: task 3.4 — special case for mlody-source-range.
+    """
+    pattern = _entity_pattern("mlody-source-range", "source-range")
+    arg = _make_struct(kind="mlody-source-range", name="source-range")
+    assert _match_score(pattern, arg) == 3
+
+
+def test_mm_entity_pattern_is_in_registry() -> None:
+    """'mm_entity_pattern' is registered in _PATTERN_REGISTRY.
+
+    Ref: task 3.4 — @register_pattern("mm_entity_pattern").
+    """
+    assert "mm_entity_pattern" in _PATTERN_REGISTRY
+
+
+# ---------------------------------------------------------------------------
+# 17. Updated registry contents (tasks 3.1–3.4 complete)
+# ---------------------------------------------------------------------------
+
+
+def test_pattern_registry_contains_all_eight_kinds() -> None:
+    """_PATTERN_REGISTRY contains exactly 8 kinds after task 7.3.
+
+    Three hand-written classes (mm_vector_pattern, mm_value_pattern,
+    mm_source_range_pattern) were removed in task 7.3; their dispatch
+    responsibility moved to mm_entity_pattern.
+
+    Ref: task 7.3 — registry keys after removing three pattern classes.
+    """
+    expected = {
+        # four surviving original kinds
+        "mm_any",
+        "mm_scalar_pattern",
+        "mm_repr_pattern",
+        "mm_posix_pattern",
+        # four kinds added in tasks 3.1–3.4
+        "mm_var_pattern",
+        "mm_literal_pattern",
+        "mm_or_pattern",
+        "mm_entity_pattern",
+    }
+    assert set(_PATTERN_REGISTRY.keys()) == expected
