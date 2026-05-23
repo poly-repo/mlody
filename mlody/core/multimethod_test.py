@@ -472,6 +472,40 @@ def test_dispatch_ctx_captures_entity_field_var_by_name() -> None:
 
 
 # ---------------------------------------------------------------------------
+# context threading — ctx.workspace and ctx.run from evaluator
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_ctx_workspace_populated_from_context() -> None:
+    """ctx.workspace and ctx.run are set when dispatch() receives a context object."""
+    workspace = _make_struct(directory="/repo", branch="main")
+    run = _make_struct(id="abc", user="mav")
+    context = _make_struct(workspace=workspace, run=run)
+    captured: list[object] = []
+
+    def body(ctx: object, *args: object) -> None:
+        captured.append(ctx)  # type: ignore[arg-type]
+
+    dispatch("g", ("x",), [_make_method([ANY], body)], context=context)
+    ctx = captured[0]
+    assert getattr(ctx, "workspace") is workspace
+    assert getattr(ctx, "run") is run
+
+
+def test_dispatch_ctx_no_workspace_when_context_is_none() -> None:
+    """ctx.workspace is absent when no context is passed (default None)."""
+    captured: list[object] = []
+
+    def body(ctx: object, *args: object) -> None:
+        captured.append(ctx)  # type: ignore[arg-type]
+
+    dispatch("g", ("x",), [_make_method([ANY], body)])
+    ctx = captured[0]
+    assert not hasattr(ctx, "workspace")
+    assert not hasattr(ctx, "run")
+
+
+# ---------------------------------------------------------------------------
 # 10. dispatch — body receives correct positional args
 # ---------------------------------------------------------------------------
 

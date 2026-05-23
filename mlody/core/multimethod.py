@@ -321,6 +321,7 @@ def dispatch(
     generic_name: str,
     args: tuple[object, ...],
     methods: list[Any],  # list of Struct-like method objects
+    context: object | None = None,
 ) -> object:
     """Score all registered methods, select the winner, build ctx, and call body.
 
@@ -331,6 +332,9 @@ def dispatch(
     - ctx.generic: the generic name string
     - ctx.captures: positional entries {"0": arg0, ...} merged with any named
       captures from mm.var() patterns in the winning method (keyed by var name).
+    - ctx.workspace: workspace metadata (directory, branch, commit) when the
+      evaluator provides a context object; absent when dispatch is called directly.
+    - ctx.run: run metadata (id, user) under the same condition.
     """
     # Avoid importing Struct at module level to keep this module lightweight;
     # we only need it for ctx construction.
@@ -375,11 +379,18 @@ def dispatch(
         named = _unify_captures(_pat, _arg)
         if named:
             captures.update(named)
-    ctx = Struct(
-        kind="mm_dispatch_ctx",
-        generic=generic_name,
-        captures=captures,
-    )
+    ctx_kwargs: dict[str, object] = {
+        "kind": "mm_dispatch_ctx",
+        "generic": generic_name,
+        "captures": captures,
+    }
+    workspace = getattr(context, "workspace", None)
+    if workspace is not None:
+        ctx_kwargs["workspace"] = workspace
+    run = getattr(context, "run", None)
+    if run is not None:
+        ctx_kwargs["run"] = run
+    ctx = Struct(**ctx_kwargs)
     body = getattr(best_method, "body", None)
     return body(ctx, *args)  # type: ignore[operator]
 

@@ -1185,7 +1185,7 @@ class Evaluator:
     ) -> Any:  # pyright: ignore[reportExplicitAny]
         from mlody.core.multimethod import dispatch as _md
 
-        return _md(name, tuple(args), methods)
+        return _md(name, tuple(args), methods, context=self._extra_ctx)
 
     def _register_mm_pattern_impl(
         self,
