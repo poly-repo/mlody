@@ -28,8 +28,16 @@ class MmNamespace:
     """
 
     def __init__(self, **fixed_attrs: object) -> None:
-        # Store _dynamic before any setattr so __getattr__ never recurses.
+        # Store private dicts before any setattr so __getattr__ never recurses.
+        # _generic_names maps id(dispatch_fn) -> generic_name and lives on the instance so
+        # that it remains shared across evaluator forks (mm is not cloned during fork()).
+        # _dispatch_builtins holds the most-recently-activated evaluator's Builtins object;
+        # it is updated by _install_sandbox_runtime_bindings each time a sandbox is initialized.
+        # dispatch_fn objects route through _dispatch_generic so they always use the active
+        # evaluator's method registry, regardless of which evaluator created them.
         object.__setattr__(self, "_dynamic", {})
+        object.__setattr__(self, "_generic_names", {})
+        object.__setattr__(self, "_dispatch_builtins", None)
         for name, value in fixed_attrs.items():
             object.__setattr__(self, name, value)
 
@@ -68,6 +76,39 @@ class MmNamespace:
         except AttributeError:
             pass
         dynamic[attr_name] = constructor
+
+    def _register_generic_name(self, fn_id: int, name: str) -> None:
+        """Record ``fn_id → name`` in the instance-level generic-names registry.
+
+        Called by ``_generic_impl`` in mm.mlody when a new generic is declared.
+        Storing on the instance (rather than in a module-level dict) means the
+        mapping survives evaluator forks: ``mm`` is not cloned during ``fork()``,
+        so both the original and forked evaluators share the same dict.
+        """
+        generic_names: dict[int, str] = object.__getattribute__(self, "_generic_names")
+        generic_names[fn_id] = name
+
+    def _get_generic_name(self, fn_id: int) -> str | None:
+        """Return the generic name for ``fn_id``, or ``None`` if not registered."""
+        generic_names: dict[int, str] = object.__getattribute__(self, "_generic_names")
+        return generic_names.get(fn_id)
+
+    def _dispatch_generic(self, name: str, args: tuple) -> object:
+        """Dispatch a generic call through the active evaluator's method registry.
+
+        Uses ``_dispatch_builtins`` rather than the builtins captured at definition
+        time by mm.mlody's ``dispatch_fn``.  This ensures that generics declared in
+        ``--eval`` scripts (post-fork) dispatch against the forked evaluator's registry
+        where ``defmethod`` registered the methods.
+        """
+        dispatch_builtins = object.__getattribute__(self, "_dispatch_builtins")
+        if dispatch_builtins is None:
+            raise RuntimeError(
+                f"mm: no builtins context for dispatching generic {name!r} — "
+                "mm was never initialized by a sandbox"
+            )
+        methods = dispatch_builtins.get_methods(name)
+        return dispatch_builtins.dispatch_method(name, args, methods)
 
     def var(self, name: str) -> object:
         """Return a ``mm_var_pattern`` struct capturing the matched value.

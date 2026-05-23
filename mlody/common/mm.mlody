@@ -19,17 +19,6 @@ load("//mlody/core/rule.mlody", "rule")
 
 
 # ---------------------------------------------------------------------------
-# Generic name registry
-#
-# We need to recover the generic name from the dispatch callable when
-# mm.method(generic=render, ...) is called.  Starlark closures do not expose
-# upvalues, so we key by id(dispatch_fn) into a module-level dict.
-# ---------------------------------------------------------------------------
-
-_GENERIC_NAMES = {}
-
-
-# ---------------------------------------------------------------------------
 # _generic_impl — declare a named multimethod
 # ---------------------------------------------------------------------------
 
@@ -43,14 +32,17 @@ def _generic_impl(name, description=""):
     captured_name = name
 
     def dispatch_fn(*args):
-        # Use builtins.dispatch_method rather than a Python import: the sandbox
-        # strips __import__, so 'from x import y' inside closures is forbidden.
-        # The evaluator wires dispatch_method to mlody.core.multimethod.dispatch.
-        methods = builtins.get_methods(captured_name)
-        return builtins.dispatch_method(captured_name, args, methods)
+        # Route through mm._dispatch_generic rather than builtins directly.
+        # dispatch_fn.__globals__ is mm.mlody's sandbox (the ORIGINAL evaluator's),
+        # so 'builtins' here would always point to the original evaluator even after
+        # fork().  mm._dispatch_builtins is updated by _install_sandbox_runtime_bindings
+        # on every sandbox initialization, so it always reflects the active evaluator.
+        return mm._dispatch_generic(captured_name, args)
 
-    # Store name keyed by the function's id so _method_impl can recover it.
-    _GENERIC_NAMES[python.id(dispatch_fn)] = captured_name
+    # Store name on the mm instance (not a module-level dict) so that the
+    # mapping survives evaluator forks: mm is not cloned during fork(), so both
+    # the original and forked evaluators share the same _generic_names dict.
+    mm._register_generic_name(python.id(dispatch_fn), captured_name)
 
     return dispatch_fn
 
@@ -65,8 +57,8 @@ def _method_impl(generic, patterns, body):
             "mm.method: body must be callable, got " + repr(type(body))
         )
 
-    # Recover the generic name from the dispatch_fn.
-    generic_name = _GENERIC_NAMES.get(python.id(generic), None)
+    # Recover the generic name from the dispatch_fn via the shared mm instance.
+    generic_name = mm._get_generic_name(python.id(generic))
     if generic_name == None:
         raise TypeError(
             "mm.method: generic must be the callable returned by mm.generic()"

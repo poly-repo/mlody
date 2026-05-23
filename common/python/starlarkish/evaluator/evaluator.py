@@ -1254,6 +1254,12 @@ class Evaluator:
             make_mm_namespace=_make_mm_namespace_impl,
             register_mm_pattern=self._register_mm_pattern_impl,
         )
+        # Keep mm._dispatch_builtins pointing at the active evaluator's Builtins so
+        # that dispatch_fn objects (which close over mm.mlody's globals, not the
+        # caller's) always route through the correct method registry after fork().
+        mm_ns = self._mm_namespace
+        if mm_ns is not None:
+            object.__setattr__(mm_ns, "_dispatch_builtins", sandbox_globals["builtins"])
         if self._resolve_hook is not None:
             sandbox_globals["resolve"] = self._resolve_hook
         else:
@@ -1291,12 +1297,16 @@ class Evaluator:
             force_hook=self._force_hook if force_hook is None else force_hook,
             setf_hook=self._setf_hook if setf_hook is None else setf_hook,
         )
+        # Share the MmNamespace singleton so that _install_sandbox_runtime_bindings
+        # on the forked evaluator can update mm._dispatch_builtins.
+        forked._mm_namespace = self._mm_namespace
         cloned_module_globals = _clone_module_globals_for_host(
             self._module_globals,
             install_runtime_bindings=lambda file_path, sandbox_globals: forked._install_sandbox_runtime_bindings(
                 file_path=file_path,
                 sandbox_globals=sandbox_globals,
             ),
+            promote_builtin_names_as_globals=True,
         )
         module_globals_map: dict[int, dict[str, Any]] = {
             id(globals_dict): cloned_module_globals[file_path]
