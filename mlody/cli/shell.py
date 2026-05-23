@@ -264,7 +264,6 @@ def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
         workspace_root=workspace_root,
         roots_file=roots,
         full_workspace=full_workspace,
-        eval_files=tuple(resolved_eval_files),
     )
     history_file = _get_history_path()
     session_globals = _build_shell_session_globals(
@@ -276,8 +275,17 @@ def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
     prelude_path = monorepo_root / "mlody" / "shell" / "prelude.mlody"
     if prelude_path.exists():
         workspace_obj.registry_view.eval_file(prelude_path)
-        session_globals.update(workspace_obj.registry_view.host_module_globals(prelude_path))
+        prelude_globals = workspace_obj.registry_view.host_module_globals(prelude_path)
+        # Inject all prelude symbols as persistent injections so that any
+        # subsequently evaluated file (e.g. --eval-file scripts) can use them
+        # without an explicit load().
+        workspace_obj.registry_view.propagate_globals_as_persistent_injections(
+            prelude_path, [k for k in prelude_globals if not k.startswith("_")]
+        )
+        session_globals.update(prelude_globals)
     for ef in resolved_eval_files:
         virtual_path = monorepo_root / ef.name
+        workspace_obj.registry_view.register_path_redirect(virtual_path, ef)
+        workspace_obj.registry_view.eval_file(virtual_path)
         session_globals.update(workspace_obj.registry_view.host_module_globals(virtual_path))
     _launch_repl(session_globals, history_file)
