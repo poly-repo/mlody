@@ -137,12 +137,6 @@ console = struct(kind="mm_repr_pattern", repr_name="console")
 stage   = struct(kind="mm_repr_pattern", repr_name="stage")
 
 
-def _posix_impl(path_pattern):
-    if not isinstance(path_pattern, str):
-        raise TypeError("mm.posix: path_pattern must be a string")
-    return struct(kind="mm_posix_pattern", path_pattern=path_pattern)
-
-
 def _value_impl(**field_patterns):
     # Produces an mm_entity_pattern that matches any value-kind struct
     # (entity_name="" acts as a wildcard — any value, regardless of its name).
@@ -182,7 +176,6 @@ mm = builtins.make_mm_namespace(
     text=text,
     console=console,
     stage=stage,
-    posix=_posix_impl,
     value=_value_impl,
     source_range=source_range,
 )

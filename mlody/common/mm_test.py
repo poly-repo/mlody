@@ -143,7 +143,7 @@ def test_mm_has_all_required_attributes() -> None:
     ev = _run_with_mm("x = mm")
     g = _globals_of(ev)
     mm = g["mm"]
-    for attr in ("generic", "method", "ANY", "value", "posix", "json", "T"):
+    for attr in ("generic", "method", "ANY", "value", "json", "T"):
         assert hasattr(mm, attr), f"mm is missing attribute {attr!r}"
 
 
@@ -823,15 +823,15 @@ def test_mm_is_mm_namespace_instance() -> None:
 def test_mm_namespace_fixed_attrs_accessible() -> None:
     """All expected fixed attributes are directly accessible on the MmNamespace.
 
-    mm.vector is intentionally absent here: it is auto-generated from
-    typedef(name='vector', ...) in types.mlody (not a fixed attr after task 7.1).
+    mm.vector and mm.posix are intentionally absent here: they are auto-generated
+    from typedef/location definitions in types.mlody/locations.mlody.
     """
     ev = _run_with_mm("x = mm")
     g = _globals_of(ev)
     mm = g["mm"]
     expected_attrs = (
         "ANY", "json", "parquet", "csv", "text", "console", "stage", "source_range",
-        "generic", "method", "T", "posix", "value",
+        "generic", "method", "T", "value",
     )
     for attr in expected_attrs:
         assert hasattr(mm, attr), f"MmNamespace missing fixed attribute {attr!r}"
@@ -1133,7 +1133,7 @@ def test_auto_pattern_constructor_returns_mm_entity_pattern() -> None:
 
 
 def test_auto_pattern_omitted_fields_become_implicit_vars() -> None:
-    """mm.celebA_row() fills omitted attrs with implicit mm_var_pattern captures.
+    """Omitted attrs become implicit mm_var_pattern captures.
 
     Scenario: calling the constructor with no kwargs should produce field_patterns
     where each declared attr becomes a Struct(kind='mm_var_pattern', var_name=attr_name).
@@ -1150,6 +1150,37 @@ def test_auto_pattern_omitted_fields_become_implicit_vars() -> None:
     g = _globals_of(ev)
     assert g["var_kind"] == "mm_var_pattern"
     assert g["var_name"] == "some_field"
+
+
+def test_auto_pattern_none_field_not_captured_in_unification() -> None:
+    """Fields that are absent (None) on the argument side are not bound.
+
+    Scenario: mm.celebA_row() has an implicit var for some_field, but if the
+    matched entity has some_field=None (not set), the binding is silently
+    skipped — no {some_field: None} noise in the result.
+    """
+    from common.python.starlarkish.core.struct import Struct
+
+    fake_entity = Struct(kind="type", name="celebA-row")  # some_field absent
+    script = """
+        my_rule(name="celebA-row", some_field="hello")
+        pat = mm.celebA_row()
+        result = mm.unify(pat, fake_entity)
+    """
+    files = dict(_BASE_FILES)
+    files["mlody/common/my_rule.mlody"] = dedent(_MINIMAL_RULE_MLODY)
+    files["test.mlody"] = dedent(script)
+    with InMemoryFS(files, root="/project") as root:
+        ev = _make_evaluator_with_mm(files, root)
+        ev.eval_file(root / "mlody" / "common" / "my_rule.mlody")
+        rule_globals = ev._module_globals.get(root / "mlody" / "common" / "my_rule.mlody", {})
+        for name in ("my_rule",):
+            if name in rule_globals:
+                ev._persistent_injections[name] = rule_globals[name]
+        ev._persistent_injections["fake_entity"] = fake_entity
+        ev.eval_file(root / "test.mlody")
+    g = ev._module_globals.get(root / "test.mlody", {})
+    assert g["result"] == {}, "absent field should not produce a None binding"
 
 
 def test_auto_pattern_explicit_mm_any_suppresses_var_capture() -> None:

@@ -124,10 +124,17 @@ def rule(*, implementation, kind, attrs=None):
         _resolve_references(kwargs, state['attrs'])
         ctx = struct(kind=kind, attr=struct(**kwargs))
         thing = implementation(ctx)
-        # Auto-register mm.<entity_name> as a pattern constructor.  Only the
-        # original entity-specific attrs are passed (not _COMMON_ATTRS) so that
-        # mm.vector(element_type=...) has only entity fields in its pattern.
+        # Auto-register mm.<entity_name> as a pattern constructor.
+        # Rules like typedef nest entity-specific fields inside an "attrs"
+        # slot in their own schema (so effective_attrs has an "attrs" key).
+        # In that case, ctx.attr.attrs is the entity's field schema (e.g.
+        # {"element_type": attr(...)} for vector), which is what we want.
+        # Regular rules declare their fields directly in effective_attrs.
         if builtins.register_mm_pattern != None:
-            builtins.register_mm_pattern(kind, ctx.attr.name, effective_attrs)
+            if "attrs" in effective_attrs:
+                entity_attrs = python.getattr(ctx.attr, "attrs", None)
+            else:
+                entity_attrs = effective_attrs
+            builtins.register_mm_pattern(kind, ctx.attr.name, entity_attrs)
         return thing
     return f

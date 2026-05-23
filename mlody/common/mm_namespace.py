@@ -137,6 +137,45 @@ def _extract_attr_names(attrs: object) -> list[str]:
     return []
 
 
+def _attr_is_mandatory(attr_def: object) -> bool:
+    """Return True if an attr definition declares mandatory=True.
+
+    Handles both plain dicts and Structs (rule.mlody coerces dicts to Structs).
+    Defaults to True when the flag cannot be determined.
+    """
+    if isinstance(attr_def, dict):
+        metadata = attr_def.get("metadata")
+        if isinstance(metadata, dict):
+            return bool(metadata.get("mandatory", True))
+        return True
+    metadata = getattr(attr_def, "metadata", None)
+    if metadata is not None:
+        m = getattr(metadata, "mandatory", None)
+        if m is not None:
+            return bool(m)
+        if isinstance(metadata, dict):
+            return bool(metadata.get("mandatory", True))
+    m = getattr(attr_def, "mandatory", None)
+    if m is not None:
+        return bool(m)
+    return True
+
+
+def _extract_mandatory_attr_names(attrs: object) -> set[str]:
+    """Return the set of non-private attr names that declare mandatory=True."""
+    if attrs is None:
+        return set()
+    if isinstance(attrs, dict):
+        return {k for k, v in attrs.items() if not str(k).startswith("_") and _attr_is_mandatory(v)}
+    mapping = getattr(attrs, "as_mapping", None)
+    if callable(mapping):
+        return {k for k, v in mapping().items() if not str(k).startswith("_") and _attr_is_mandatory(v)}
+    fields = getattr(attrs, "_fields", None)
+    if fields is not None:
+        return {k for k, v in fields.items() if not str(k).startswith("_") and _attr_is_mandatory(v)}
+    return set()
+
+
 def _make_entity_pattern_constructor(
     entity_kind: str,
     entity_name: str,
@@ -149,7 +188,8 @@ def _make_entity_pattern_constructor(
 
     - Explicitly passed fields are used as-is (any pattern type is accepted).
     - Omitted fields become implicit ``mm_var_pattern`` captures keyed by the
-      field name.
+      field name.  At unification time, a var bound to ``None`` (absent field)
+      is silently skipped, so only actually-set fields appear in the result.
     - A field explicitly set to ``mm.ANY`` (kind="mm_any") is kept as a discard.
 
     Returns a ``Struct(kind="mm_entity_pattern", entity_kind=...,
@@ -165,8 +205,6 @@ def _make_entity_pattern_constructor(
             if name in kwargs:
                 field_patterns[name] = kwargs[name]
             else:
-                # Implicit capture: unification will bind the matched value to
-                # this variable name, mirroring mm.var(name) semantics.
                 field_patterns[name] = Struct(kind="mm_var_pattern", var_name=name)
         return Struct(
             kind="mm_entity_pattern",

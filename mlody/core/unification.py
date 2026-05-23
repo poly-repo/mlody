@@ -100,6 +100,11 @@ def _unify(
         return _unify_repr(b, a, bindings)
 
     # 9. mm_entity_pattern — check entity_kind + entity_name, recurse into fields.
+    # When both sides are entity patterns (pattern-vs-pattern unification),
+    # check that they describe the same entity then unify field sub-patterns
+    # pairwise, threading bindings across all fields.
+    if _is_struct_kind(a, "mm_entity_pattern") and _is_struct_kind(b, "mm_entity_pattern"):
+        return _unify_two_entity_patterns(a, b, bindings)
     if _is_struct_kind(a, "mm_entity_pattern"):
         return _unify_entity(a, b, bindings)
     if _is_struct_kind(b, "mm_entity_pattern"):
@@ -201,7 +206,58 @@ def _unify_entity(
     items: list[tuple[str, object]] = _dict_items(field_patterns)
     for field, sub_pattern in items:
         field_val = getattr(arg, field, None)
+        if field_val is None:
+            _attrs = getattr(arg, "attributes", None)
+            if isinstance(_attrs, dict):
+                field_val = _attrs.get(field)
+        # Absent (None) fields with a capture/discard pattern are silently
+        # skipped — no noise bindings like {min_length: None}.
+        if field_val is None and (
+            _is_struct_kind(sub_pattern, "mm_var_pattern")
+            or _is_struct_kind(sub_pattern, "mm_any")
+        ):
+            continue
+        # mm.ANY in entity field context: capture present values under the
+        # field name (equivalent to an implicit var).  This differs from
+        # top-level mm.ANY which truly discards; here the user wrote
+        # mm.ANY to say "any value, capture it by field name."
+        if _is_struct_kind(sub_pattern, "mm_any"):
+            result = _bind(field, field_val, acc)
+            if result is None:
+                return None
+            acc = result
+            continue
         result = _unify(sub_pattern, field_val, acc)
+        if result is None:
+            return None
+        acc = result
+    return acc
+
+
+def _unify_two_entity_patterns(
+    a: object,
+    b: object,
+    bindings: dict[str, object],
+) -> dict[str, object] | None:
+    """Unify two mm_entity_pattern structs (pattern-vs-pattern).
+
+    Checks that both patterns describe the same entity (entity_kind +
+    entity_name), then recursively unifies corresponding field sub-patterns,
+    threading bindings across all shared fields.  Fields present in one
+    pattern but absent in the other are skipped.
+    """
+    if getattr(a, "entity_kind", "") != getattr(b, "entity_kind", ""):
+        return None
+    if getattr(a, "entity_name", "") != getattr(b, "entity_name", ""):
+        return None
+
+    b_fields: dict[str, object] = dict(_dict_items(getattr(b, "field_patterns", None) or {}))
+    acc = bindings
+    for field, a_sub in _dict_items(getattr(a, "field_patterns", None) or {}):
+        b_sub = b_fields.get(field)
+        if b_sub is None:
+            continue
+        result = _unify(a_sub, b_sub, acc)
         if result is None:
             return None
         acc = result
