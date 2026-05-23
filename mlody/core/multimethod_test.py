@@ -437,6 +437,40 @@ def test_dispatch_ctx_captures_mixed_patterns() -> None:
     assert getattr(ctx, "captures") == {"0": "train", "1": "gpu"}
 
 
+def test_dispatch_ctx_captures_top_level_var_by_name() -> None:
+    """A top-level mm.var pattern adds a named capture alongside the positional one."""
+    var_x = _make_struct(kind="mm_var_pattern", var_name="x")
+    captured: list[object] = []
+
+    def body(ctx: object, *args: object) -> None:
+        captured.append(ctx)  # type: ignore[arg-type]
+
+    dispatch("g", ("hello",), [_make_method([var_x], body)])
+    ctx = captured[0]
+    assert getattr(ctx, "captures") == {"0": "hello", "x": "hello"}
+
+
+def test_dispatch_ctx_captures_entity_field_var_by_name() -> None:
+    """mm.var in an entity field pattern binds the field value under its name."""
+    loc = _make_struct(kind="location", path="/tmp/foo")
+    value = _make_struct(kind="value", name="ds", location=loc)
+    var_loc = _make_struct(kind="mm_var_pattern", var_name="loc")
+    pat = _make_struct(
+        kind="mm_entity_pattern",
+        entity_kind="value",
+        entity_name="",
+        field_patterns={"location": var_loc},
+    )
+    captured: list[object] = []
+
+    def body(ctx: object, *args: object) -> None:
+        captured.append(ctx)  # type: ignore[arg-type]
+
+    dispatch("g", (value,), [_make_method([pat], body)])
+    ctx = captured[0]
+    assert getattr(ctx, "captures") == {"0": value, "loc": loc}
+
+
 # ---------------------------------------------------------------------------
 # 10. dispatch — body receives correct positional args
 # ---------------------------------------------------------------------------

@@ -329,7 +329,8 @@ def dispatch(
 
     The ctx struct passed to body contains:
     - ctx.generic: the generic name string
-    - ctx.captures: a dict mapping string position index to the matched argument
+    - ctx.captures: positional entries {"0": arg0, ...} merged with any named
+      captures from mm.var() patterns in the winning method (keyed by var name).
     """
     # Avoid importing Struct at module level to keep this module lightweight;
     # we only need it for ctx construction.
@@ -366,7 +367,14 @@ def dispatch(
             f"Registered methods:\n{method_summary}"
         )
 
-    captures = {str(i): arg for i, arg in enumerate(args)}
+    from mlody.core.unification import unify as _unify_captures  # noqa: PLC0415
+
+    captures: dict[str, object] = {str(i): arg for i, arg in enumerate(args)}
+    best_patterns: list[object] = list(getattr(best_method, "patterns", []))
+    for _pat, _arg in zip(best_patterns, args):
+        named = _unify_captures(_pat, _arg)
+        if named:
+            captures.update(named)
     ctx = Struct(
         kind="mm_dispatch_ctx",
         generic=generic_name,

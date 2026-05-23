@@ -516,3 +516,23 @@ def test_unify_none_bindings_defaults_to_empty_dict() -> None:
     """bindings=None (default) behaves like bindings={}."""
     assert unify(var("x"), "json") == {"x": "json"}
     assert unify(var("x"), "json", bindings=None) == {"x": "json"}
+
+
+# ---------------------------------------------------------------------------
+# entity_name="" wildcard (mm.value() / mm.source_range)
+# ---------------------------------------------------------------------------
+
+
+def test_unify_entity_pattern_empty_name_wildcard_matches_any_name() -> None:
+    """entity_name='' is a wildcard: matches any instance regardless of name."""
+    loc = _s(kind="location", path="/tmp/foo")
+    pat = entity_pattern("value", "", {"location": var("loc")})
+    arg = _s(kind="value", name="dataset", location=loc)
+    assert unify(pat, arg) == {"loc": loc}
+
+
+def test_unify_entity_pattern_empty_name_wildcard_kind_still_checked() -> None:
+    """Wildcard entity_name='' still rejects wrong kind."""
+    pat = entity_pattern("value", "", {})
+    arg = _s(kind="representation", name="anything")
+    assert unify(pat, arg) is None

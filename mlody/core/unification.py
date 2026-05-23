@@ -195,10 +195,12 @@ def _unify_entity(
     if getattr(arg, "kind", None) != entity_kind:
         return None
 
-    # Type structs use type_name; other entities use name.
-    arg_name = getattr(arg, "type_name", None) or getattr(arg, "name", None)
-    if arg_name != entity_name:
-        return None
+    # An empty entity_name is a wildcard (matches any instance of this kind),
+    # mirroring MmEntityPattern.score.  Only check name when entity_name is set.
+    if entity_name:
+        arg_name = getattr(arg, "type_name", None) or getattr(arg, "name", None)
+        if arg_name != entity_name:
+            return None
 
     acc = bindings
     field_patterns: object = getattr(pattern, "field_patterns", None) or {}
