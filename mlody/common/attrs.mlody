@@ -432,6 +432,17 @@ def extend_attrs(
     merged_fields["attributes"] = merged_attrs
     merged_fields["_allowed_attrs"] = merged_allowed
     merged_fields.update(other_fields)
+
+    # Guard: an attribute key that matches a struct field name would be silently
+    # shadowed by the field when accessed via dot-notation.  Fail fast instead.
+    conflicting = [k for k in merged_attrs if k in merged_fields]
+    if conflicting:
+        type_label = merged_fields.get("type") or merged_fields.get("name") or "unknown"
+        raise ValueError(
+            "extend_attrs " + repr(type_label) + ": attribute keys " + repr(conflicting) +
+            " conflict with struct field names; rename to avoid dot-access ambiguity"
+        )
+
     # Propagate root kind for validator-combination in factories; derive from
     # base_kind if the base doesn't already carry it (e.g., primitive bases).
     if "_root_kind" not in merged_fields:

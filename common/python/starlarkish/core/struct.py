@@ -33,6 +33,9 @@ class Struct:
         fields = object.__getattribute__(self, "_fields")
         if name in fields:
             return fields[name]
+        attributes = fields.get("attributes")
+        if isinstance(attributes, dict) and name in attributes:
+            return attributes[name]
         raise AttributeError(name)
 
     def __setattr__(self, key: str, value: Any) -> None:
