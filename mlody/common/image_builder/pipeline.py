@@ -52,7 +52,7 @@ def run(inputs: PipelineInputs) -> SuccessResult:
     tags = derive_tags(inputs.targets, inputs.sha)
 
     # Phase 5: push to registry with all derived tags
-    push_result = push_image(clone_result.path, inputs.registry, tags, auth, insecure=inputs.insecure)
+    push_result = push_image(clone_result.path, inputs.registry, tags, auth, insecure=inputs.insecure, monorepo_root=inputs.cwd)
 
     return SuccessResult(
         image_digest=push_result.image_digest,

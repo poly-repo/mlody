@@ -129,6 +129,7 @@ def push_image(
     auth: RegistryAuth,
     *,
     insecure: bool = False,
+    monorepo_root: Path | None = None,
 ) -> PushResult:
     """Push the built OCI image to the registry with all derived tags.
 
@@ -136,12 +137,16 @@ def push_image(
     The image digest is extracted from crane's stdout (sha256:... line).
     Credentials are sourced exclusively from auth.env_vars().
 
+    crane is invoked via `bazel run @multitool//tools/crane:crane` from
+    monorepo_root when provided (warm cache), falling back to clone_dir.
+
     Raises PushError if bazel or crane is unavailable or if any tag push fails.
     """
     image_layout = clone_dir / _IMAGE_LAYOUT_RELPATH
     env = {**os.environ, **auth.env_vars()}
     image_references: list[str] = []
     digest: str | None = None
+    bazel_cwd = monorepo_root if monorepo_root is not None else clone_dir
 
     materialized = _materialize_layout_for_push(image_layout)
     materialized_layout = Path(materialized.name) / "image"
@@ -154,7 +159,7 @@ def push_image(
             cmd = ["bazel", "run", "@multitool//tools/crane:crane", "--", *crane_flags, "push", str(materialized_layout), reference]
             result = subprocess.run(
                 cmd,
-                cwd=clone_dir,
+                cwd=bazel_cwd,
                 capture_output=True,
                 text=True,
                 env=env,
