@@ -152,7 +152,15 @@ def push_image(
     materialized_layout = Path(materialized.name) / "image"
     try:
         for tag in tags:
-            reference = f"{registry}:{tag}"
+            # registry may already contain a path (e.g. "ghcr.io/org/repo") in
+            # which case :<tag> is the tag separator.  When registry is just
+            # host:port (e.g. "localhost:5001") there is no path component and
+            # "host:port:tag" is an invalid OCI reference; use the tag as the
+            # image name instead: "host:port/tag".
+            if "/" in registry:
+                reference = f"{registry}:{tag}"
+            else:
+                reference = f"{registry}/{tag}"
             info("push", tag=tag, registry=registry)
 
             crane_flags = ["--insecure"] if insecure else []
