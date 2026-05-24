@@ -171,6 +171,14 @@ class WorkspaceLoader:
                 config_path, ["config"]
             )
 
+        if self._roots_file.exists():
+            try:
+                from mlody.starlark import make_actions_struct  # noqa: PLC0415
+
+                self._registry.inject_persistent("actions", make_actions_struct())
+            except ImportError:
+                pass
+
         workspace_path = self._workspace_root / "workspace.mlody"
         if workspace_path.exists() and not self._registry.is_loaded(workspace_path):
             self._registry.eval_file(workspace_path)

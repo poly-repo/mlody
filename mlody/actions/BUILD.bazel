@@ -1,0 +1,14 @@
+load("//build/bzl:python.bzl", "o_py_library")
+
+o_py_library(
+    name = "actions_lib",
+    srcs = [
+        "__init__.py",
+        "build_image.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//mlody/common:common_lib",
+        "//mlody/common/image_builder:image_builder_lib",
+    ],
+)

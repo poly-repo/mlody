@@ -127,6 +127,10 @@ class RegistryView:
             if name in file_globals:
                 self._evaluator._persistent_injections[name] = file_globals[name]
 
+    def inject_persistent(self, name: str, value: object) -> None:
+        """Inject a Python value as a persistent sandbox global."""
+        self._evaluator._persistent_injections[name] = value
+
     def root_value(self, root_name: str) -> object:
         return self._evaluator.registry.roots.by_name[root_name]
 

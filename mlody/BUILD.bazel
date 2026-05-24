@@ -8,6 +8,7 @@ load("//build/bzl:python.bzl", "o_py_library")
 # gazelle:resolve py mlody.core.sql.sql_query //mlody/core/sql:sql_query_lib
 # gazelle:resolve py mlody.core.parquet //mlody/core/parquet:parquet
 # gazelle:resolve py mlody.core.parquet.deserializer //mlody/core/parquet:deserializer_lib
+# gazelle:resolve py mlody.starlark //mlody/starlark:starlark_lib
 
 
 o_py_library(

@@ -1,5 +1,8 @@
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
+# gazelle:exclude workspace_test.py
+# gazelle:resolve py mlody.starlark //mlody/starlark:starlark_lib
+
 o_py_library(
     name = "anchor",
     srcs = ["anchor.py"],
