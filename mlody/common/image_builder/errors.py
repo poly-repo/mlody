@@ -44,3 +44,10 @@ class BazelBuildError(BuilderError):
 class PushError(BuilderError):
     def __init__(self, message: str, **context: object) -> None:
         super().__init__(message, ExitCode.PUSH_FAILURE, **context)
+
+
+class ResolveRefError(BuilderError):
+    """Raised when a git ref cannot be resolved to a full SHA."""
+
+    def __init__(self, message: str, **context: object) -> None:
+        super().__init__(message, ExitCode.CLONE_FAILURE, **context)

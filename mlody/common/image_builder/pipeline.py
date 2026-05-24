@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 from pathlib import Path
 
 from mlody.common.image_builder.auth import DockerConfigAuth, RegistryAuth
@@ -27,10 +28,21 @@ class PipelineInputs:
     dirty_policy: DirtyPolicy = "ignore"
     base_image: str = "@debian_slim"
     insecure: bool = False
+    ref: str | None = None
+
+
+def _derive_image_sha(commit_sha: str, applied_patch: str) -> str:
+    """Return a stable 40-char SHA encoding both the commit and patch content.
+
+    Used for tagging so two HEAD builds with different local changes produce
+    distinct image identifiers even when they share the same commit SHA.
+    """
+    patch_sha256 = hashlib.sha256(applied_patch.encode()).hexdigest()
+    return hashlib.sha256(f"{commit_sha}:{patch_sha256}".encode()).hexdigest()
 
 
 def run(inputs: PipelineInputs) -> SuccessResult:
-    """Execute the five-phase image-builder pipeline.
+    """Execute the image-builder pipeline.
 
     Returns SuccessResult on full success.
     Raises BuilderError (or a subclass) on any phase failure.
@@ -45,18 +57,44 @@ def run(inputs: PipelineInputs) -> SuccessResult:
         inputs.sha, remote_url, inputs.cache_root, inputs.cwd, inputs.dirty_policy
     )
 
-    # Phase 3: build the combined OCI image target inside the clone
-    run_bazel_build(inputs.sha, clone_result, inputs.targets, inputs.base_image)
+    # If a local patch was applied, derive an image SHA that encodes both the
+    # commit SHA and the patch content.  This ensures two HEAD builds with
+    # different local changes produce distinct tags even at the same commit.
+    if clone_result.applied_patch:
+        image_sha = _derive_image_sha(inputs.sha, clone_result.applied_patch)
+    else:
+        image_sha = inputs.sha
 
-    # Phase 4: derive one OCI tag per input target
-    tags = derive_tags(inputs.targets, inputs.sha)
+    embed_patch = inputs.ref == "HEAD"
+
+    # Phase 3: build the combined OCI image target inside the clone
+    run_bazel_build(
+        image_sha,
+        clone_result,
+        inputs.targets,
+        inputs.base_image,
+        ref=inputs.ref,
+        embed_patch=embed_patch,
+    )
+
+    # Phase 4: derive one OCI tag per input target (keyed by image_sha)
+    tags = derive_tags(inputs.targets, image_sha)
 
     # Phase 5: push to registry with all derived tags
-    push_result = push_image(clone_result.path, inputs.registry, tags, auth, insecure=inputs.insecure, monorepo_root=inputs.cwd)
+    push_result = push_image(
+        clone_result.path,
+        inputs.registry,
+        tags,
+        auth,
+        insecure=inputs.insecure,
+        monorepo_root=inputs.cwd,
+    )
 
     return SuccessResult(
         image_digest=push_result.image_digest,
         image_references=push_result.image_references,
         commit_sha=inputs.sha,
         input_targets=inputs.targets,
+        ref=inputs.ref,
+        image_sha=image_sha,
     )

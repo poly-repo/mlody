@@ -52,13 +52,19 @@ def _safe_rule_name(subdir: str) -> str:
     return _SAFE_NAME_RE.sub("_", subdir)
 
 
-def _build_labels(sha: str, clone_result: CloneResult) -> dict[str, str]:
+def _build_labels(
+    sha: str,
+    clone_result: CloneResult,
+    ref: str | None = None,
+) -> dict[str, str]:
     """Derive OCI image labels from the clone result."""
     dirty = bool(clone_result.applied_patch or clone_result.applied_untracked)
     labels: dict[str, str] = {
         "org.opencontainers.image.revision": sha,
         "com.polymath.mlody.dirty": "true" if dirty else "false",
     }
+    if ref is not None:
+        labels["com.polymath.mlody.ref"] = ref
     if dirty:
         changed_files = len(
             {
@@ -105,6 +111,8 @@ def _write_image_build(
     labels: dict[str, str],
     base_image: str,
     python_targets: frozenset[str],
+    *,
+    include_local_patch: bool = False,
 ) -> None:
     """Write a BUILD.bazel for OCI image assembly into the clone workspace.
 
@@ -144,6 +152,16 @@ def _write_image_build(
                 f")\n"
             )
 
+    if include_local_patch:
+        other_rules.append(
+            'pkg_tar(\n'
+            '    name = "local_patch_tar",\n'
+            '    srcs = ["local.patch"],\n'
+            '    package_dir = "/etc/mlody",\n'
+            ')\n'
+        )
+        other_tar_names.append('":local_patch_tar"')
+
     # Compose the tars= expression: py_image_layer list vars + pkg_tar label list
     if py_layer_vars and other_tar_names:
         pkg_part = "[\n        " + ",\n        ".join(other_tar_names) + ",\n    ]"
@@ -164,7 +182,9 @@ def _write_image_build(
         else ""
     )
     load_pkg_tar = (
-        'load("@rules_pkg//pkg:tar.bzl", "pkg_tar")\n' if other_tar_names else ""
+        'load("@rules_pkg//pkg:tar.bzl", "pkg_tar")\n'
+        if (other_tar_names or include_local_patch)
+        else ""
     )
 
     content = f"""\
@@ -189,19 +209,42 @@ def run_bazel_build(
     clone_result: CloneResult,
     targets: list[str],
     base_image: str = "@debian_slim",
+    *,
+    ref: str | None = None,
+    embed_patch: bool = False,
 ) -> BazelResult:
     """Build the combined OCI image inside the clone directory.
 
     Queries for Python binary targets and uses py_image_layer for them
     (includes full runfiles tree) and pkg_tar for all others, then invokes
-    `bazel build //_dynamic_image:image`.
+    `bazel build //_dynamic_image:all`.
+
+    When embed_patch=True and a local patch was applied, writes the patch
+    content to _dynamic_image/local.patch and includes it in the image at
+    /etc/mlody/local.patch via a pkg_tar layer.
 
     Raises BazelBuildError on non-zero bazel exit.
     """
     clone_dir = clone_result.path
-    labels = _build_labels(sha, clone_result)
+    labels = _build_labels(sha, clone_result, ref=ref)
     python_targets = _query_python_targets(clone_dir, targets)
-    _write_image_build(clone_dir, targets, labels, base_image, python_targets)
+
+    include_local_patch = False
+    if embed_patch and clone_result.applied_patch:
+        pkg_dir = clone_dir / _DYN_PKG
+        pkg_dir.mkdir(exist_ok=True)
+        patch_lines = [clone_result.applied_patch]
+        if clone_result.applied_untracked:
+            patch_lines.append(
+                "\n# Untracked files included in image:\n"
+                + "".join(f"#   {p}\n" for p in clone_result.applied_untracked)
+            )
+        (pkg_dir / "local.patch").write_text("".join(patch_lines))
+        include_local_patch = True
+        info("build", action="embed_patch", patch_bytes=len(clone_result.applied_patch))
+
+    _write_image_build(clone_dir, targets, labels, base_image, python_targets,
+                       include_local_patch=include_local_patch)
 
     # Build all named targets in the package, not just :image.  When :image is
     # a Bazel cache hit its layer dependencies (py_image_layer tar.gz outputs)

@@ -16,6 +16,8 @@ class SuccessResult:
     image_references: list[str]
     commit_sha: str
     input_targets: list[str]
+    ref: str | None = None
+    image_sha: str | None = None
 
 
 def emit_success(result: SuccessResult) -> None:
