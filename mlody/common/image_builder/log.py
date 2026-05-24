@@ -24,3 +24,8 @@ def info(phase: str, **fields: object) -> None:
 def error(phase: str, **fields: object) -> None:
     """Emit an error-level structured log line to stderr."""
     log("error", phase, **fields)
+
+
+def debug(phase: str, **fields: object) -> None:
+    """Emit a debug-level structured log line to stderr."""
+    log("debug", phase, **fields)

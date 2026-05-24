@@ -19,10 +19,32 @@ from pathlib import Path
 
 from mlody.common.image_builder.auth import RegistryAuth
 from mlody.common.image_builder.errors import PushError
-from mlody.common.image_builder.log import error, info
+from mlody.common.image_builder.log import debug, error, info
 
 # rules_oci writes the OCI image layout to this path relative to the clone dir.
 _IMAGE_LAYOUT_RELPATH = Path("bazel-bin") / "_dynamic_image" / "image"
+
+
+def _classify_push_failure(stderr: str, stdout: str) -> str:
+    """Return a short category label for a crane push failure.
+
+    Inspects stderr and stdout (which may contain bazel build output) to
+    distinguish the most actionable root causes without requiring callers to
+    parse free-form text.
+    """
+    combined = (stderr + "\n" + stdout).lower()
+    if any(k in combined for k in ("connection refused", "dial tcp", "no such host", "i/o timeout", "eof")):
+        return "registry_unreachable"
+    if any(k in combined for k in ("401", "403", "unauthorized", "denied", "forbidden")):
+        return "auth_failure"
+    if "could not parse reference" in combined:
+        return "invalid_reference"
+    # Bazel-level failures: build errors or target not found appear on stdout.
+    if any(k in combined for k in ("error: no such target", "build failed", "error: failed to run")):
+        return "crane_unavailable"
+    if "no such file or directory" in combined or "exec format error" in combined:
+        return "crane_unavailable"
+    return "unknown"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -165,6 +187,7 @@ def push_image(
 
             crane_flags = ["--insecure"] if insecure else []
             cmd = ["bazel", "run", "@multitool//tools/crane:crane", "--", *crane_flags, "push", str(materialized_layout), reference]
+            debug("push", action="crane_invoke", cmd=cmd, cwd=str(bazel_cwd), reference=reference, layout=str(materialized_layout))
             result = subprocess.run(
                 cmd,
                 cwd=bazel_cwd,
@@ -175,9 +198,18 @@ def push_image(
             if result.returncode != 0:
                 stderr = result.stderr.strip()
                 stdout = result.stdout.strip()
-                error("push", tag=tag, registry=registry, returncode=result.returncode, crane_stderr=stderr)
+                failure_kind = _classify_push_failure(stderr, stdout)
+                error(
+                    "push",
+                    tag=tag,
+                    registry=registry,
+                    returncode=result.returncode,
+                    failure_kind=failure_kind,
+                    crane_stderr=stderr,
+                    crane_stdout=stdout,
+                )
                 raise PushError(
-                    f"Push failed for tag {tag}",
+                    f"Push failed for tag {tag} ({failure_kind})",
                     tag=tag,
                     registry=registry,
                     returncode=result.returncode,
