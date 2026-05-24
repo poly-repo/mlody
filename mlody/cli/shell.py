@@ -17,6 +17,7 @@ from mlody.cli.main import cli
 from mlody.cli.show import show_fn
 from mlody.common.struct import is_struct_like, struct_like_as_mapping
 from mlody.core.workspace import Workspace
+from mlody.starlark import make_actions_struct
 
 if TYPE_CHECKING:
     pass
@@ -265,6 +266,7 @@ def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
         roots_file=roots,
         full_workspace=full_workspace,
     )
+    workspace_obj.registry_view.inject_persistent("actions", make_actions_struct())
     history_file = _get_history_path()
     session_globals = _build_shell_session_globals(
         workspace_obj,
