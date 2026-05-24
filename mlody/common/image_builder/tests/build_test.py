@@ -190,7 +190,7 @@ def test_run_bazel_build_invokes_correct_target(fs: object) -> None:
 
     build_calls = [c for c in captured_calls if "build" in c]
     assert len(build_calls) == 1
-    assert f"//{_DYN_PKG}:image" in build_calls[0]
+    assert f"//{_DYN_PKG}:all" in build_calls[0]
 
 
 def test_run_bazel_build_error_contains_targets(fs: object) -> None:

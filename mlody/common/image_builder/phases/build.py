@@ -203,7 +203,12 @@ def run_bazel_build(
     python_targets = _query_python_targets(clone_dir, targets)
     _write_image_build(clone_dir, targets, labels, base_image, python_targets)
 
-    target = f"//{_DYN_PKG}:image"
+    # Build all named targets in the package, not just :image.  When :image is
+    # a Bazel cache hit its layer dependencies (py_image_layer tar.gz outputs)
+    # may not be materialised on disk — only the cached oci_image layout is
+    # restored.  Requesting :all forces Bazel to also materialise the layer
+    # targets' outputs, so the symlinks in the image layout resolve correctly.
+    target = f"//{_DYN_PKG}:all"
     cmd = ["bazel", "build", target]
     info("build", targets=targets, cmd=" ".join(cmd))
 

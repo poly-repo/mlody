@@ -19,7 +19,7 @@ from pathlib import Path
 
 from mlody.common.image_builder.auth import RegistryAuth
 from mlody.common.image_builder.errors import PushError
-from mlody.common.image_builder.log import debug, error, info
+from mlody.common.image_builder.log import debug, error, info, warn
 
 # rules_oci writes the OCI image layout to this path relative to the clone dir.
 _IMAGE_LAYOUT_RELPATH = Path("bazel-bin") / "_dynamic_image" / "image"
@@ -136,6 +136,14 @@ def _materialize_layout_for_push(image_layout: Path) -> tempfile.TemporaryDirect
                     source = fallbacks[0] if fallbacks else None
 
         if source is None or not source.is_file():
+            symlink_target = blob.readlink() if blob.is_symlink() else None
+            warn(
+                "push",
+                action="unresolvable_blob",
+                blob=blob.name,
+                symlink_target=str(symlink_target),
+                output_base=str(output_base),
+            )
             continue
 
         blob.unlink()

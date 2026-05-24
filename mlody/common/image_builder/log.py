@@ -26,6 +26,11 @@ def error(phase: str, **fields: object) -> None:
     log("error", phase, **fields)
 
 
+def warn(phase: str, **fields: object) -> None:
+    """Emit a warn-level structured log line to stderr."""
+    log("warn", phase, **fields)
+
+
 def debug(phase: str, **fields: object) -> None:
     """Emit a debug-level structured log line to stderr."""
     log("debug", phase, **fields)
