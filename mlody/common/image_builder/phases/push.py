@@ -127,6 +127,8 @@ def push_image(
     registry: str,
     tags: list[str],
     auth: RegistryAuth,
+    *,
+    insecure: bool = False,
 ) -> PushResult:
     """Push the built OCI image to the registry with all derived tags.
 
@@ -148,7 +150,8 @@ def push_image(
             reference = f"{registry}:{tag}"
             info("push", tag=tag, registry=registry)
 
-            cmd = ["bazel", "run", "@multitool//tools/crane:crane", "--", "push", str(materialized_layout), reference]
+            crane_flags = ["--insecure"] if insecure else []
+            cmd = ["bazel", "run", "@multitool//tools/crane:crane", "--", "push", *crane_flags, str(materialized_layout), reference]
             result = subprocess.run(
                 cmd,
                 cwd=clone_dir,

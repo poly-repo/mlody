@@ -26,6 +26,7 @@ class PipelineInputs:
     auth: RegistryAuth | None
     dirty_policy: DirtyPolicy = "ignore"
     base_image: str = "@debian_slim"
+    insecure: bool = False
 
 
 def run(inputs: PipelineInputs) -> SuccessResult:
@@ -51,7 +52,7 @@ def run(inputs: PipelineInputs) -> SuccessResult:
     tags = derive_tags(inputs.targets, inputs.sha)
 
     # Phase 5: push to registry with all derived tags
-    push_result = push_image(clone_result.path, inputs.registry, tags, auth)
+    push_result = push_image(clone_result.path, inputs.registry, tags, auth, insecure=inputs.insecure)
 
     return SuccessResult(
         image_digest=push_result.image_digest,
