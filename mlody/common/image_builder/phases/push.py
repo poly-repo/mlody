@@ -19,7 +19,7 @@ from pathlib import Path
 
 from mlody.common.image_builder.auth import RegistryAuth
 from mlody.common.image_builder.errors import PushError
-from mlody.common.image_builder.log import info
+from mlody.common.image_builder.log import error, info
 
 # rules_oci writes the OCI image layout to this path relative to the clone dir.
 _IMAGE_LAYOUT_RELPATH = Path("bazel-bin") / "_dynamic_image" / "image"
@@ -151,7 +151,7 @@ def push_image(
             info("push", tag=tag, registry=registry)
 
             crane_flags = ["--insecure"] if insecure else []
-            cmd = ["bazel", "run", "@multitool//tools/crane:crane", "--", "push", *crane_flags, str(materialized_layout), reference]
+            cmd = ["bazel", "run", "@multitool//tools/crane:crane", "--", *crane_flags, "push", str(materialized_layout), reference]
             result = subprocess.run(
                 cmd,
                 cwd=clone_dir,
@@ -160,13 +160,16 @@ def push_image(
                 env=env,
             )
             if result.returncode != 0:
+                stderr = result.stderr.strip()
+                stdout = result.stdout.strip()
+                error("push", tag=tag, registry=registry, returncode=result.returncode, crane_stderr=stderr)
                 raise PushError(
                     f"Push failed for tag {tag}",
                     tag=tag,
                     registry=registry,
                     returncode=result.returncode,
-                    stderr=result.stderr.strip(),
-                    stdout=result.stdout.strip(),
+                    stderr=stderr,
+                    stdout=stdout,
                     # Deliberately omit env from error context to protect credentials
                 )
 
