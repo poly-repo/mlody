@@ -359,7 +359,7 @@ class TestShellCommand:
             runner = CliRunner()
             result = runner.invoke(
                 cli,
-                ["shell", "--eval", str(eval_file)],
+                ["shell", "--load", str(eval_file)],
                 obj={
                     "monorepo_root": tmp_path,
                     "workspace_root": tmp_path,

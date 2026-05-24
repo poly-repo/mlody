@@ -208,13 +208,13 @@ def _launch_repl(session_globals: dict[str, object], history_file: Path) -> None
 
 @cli.command()
 @click.option(
-    "--eval",
+    "--load",
     "eval_files",
     type=click.Path(path_type=Path, dir_okay=False),
     multiple=True,
     help=(
         "Inject a .mlody file as a monorepo-root module before starting the shell. "
-        "Repeatable: --eval a.mlody --eval b.mlody"
+        "Repeatable: --load a.mlody --load b.mlody"
     ),
 )
 @click.pass_context
@@ -252,7 +252,7 @@ def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
     for ef in eval_files:
         p = ef if ef.is_absolute() else (base / ef).resolve()
         if not p.exists():
-            click.echo(f"Error: --eval file not found: {p}", err=True)
+            click.echo(f"Error: --load file not found: {p}", err=True)
             sys.exit(1)
         resolved_eval_files.append(p)
 
