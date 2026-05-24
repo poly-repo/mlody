@@ -230,9 +230,11 @@ def run_bazel_build(
     python_targets = _query_python_targets(clone_dir, targets)
 
     include_local_patch = False
-    if embed_patch and clone_result.applied_patch:
+    has_local_changes = bool(clone_result.applied_patch or clone_result.applied_untracked)
+    if embed_patch and has_local_changes:
         pkg_dir = clone_dir / _DYN_PKG
         pkg_dir.mkdir(exist_ok=True)
+        # Content must match _patch_file_content() in pipeline.py exactly.
         patch_lines = [clone_result.applied_patch]
         if clone_result.applied_untracked:
             patch_lines.append(
@@ -241,7 +243,9 @@ def run_bazel_build(
             )
         (pkg_dir / "local.patch").write_text("".join(patch_lines))
         include_local_patch = True
-        info("build", action="embed_patch", patch_bytes=len(clone_result.applied_patch))
+        info("build", action="embed_patch",
+             patch_bytes=len(clone_result.applied_patch),
+             untracked_files=len(clone_result.applied_untracked))
 
     _write_image_build(clone_dir, targets, labels, base_image, python_targets,
                        include_local_patch=include_local_patch)

@@ -18,6 +18,7 @@ class SuccessResult:
     input_targets: list[str]
     ref: str | None = None
     image_sha: str | None = None
+    local_patch_sha: str | None = None
 
 
 def emit_success(result: SuccessResult) -> None:

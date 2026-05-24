@@ -31,14 +31,15 @@ class PipelineInputs:
     ref: str | None = None
 
 
-def _derive_image_sha(commit_sha: str, applied_patch: str) -> str:
-    """Return a stable 40-char SHA encoding both the commit and patch content.
-
-    Used for tagging so two HEAD builds with different local changes produce
-    distinct image identifiers even when they share the same commit SHA.
-    """
-    patch_sha256 = hashlib.sha256(applied_patch.encode()).hexdigest()
-    return hashlib.sha256(f"{commit_sha}:{patch_sha256}".encode()).hexdigest()
+def _patch_file_content(applied_patch: str, applied_untracked: list[str]) -> str:
+    """Canonical content for local.patch — must match what build.py writes."""
+    parts = [applied_patch]
+    if applied_untracked:
+        parts.append(
+            "\n# Untracked files included in image:\n"
+            + "".join(f"#   {p}\n" for p in applied_untracked)
+        )
+    return "".join(parts)
 
 
 def run(inputs: PipelineInputs) -> SuccessResult:
@@ -57,12 +58,18 @@ def run(inputs: PipelineInputs) -> SuccessResult:
         inputs.sha, remote_url, inputs.cache_root, inputs.cwd, inputs.dirty_policy
     )
 
-    # If a local patch was applied, derive an image SHA that encodes both the
-    # commit SHA and the patch content.  This ensures two HEAD builds with
-    # different local changes produce distinct tags even at the same commit.
-    if clone_result.applied_patch:
-        image_sha = _derive_image_sha(inputs.sha, clone_result.applied_patch)
+    # If local changes were applied (tracked or untracked), derive an image SHA
+    # that encodes both the commit SHA and the full patch content.  This ensures
+    # two HEAD builds with different local changes produce distinct tags even at
+    # the same commit.  local_patch_sha is the SHA256 of the local.patch file
+    # content (None when no changes were applied).
+    has_local_changes = bool(clone_result.applied_patch or clone_result.applied_untracked)
+    if has_local_changes:
+        patch_content = _patch_file_content(clone_result.applied_patch, clone_result.applied_untracked)
+        local_patch_sha: str | None = hashlib.sha256(patch_content.encode()).hexdigest()
+        image_sha = hashlib.sha256(f"{inputs.sha}:{local_patch_sha}".encode()).hexdigest()
     else:
+        local_patch_sha = None
         image_sha = inputs.sha
 
     embed_patch = inputs.ref == "HEAD"
@@ -97,4 +104,5 @@ def run(inputs: PipelineInputs) -> SuccessResult:
         input_targets=inputs.targets,
         ref=inputs.ref,
         image_sha=image_sha,
+        local_patch_sha=local_patch_sha,
     )
