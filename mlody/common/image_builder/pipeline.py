@@ -33,13 +33,7 @@ class PipelineInputs:
 
 def _patch_file_content(applied_patch: str, applied_untracked: list[str]) -> str:
     """Canonical content for local.patch — must match what build.py writes."""
-    parts = [applied_patch]
-    if applied_untracked:
-        parts.append(
-            "\n# Untracked files included in image:\n"
-            + "".join(f"#   {p}\n" for p in applied_untracked)
-        )
-    return "".join(parts)
+    return applied_patch
 
 
 def run(inputs: PipelineInputs) -> SuccessResult:

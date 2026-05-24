@@ -235,13 +235,7 @@ def run_bazel_build(
         pkg_dir = clone_dir / _DYN_PKG
         pkg_dir.mkdir(exist_ok=True)
         # Content must match _patch_file_content() in pipeline.py exactly.
-        patch_lines = [clone_result.applied_patch]
-        if clone_result.applied_untracked:
-            patch_lines.append(
-                "\n# Untracked files included in image:\n"
-                + "".join(f"#   {p}\n" for p in clone_result.applied_untracked)
-            )
-        (pkg_dir / "local.patch").write_text("".join(patch_lines))
+        (pkg_dir / "local.patch").write_text(clone_result.applied_patch)
         include_local_patch = True
         info("build", action="embed_patch",
              patch_bytes=len(clone_result.applied_patch),

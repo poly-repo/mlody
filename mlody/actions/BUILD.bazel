@@ -5,6 +5,7 @@ o_py_library(
     srcs = [
         "__init__.py",
         "build_image.py",
+        "execute.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [
