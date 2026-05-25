@@ -34,6 +34,7 @@ class _FakeRegistry:
     )
     resolved: bool = False
     configs_to_return: list[tuple[str, object]] = field(default_factory=list)
+    persistent_injections: dict[str, object] = field(default_factory=dict)
 
     def eval_file(self, file_path: Path) -> None:
         self.eval_calls.append(file_path)
@@ -66,6 +67,9 @@ class _FakeRegistry:
         self, file_path: Path, names: list[str]
     ) -> None:
         self.propagated_injections.append((file_path, list(names)))
+
+    def inject_persistent(self, name: str, value: object) -> None:
+        self.persistent_injections[name] = value
 
     def iter_registry_items(
         self,

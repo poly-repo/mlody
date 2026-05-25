@@ -373,9 +373,22 @@ def _registry_entity_label(
     return f"//:{name}"
 
 
+def _resolve_context_ref(ref: object, workspace: Workspace) -> object:
+    """Resolve a ContextRef to its actual value via its ctx_path attribute chain."""
+    ctx = getattr(workspace.evaluator, "_extra_ctx", None)
+    for segment in getattr(ref, "ctx_path", "").split("."):
+        if not segment:
+            return None
+        ctx = getattr(ctx, segment, None)
+        if ctx is None:
+            return None
+    return ctx
+
+
 def _normalize_workspace_defaults(workspace: Workspace) -> Workspace:
     """Populate missing value payloads from defaults before user overrides apply."""
     from mlody.common.struct import struct_like_as_mapping, struct_like_updated  # noqa: PLC0415
+    from mlody.core.context_ref import ContextRef  # noqa: PLC0415
     from mlody.core.lineage import append_lineage, build_lineage_event  # noqa: PLC0415
     from mlody.core.setf import setf  # noqa: PLC0415
 
@@ -399,15 +412,20 @@ def _normalize_workspace_defaults(workspace: Workspace) -> Workspace:
         if location_fields.get("data", None) is not None:
             continue
 
-        updated_location = _updated_location_payload(location, default_value)
-        unit_ref = getattr(value, "unit", None)
-        if unit_ref is not None:
-            from common.python.starlarkish.evaluator.evaluator import (  # noqa: PLC0415
-                _format_quantity_string,
-            )
-            source = f"DEFAULT: {_format_quantity_string(default_value, unit_ref)}"
+        if isinstance(default_value, ContextRef):
+            actual_default = _resolve_context_ref(default_value, workspace)
+            source = f"CONTEXT: {default_value.source}"
         else:
-            source = f"DEFAULT: {default_value}"
+            actual_default = default_value
+            unit_ref = getattr(value, "unit", None)
+            if unit_ref is not None:
+                from common.python.starlarkish.evaluator.evaluator import (  # noqa: PLC0415
+                    _format_quantity_string,
+                )
+                source = f"DEFAULT: {_format_quantity_string(actual_default, unit_ref)}"
+            else:
+                source = f"DEFAULT: {actual_default}"
+        updated_location = _updated_location_payload(location, actual_default)
         label = _registry_entity_label(workspace, key)
         if label is not None:
             setf(

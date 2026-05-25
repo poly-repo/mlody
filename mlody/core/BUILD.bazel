@@ -57,6 +57,27 @@ o_py_test(
     ],
 )
 
+o_py_test(
+    name = "context_ref_test",
+    srcs = ["context_ref_test.py"],
+    data = [
+        "rule.mlody",
+        "//mlody/common:attrs.mlody",
+        "//mlody/common:freshness.mlody",
+        "//mlody/common:locations.mlody",
+        "//mlody/common:representation.mlody",
+        "//mlody/common:types.mlody",
+        "//mlody/common:values.mlody",
+    ],
+    deps = [
+        ":core_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody:mlody_lib",  # keep — sets up mlody package namespace
+        "@pip//pytest",
+    ],
+)
+
 o_py_library(
     name = "workspace_models",
     srcs = ["workspace_models.py"],
@@ -539,6 +560,7 @@ o_py_library(
         "action_graph.py",
         "action_graph_value.py",
         "anchor.py",
+        "context_ref.py",
         "dag.py",
         "dag_value.py",
         "derived.py",

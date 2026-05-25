@@ -326,7 +326,8 @@ def _value_impl(ctx):
     if unit_raw != None:
         unit_ref = _parse_value_unit(unit_raw, type_ref)
 
-    if default_raw != None:
+    _is_ctx_ref = python.hasattr(default_raw, "_is_context_ref") if default_raw != None else False
+    if default_raw != None and not _is_ctx_ref:
         if unit_ref != None and isinstance(default_raw, str):
             default_raw = python.parse_quantity_string(default_raw, unit_ref)
         _default_canonical = python.getattr(type_ref, "canonical", None)

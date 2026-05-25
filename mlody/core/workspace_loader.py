@@ -179,6 +179,11 @@ class WorkspaceLoader:
             except ImportError:
                 pass
 
+        if self._roots_file.exists():
+            from mlody.core.context_ref import build_cfg_struct  # noqa: PLC0415
+
+            self._registry.inject_persistent("cfg", build_cfg_struct())
+
         workspace_path = self._workspace_root / "workspace.mlody"
         if workspace_path.exists() and not self._registry.is_loaded(workspace_path):
             self._registry.eval_file(workspace_path)

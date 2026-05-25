@@ -9,7 +9,7 @@ from typing import Literal
 from rich.table import Table
 from rich.text import Text
 
-LineageSourceKind = Literal["default", "config", "user", "task"]
+LineageSourceKind = Literal["default", "context", "config", "user", "task"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +122,8 @@ def _event_value(
 
     if source_text.startswith("DEFAULT: "):
         return source_text.split(": ", 1)[1]
+    if source_text.startswith("CONTEXT: "):
+        return source_text.split(": ", 1)[1]
     if source_text.startswith("CONFIG: ") and "=" in source_text:
         return source_text.rsplit("=", 1)[1]
     if source_text.startswith("COMMAND_LINE: ") and "=" in source_text:
@@ -134,6 +136,8 @@ def _event_value(
 def _source_kind(source_text: str) -> LineageSourceKind:
     if source_text.startswith("DEFAULT:"):
         return "default"
+    if source_text.startswith("CONTEXT:"):
+        return "context"
     if source_text.startswith("CONFIG:"):
         return "config"
     if source_text.startswith("COMMAND_LINE:") or source_text.startswith("UI:"):
