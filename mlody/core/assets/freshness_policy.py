@@ -72,6 +72,60 @@ def should_revalidate_http_asset(
     return _current_time(now) - anchor >= policy.max_age
 
 
+def should_revalidate_from_timestamp(
+    freshness: object | None,
+    last_checked_at: str | None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Return True if the asset should be re-checked given the last check timestamp.
+
+    Parallel to should_revalidate_http_asset for callers that track freshness
+    in the DB (LatestObservation.observed_at) rather than in manifest.json.
+    """
+    if last_checked_at is None:
+        return True
+    policy = freshness_policy_from_struct(freshness)
+    if policy.kind == "always":
+        return True
+    if policy.kind != "ttl":
+        return False
+    if policy.max_age is None or policy.max_age <= timedelta(0):
+        return True
+    anchor = _parse_timestamp(last_checked_at)
+    if anchor is None:
+        return True
+    return _current_time(now) - anchor >= policy.max_age
+
+
+def metadata_indicates_change(
+    metadata: dict[str, object],
+    *,
+    known_digest: str | None,
+    known_update_time: str | None,
+    known_length: int | None,
+) -> bool:
+    """Return True when newly fetched remote metadata implies new content.
+
+    Parallel to remote_metadata_indicates_change but takes explicit known
+    values as keyword arguments so callers are not coupled to HttpAssetManifest.
+    Returns True (assume change) when no comparable field pair is available.
+    """
+    comparisons: list[bool] = []
+    digest = _text(metadata.get("digest"))
+    if digest is not None and known_digest is not None:
+        comparisons.append(digest != known_digest)
+    update_time = _text(metadata.get("update_time"))
+    if update_time is not None and known_update_time is not None:
+        comparisons.append(update_time != known_update_time)
+    length = _int(metadata.get("length"))
+    if length is not None and known_length is not None:
+        comparisons.append(length != known_length)
+    if not comparisons:
+        return True
+    return any(comparisons)
+
+
 def should_refresh_copied_asset(
     freshness: object | None,
     *,

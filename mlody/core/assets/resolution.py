@@ -54,11 +54,18 @@ def asset_from_location(
     location: object,
     *,
     freshness: object | None = None,
+    db_conn: object | None = None,
+    asset_id: str | None = None,
 ) -> AssetSource | None:
     """Resolve a runtime location object into a generic asset source."""
     remote_spec = RemoteLocationSpec.from_location(location)
     if remote_spec is not None:
-        return HttpAssetSource(uri=remote_spec.uri, freshness=freshness)
+        return HttpAssetSource(
+            uri=remote_spec.uri,
+            freshness=freshness,
+            db_conn=db_conn,  # type: ignore[arg-type]
+            asset_id=asset_id,
+        )
 
     posix_spec = PosixLocationSpec.from_location(location)
     if posix_spec is not None:
@@ -71,6 +78,7 @@ def asset_from_value(
     value_struct: object,
     *,
     freshness_override: object | None = None,
+    db_conn: object | None = None,
 ) -> AssetSource | None:
     """Resolve a runtime value struct into a generic asset source."""
     if derived_location_spec_from_value(value_struct) is not None:
@@ -92,8 +100,30 @@ def asset_from_value(
             freshness=freshness,
         )
 
-    asset = asset_from_location(location, freshness=freshness)
+    asset_id: str | None = None
     remote_spec = RemoteLocationSpec.from_location(location)
+    if remote_spec is not None and db_conn is not None:
+        from mlody.db.assets import upsert_external_asset  # noqa: PLC0415
+        from mlody.core.assets.manifest import cache_key_for_uri  # noqa: PLC0415
+        from mlody.core.assets.freshness_policy import freshness_policy_from_struct  # noqa: PLC0415
+
+        policy = freshness_policy_from_struct(freshness)
+        max_age_seconds = (
+            int(policy.max_age.total_seconds()) if policy.max_age is not None else None
+        )
+        rep = getattr(getattr(value_struct, "representation", None), "name", None)
+        asset_id = upsert_external_asset(
+            db_conn,  # type: ignore[arg-type]
+            uri=remote_spec.uri,
+            transport="http",
+            cache_key=cache_key_for_uri(remote_spec.uri),
+            representation=rep,
+            freshness_kind=policy.kind,
+            freshness_max_age_seconds=max_age_seconds,
+            value_name=str(getattr(value_struct, "name", None) or ""),
+        )
+
+    asset = asset_from_location(location, freshness=freshness, db_conn=db_conn, asset_id=asset_id)
     if asset is not None and remote_spec is not None:
         return _RemoteLineageAssetSource(
             upstream=asset,

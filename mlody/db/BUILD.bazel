@@ -4,6 +4,7 @@ o_py_library(
     name = "db_lib",
     srcs = [
         "__init__.py",
+        "assets.py",
         "evaluations.py",
         "local_diff.py",
         "local_patches.py",
@@ -25,6 +26,15 @@ o_py_test(
 o_py_test(
     name = "evaluations_test",
     srcs = ["evaluations_test.py"],
+    deps = [
+        ":db_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "assets_test",
+    srcs = ["assets_test.py"],
     deps = [
         ":db_lib",
         "@pip//pytest",

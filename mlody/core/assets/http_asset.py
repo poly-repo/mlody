@@ -5,12 +5,17 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import sqlite3
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+if TYPE_CHECKING:
+    from mlody.db.assets import LatestObservation
 
 from common.python.http_info import fetch_http_info
 from mlody.core.assets.cache import (
@@ -50,6 +55,8 @@ class HttpAssetSource:
     uri: str
     cache_root: Path | None = None
     freshness: object | None = None
+    db_conn: sqlite3.Connection | None = None
+    asset_id: str | None = None
 
     def materialize(self) -> MaterializedAsset:
         """Return a locally cached copy of *uri*."""
@@ -58,6 +65,9 @@ class HttpAssetSource:
             raise HttpAssetError(
                 f"remote(uri=...) only supports http/https in v1, got {parsed.scheme!r}"
             )
+
+        if self.db_conn is not None and self.asset_id is not None:
+            return self._materialize_with_db()
 
         cache_root = self.cache_root or default_http_cache_root()
         ensure_cache_root(cache_root)
@@ -170,6 +180,47 @@ class HttpAssetSource:
         *,
         metadata: dict[str, object] | None = None,
     ) -> MaterializedAsset:
+        final_path, content_hash_hex, total_bytes, resolved_url, metadata = (
+            self._fetch_bytes(cache_dir, metadata=metadata)
+        )
+        now = _utc_now()
+        manifest = HttpAssetManifest(
+            request=HttpAssetManifestRequest(
+                uri=self.uri,
+                cache_key=cache_key,
+                resolved_url=_optional_text(metadata.get("url")) or resolved_url,
+            ),
+            remote=HttpAssetManifestRemote(
+                digest=_optional_text(metadata.get("digest")),
+                digest_type=_optional_text(metadata.get("digest_type")),
+                length=_optional_int(metadata.get("length")) or total_bytes,
+                update_time=_optional_text(metadata.get("update_time")),
+                etag=_optional_text(metadata.get("etag")),
+                last_modified=_optional_text(metadata.get("last_modified")),
+                metadata_checked_at=now,
+            ),
+            local=HttpAssetManifestLocal(
+                payload_relpath=final_path.name,
+                content_hash=content_hash_hex,
+                size_bytes=total_bytes,
+                downloaded_at=now,
+            ),
+        )
+        write_manifest(manifest_path, manifest)
+        _logger.info("Staged remote URI %s at %s (%d bytes)", self.uri, final_path, total_bytes)
+        return MaterializedAsset(
+            path=final_path,
+            content_hash=content_hash_hex,
+            metadata=_asset_metadata_from_manifest(manifest),
+        )
+
+    def _fetch_bytes(
+        self,
+        cache_dir: Path,
+        *,
+        metadata: dict[str, object] | None = None,
+    ) -> tuple[Path, str, int, str, dict[str, object]]:
+        """Download *uri* into *cache_dir*; return (path, content_hash, bytes, resolved_url, metadata)."""
         cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         if metadata is None:
             try:
@@ -208,43 +259,139 @@ class HttpAssetSource:
                         handle.write(chunk)
                         content_hash.update(chunk)
                         total_bytes += len(chunk)
-
             os.replace(temp_path, final_path)
         except Exception as exc:  # noqa: BLE001
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
             _logger.error("Failed to fetch remote URI %s: %s", self.uri, exc)
             raise HttpAssetError(f"Failed to fetch remote URI {self.uri!r}: {exc}") from exc
+        return final_path, content_hash.hexdigest(), total_bytes, resolved_url, metadata
 
-        now = _utc_now()
-        manifest = HttpAssetManifest(
-            request=HttpAssetManifestRequest(
+    # ------------------------------------------------------------------
+    # DB-backed path (active when db_conn and asset_id are both set)
+    # ------------------------------------------------------------------
+
+    def _materialize_with_db(self) -> MaterializedAsset:
+        from mlody.db.assets import latest_observation, record_observation, upsert_blob  # noqa: PLC0415
+        from mlody.core.assets.freshness_policy import (  # noqa: PLC0415
+            metadata_indicates_change,
+            should_revalidate_from_timestamp,
+        )
+
+        cache_key = cache_key_for_uri(self.uri)
+        obs = latest_observation(self.db_conn, cache_key)
+        cached = self._cached_asset_from_observation(obs)
+
+        if cached is not None and not should_revalidate_from_timestamp(
+            self.freshness, obs.observed_at if obs is not None else None
+        ):
+            _logger.info("Reusing cached remote URI %s (DB)", self.uri)
+            return cached
+
+        if cached is not None and obs is not None:
+            try:
+                remote_meta = fetch_http_info(self.uri)
+            except Exception:  # noqa: BLE001
+                _logger.warning(
+                    "Unable to revalidate cached remote URI %s; reusing cached payload",
+                    self.uri,
+                    exc_info=True,
+                )
+                return cached
+
+            if not metadata_indicates_change(
+                remote_meta,
+                known_digest=obs.remote_digest,
+                known_update_time=obs.update_time,
+                known_length=obs.content_length,
+            ):
+                record_observation(
+                    self.db_conn,
+                    asset_id=self.asset_id,
+                    blob_sha=obs.blob_sha,
+                    status="revalidated",
+                    etag=_optional_text(remote_meta.get("etag")),
+                    last_modified=_optional_text(remote_meta.get("last_modified")),
+                    remote_digest=_optional_text(remote_meta.get("digest")),
+                    remote_digest_type=_optional_text(remote_meta.get("digest_type")),
+                    content_length=_optional_int(remote_meta.get("length")),
+                    update_time=_optional_text(remote_meta.get("update_time")),
+                    resolved_url=_optional_text(remote_meta.get("url")),
+                )
+                _logger.info("Revalidated remote URI %s without re-download (DB)", self.uri)
+                return cached
+
+        return self._download_asset_db(cache_key)
+
+    def _cached_asset_from_observation(self, obs: LatestObservation | None) -> MaterializedAsset | None:
+        if obs is None:
+            return None
+        blob_path = Path(obs.local_path)
+        if not blob_path.exists():
+            return None
+        return MaterializedAsset(
+            path=blob_path,
+            content_hash=obs.blob_sha,
+            metadata=AssetMetadata(
                 uri=self.uri,
-                cache_key=cache_key,
-                resolved_url=_optional_text(metadata.get("url")) or resolved_url,
+                resolved_url=obs.resolved_url,
+                digest=obs.remote_digest,
+                digest_type=obs.remote_digest_type,
+                length=obs.content_length,
+                update_time=obs.update_time,
+                etag=obs.etag,
+                last_modified=obs.last_modified,
+                fetched_at=obs.observed_at,
+                cache_key=cache_key_for_uri(self.uri),
+                transport="http",
             ),
-            remote=HttpAssetManifestRemote(
+        )
+
+    def _download_asset_db(self, cache_key: str) -> MaterializedAsset:
+        from mlody.db.assets import record_observation, upsert_blob  # noqa: PLC0415
+
+        cache_root = self.cache_root or default_http_cache_root()
+        ensure_cache_root(cache_root)
+        cache_dir = cache_dir_for_key(cache_root, cache_key)
+        final_path, content_hash_hex, total_bytes, resolved_url, metadata = (
+            self._fetch_bytes(cache_dir)
+        )
+        upsert_blob(
+            self.db_conn,
+            content_hash=content_hash_hex,
+            local_path=str(final_path),
+            size_bytes=total_bytes,
+        )
+        record_observation(
+            self.db_conn,
+            asset_id=self.asset_id,
+            blob_sha=content_hash_hex,
+            status="downloaded",
+            etag=_optional_text(metadata.get("etag")),
+            last_modified=_optional_text(metadata.get("last_modified")),
+            remote_digest=_optional_text(metadata.get("digest")),
+            remote_digest_type=_optional_text(metadata.get("digest_type")),
+            content_length=_optional_int(metadata.get("length")) or total_bytes,
+            update_time=_optional_text(metadata.get("update_time")),
+            resolved_url=_optional_text(metadata.get("url")) or resolved_url,
+        )
+        _logger.info("Staged remote URI %s at %s (%d bytes, DB)", self.uri, final_path, total_bytes)
+        return MaterializedAsset(
+            path=final_path,
+            content_hash=content_hash_hex,
+            metadata=AssetMetadata(
+                uri=self.uri,
+                resolved_url=_optional_text(metadata.get("url")) or resolved_url,
                 digest=_optional_text(metadata.get("digest")),
                 digest_type=_optional_text(metadata.get("digest_type")),
                 length=_optional_int(metadata.get("length")) or total_bytes,
                 update_time=_optional_text(metadata.get("update_time")),
                 etag=_optional_text(metadata.get("etag")),
                 last_modified=_optional_text(metadata.get("last_modified")),
-                metadata_checked_at=now,
+                fetched_at=_utc_now(),
+                cache_key=cache_key,
+                transport="http",
             ),
-            local=HttpAssetManifestLocal(
-                payload_relpath=final_path.name,
-                content_hash=content_hash.hexdigest(),
-                size_bytes=total_bytes,
-                downloaded_at=now,
-            ),
-        )
-        write_manifest(manifest_path, manifest)
-        _logger.info("Staged remote URI %s at %s (%d bytes)", self.uri, final_path, total_bytes)
-        return MaterializedAsset(
-            path=final_path,
-            content_hash=content_hash.hexdigest(),
-            metadata=_asset_metadata_from_manifest(manifest),
         )
 
 

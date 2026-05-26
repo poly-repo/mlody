@@ -44,6 +44,11 @@ def open_db(db_path: Path) -> sqlite3.Connection:
     Applies 0o600 file permissions, enables WAL mode, and runs the DDL
     idempotently before returning.
     """
+    from mlody.db.assets import (  # noqa: PLC0415
+        ASSET_BLOBS_DDL,
+        ASSET_OBSERVATIONS_DDL,
+        EXTERNAL_ASSETS_DDL,
+    )
     from mlody.db.local_patches import LOCAL_PATCHES_DDL  # noqa: PLC0415
 
     db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -53,6 +58,9 @@ def open_db(db_path: Path) -> sqlite3.Connection:
     os.chmod(db_path, 0o600)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute(LOCAL_PATCHES_DDL)
+    conn.execute(EXTERNAL_ASSETS_DDL)
+    conn.execute(ASSET_BLOBS_DDL)
+    conn.execute(ASSET_OBSERVATIONS_DDL)
     conn.execute(EVALUATIONS_DDL)
     try:
         conn.execute(

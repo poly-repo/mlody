@@ -92,12 +92,12 @@ o_py_library(
     deps = [
         ":cache_lib",
         ":copied_asset_lib",
+        ":freshness_policy_lib",
         ":http_asset_lib",
         ":interfaces_lib",
         ":local_asset_lib",
         ":manifest_lib",
         ":metadata_lib",
-        ":freshness_policy_lib",
         ":resolution_lib",
     ],
 )
@@ -106,8 +106,7 @@ o_py_test(
     name = "manifest_test",
     srcs = ["manifest_test.py"],
     deps = [
-        ":manifest_lib",
-        ":metadata_lib",
+        "//mlody/core:core_lib",
         "@pip//pytest",
     ],
 )
@@ -116,10 +115,9 @@ o_py_test(
     name = "http_asset_test",
     srcs = ["http_asset_test.py"],
     deps = [
-        ":freshness_policy_lib",
-        ":http_asset_lib",
-        ":manifest_lib",
         "//mlody/common:common_lib",
+        "//mlody/core:core_lib",
+        "//mlody/db:db_lib",
         "@pip//pytest",
     ],
 )
@@ -128,12 +126,8 @@ o_py_test(
     name = "asset_resolution_test",
     srcs = ["asset_resolution_test.py"],
     deps = [
-        ":copied_asset_lib",
-        ":freshness_policy_lib",
-        ":http_asset_lib",
-        ":local_asset_lib",
-        ":resolution_lib",
         "//mlody/common:common_lib",
+        "//mlody/core:core_lib",
         "@pip//pytest",
     ],
 )
@@ -142,10 +136,8 @@ o_py_test(
     name = "copied_asset_test",
     srcs = ["copied_asset_test.py"],
     deps = [
-        ":copied_asset_lib",
-        ":freshness_policy_lib",
-        ":local_asset_lib",
-        "//mlody/common:common_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "//mlody/core:core_lib",
         "@pip//pytest",
     ],
 )
@@ -154,9 +146,30 @@ o_py_test(
     name = "freshness_policy_test",
     srcs = ["freshness_policy_test.py"],
     deps = [
-        ":freshness_policy_lib",
-        ":manifest_lib",
         "//mlody/common:common_lib",
-        "@pip//pytest",
+        "//mlody/core:core_lib",
+    ],
+)
+
+o_py_library(
+    name = "assets_lib",
+    srcs = [
+        "__init__.py",
+        "cache.py",
+        "copied_asset.py",
+        "freshness_policy.py",
+        "http_asset.py",
+        "interfaces.py",
+        "local_asset.py",
+        "manifest.py",
+        "metadata.py",
+        "resolution.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//common/python:http_info_lib",
+        "//mlody/common:common_lib",
+        "//mlody/core:core_lib",
+        "//mlody/db:db_lib",
     ],
 )
