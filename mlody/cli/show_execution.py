@@ -86,12 +86,13 @@ def prepare_show_value(
     value: MlodyValue,
     *,
     display_value: Callable[[MlodyValueValue], object] = _default_display_payload,
+    db_conn: object | None = None,
 ) -> PreparedShowValue:
     if isinstance(value, MlodyVectorValue):
         return PreparedShowValue(
             value=value,
             children=tuple(
-                prepare_show_value(child, display_value=display_value)
+                prepare_show_value(child, display_value=display_value, db_conn=db_conn)
                 for child in value.elements
             ),
         )
@@ -107,7 +108,7 @@ def prepare_show_value(
 
     if hasattr(display_payload, "as_mapping"):
         try:
-            tabular_source = source_from_value(display_payload)
+            tabular_source = source_from_value(display_payload, db_conn=db_conn)
         except ValueError as exc:
             tabular_source = None
             source_failure = str(exc)
@@ -139,6 +140,7 @@ def execute_show_action_graph(
     *,
     resolve_label: Callable[[object, Workspace], MlodyValue] = resolve_label_to_value,
     display_value: Callable[[MlodyValueValue], object] = _default_display_payload,
+    db_conn: object | None = None,
 ) -> ShowActionGraphExecution:
     resolved_value = resolve_label(concrete_label, workspace)
     selection = selection_for_label(workspace, requested_label)
@@ -169,6 +171,7 @@ def execute_show_action_graph(
             results[node_id] = prepare_show_value(
                 resolved_value,
                 display_value=display_value,
+                db_conn=db_conn,
             )
             continue
         raise ValueError(f"Unsupported show action operation: {action.operation!r}")

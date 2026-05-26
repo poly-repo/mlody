@@ -206,6 +206,15 @@ def _read_meta(cache_root: Path, resolved_sha: str) -> dict[str, object]:
         return {}
 
 
+def _try_open_db() -> object:
+    """Open the mlody DB for asset recording; return None on any failure."""
+    try:
+        db_path = Path.home() / _DEFAULT_CACHE_SUFFIX / _DEFAULT_DB_NAME
+        return open_db(db_path)
+    except Exception:
+        return None
+
+
 def _record_evaluation(
     resolved_sha: str,
     requested_ref: str,
@@ -1554,6 +1563,7 @@ def show(
     rendered_any_output = False
 
     for target in targets:
+        _asset_conn = _try_open_db()
         try:
             workspace, resolved_sha = resolve_workspace(
                 target,
@@ -1588,6 +1598,7 @@ def show(
                     expanded_inner,
                     concrete_label,
                     resolve_label=resolve_label_to_value,
+                    db_conn=_asset_conn,
                 )
                 _maybe_print_selected_dag_plan(execution.selection, expanded_inner)
                 mlody_value = execution.prepared_value.value
@@ -1655,6 +1666,9 @@ def show(
             has_error = True
             click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
             continue
+        finally:
+            if _asset_conn is not None:
+                _asset_conn.close()
 
     if has_error:
         sys.exit(1)

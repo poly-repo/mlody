@@ -61,6 +61,7 @@ from mlody.cli.show import (
     _is_dag_value,
     _parse_inner,
     _selected_show_user,
+    _try_open_db,
 )
 from mlody.core.derived import DerivedValueShapeError
 from mlody.core.workspace_models import RootInfo
@@ -1968,6 +1969,7 @@ def _execute_show_command(
             target=target,
         )
 
+        _asset_conn = _try_open_db()
         try:
             workspace, resolved_sha = resolve_workspace(
                 target,
@@ -1993,6 +1995,7 @@ def _execute_show_command(
                     concrete_label,
                     resolve_label=resolve_label_to_value,
                     display_value=_display_payload,
+                    db_conn=_asset_conn,
                 )
                 mlody_value = execution.prepared_value.value
                 if isinstance(mlody_value, MlodyUnresolvedValue):
@@ -2028,6 +2031,9 @@ def _execute_show_command(
             ValueError,
         ) as exc:
             yield _event(request, "error", target=target, message=str(exc))
+        finally:
+            if _asset_conn is not None:
+                _asset_conn.close()
 
 
 def iter_command_events(
