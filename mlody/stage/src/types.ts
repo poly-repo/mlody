@@ -188,12 +188,22 @@ export interface StageAutocompletePayload {
   additionalData: Record<string, unknown>;
 }
 
+export interface KvEntry {
+  key: string;
+  value: string | null;
+}
+
 /** One line / chunk of output from an execution. */
 export type OutputChunk =
   | {
       text: string;
       /** "stdout" for normal output, "stderr" for errors, "meta" for UI messages */
       kind: "stdout" | "stderr" | "meta";
+    }
+  | {
+      /** Compact key-value row with styled keys and plain values. */
+      kind: "kv";
+      entries: KvEntry[];
     }
   | {
       kind: "stage-json";

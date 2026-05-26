@@ -397,6 +397,39 @@ textarea {
     radial-gradient(circle at top right, rgba(113, 139, 227, 0.1), transparent 42%);
 }
 
+.ExecutionBlock-line--kv {
+  padding: 5px 10px;
+  background: transparent;
+  border-radius: 0;
+}
+
+.ExecutionBlock-kvLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 14px;
+}
+
+.ExecutionBlock-kvEntry {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.ExecutionBlock-kvKey {
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--stage-primary);
+  opacity: 0.85;
+}
+
+.ExecutionBlock-kvValue {
+  color: var(--stage-ink);
+  font-size: 0.875rem;
+}
+
 .ExecutionBlock-logUnavailable {
   padding: 16px 18px;
   color: var(--stage-ink-soft);

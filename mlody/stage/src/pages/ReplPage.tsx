@@ -34,7 +34,9 @@ import type {
   CommandSubmission,
   Executor,
   ExecutionRecord,
+  KvEntry,
   LocationCrumb,
+  OutputChunk,
   ServerHealthStatus,
   ServerStatus,
   SystemAdmonition,
@@ -227,28 +229,56 @@ function fmtBytes(n: number): string {
   return `${n} B`;
 }
 
-function formatDbStatusLines(payload: DbStatusPayload): string[] {
-  const lines: string[] = [
-    `DB path: ${payload.db_path}`,
-    `DB size: ${fmtBytes(payload.db_size)}`,
-    `WAL size: ${payload.wal_size ? fmtBytes(payload.wal_size) : "—"}`,
-    `Total rows: ${payload.total_rows}`,
+function fmtRelTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  if (isNaN(diffMs)) return iso;
+  const s = Math.floor(diffMs / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function kv(key: string, value: string | null): KvEntry {
+  return { key, value };
+}
+
+function formatDbStatusChunks(payload: DbStatusPayload): OutputChunk[] {
+  const chunks: OutputChunk[] = [];
+
+  const headerEntries: KvEntry[] = [
+    kv("db", payload.db_path),
+    kv("size", fmtBytes(payload.db_size)),
+    kv("wal", payload.wal_size ? fmtBytes(payload.wal_size) : "—"),
+    kv("rows", String(payload.total_rows)),
   ];
+  chunks.push({ kind: "kv", entries: headerEntries });
+
   for (const [tableName, ts] of Object.entries(payload.tables)) {
-    lines.push(`\n${tableName} (${ts.rows} rows)`);
-    if (ts.oldest !== undefined)
-      lines.push(`  oldest: ${ts.oldest ?? "—"}`, `  newest: ${ts.newest ?? "—"}`);
-    if (ts.uncompressed_bytes !== undefined)
-      lines.push(
-        `  uncompressed: ${fmtBytes(ts.uncompressed_bytes ?? 0)}`,
-        `  compressed: ${fmtBytes(ts.compressed_bytes ?? 0)}`,
-      );
-    for (const [k, v] of Object.entries(ts)) {
-      if (k.startsWith("with_"))
-        lines.push(`  ${k.replace("_", " ")}: ${String(v)} / ${ts.rows}`);
+    const entries: KvEntry[] = [kv(tableName, String(ts.rows) + " rows")];
+    if (ts.oldest !== undefined) {
+      entries.push(kv("oldest", fmtRelTime(ts.oldest)));
+      entries.push(kv("newest", fmtRelTime(ts.newest)));
     }
+    if (ts.compressed_bytes !== undefined) {
+      entries.push(kv("compressed", fmtBytes(ts.compressed_bytes ?? 0)));
+    }
+    if (ts.uncompressed_bytes !== undefined) {
+      entries.push(kv("raw", fmtBytes(ts.uncompressed_bytes ?? 0)));
+    }
+    for (const [k, v] of Object.entries(ts)) {
+      if (k.startsWith("with_")) {
+        entries.push(kv(k.replace(/^with_/, ""), `${String(v)}/${ts.rows}`));
+      }
+    }
+    chunks.push({ kind: "kv", entries });
   }
-  return lines;
+
+  return chunks;
 }
 
 function sameWorkspaceRoot(
@@ -835,8 +865,8 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
       },
       async (onChunk) => {
         const stats = await fetchDbStatus();
-        for (const line of formatDbStatusLines(stats)) {
-          onChunk({ kind: "stdout", text: line });
+        for (const chunk of formatDbStatusChunks(stats)) {
+          onChunk(chunk);
         }
         return "done";
       },

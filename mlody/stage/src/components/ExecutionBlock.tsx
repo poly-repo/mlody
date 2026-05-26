@@ -4,6 +4,7 @@ import { LuCheck, LuCopy } from "react-icons/lu";
 import { fetchStageCommandLogs } from "../serverApi.js";
 import type {
   ExecutionRecord,
+  KvEntry,
   OutputChunk,
   StageCommandLogEvent,
   StageResultPayload,
@@ -61,6 +62,21 @@ function buildCopyCommand(record: ExecutionRecord): string {
   }
   segments.push(`--as ${shellQuote(record.runAs)}`);
   return segments.join(" ");
+}
+
+function KvLine({ entries }: { entries: KvEntry[] }) {
+  return (
+    <span className="ExecutionBlock-kvLine">
+      {entries.map((e, i) => (
+        <span key={i} className="ExecutionBlock-kvEntry">
+          <span className="ExecutionBlock-kvKey">{e.key}</span>
+          {e.value !== null && (
+            <span className="ExecutionBlock-kvValue">{e.value}</span>
+          )}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 interface StatusIconProps {
@@ -338,6 +354,16 @@ export function ExecutionBlock({ record }: ExecutionBlockProps) {
       </div>
       <div className="ExecutionBlock-body">
         {record.output.map((chunk, idx) => {
+          if (chunk.kind === "kv") {
+            return (
+              <span
+                key={idx}
+                className="ExecutionBlock-line ExecutionBlock-line--kv"
+              >
+                <KvLine entries={chunk.entries} />
+              </span>
+            );
+          }
           if (chunk.kind !== "stage-json") {
             return (
               <span
