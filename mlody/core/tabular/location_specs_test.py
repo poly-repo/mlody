@@ -20,15 +20,19 @@ from mlody.core.location_specs import (
     RemoteLocationSpec,
     derived_location_spec_from_value,
 )
+from mlody.core.tabular.copied_asset_tabular_source import CopiedAssetTabularSource
 from mlody.core.tabular.csv_source import CsvSource
 from mlody.core.tabular.derived_source import DerivedSource
-from mlody.core.tabular.html_table_csv_tabular_source import HtmlTableCsvTabularSource
+from mlody.core.tabular.html_table_csv_tabular_source import (
+    HtmlTabularSource,
+    HtmlTableCsvTabularSource,
+)
+from mlody.core.tabular.json_source import JsonSource
 from mlody.core.tabular.location_specs import (
     query_rows_from_value,
     source_from_location,
     source_from_value,
 )
-from mlody.core.tabular.copied_asset_tabular_source import CopiedAssetTabularSource
 from mlody.core.tabular.parquet_source import ParquetSource
 
 
@@ -377,10 +381,11 @@ def test_source_from_value_returns_remote_parquet_source_for_remote_parquet_valu
     assert source.content_hash == "def456"
 
 
-def test_source_from_value_returns_none_for_unsupported_remote_representation() -> None:
+def test_source_from_value_returns_json_source_for_remote_json_value() -> None:
     value_struct = Struct(
         kind="value",
         name="meta",
+        _lineage=[],
         location=Struct(
             kind="location",
             type="remote",
@@ -393,7 +398,17 @@ def test_source_from_value_returns_none_for_unsupported_remote_representation() 
         ),
     )
 
-    assert source_from_value(value_struct) is None
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+        mock_materialize.return_value = _remote_asset(
+            Path("/tmp/staged.json"),
+            uri="https://example.com/data.json",
+            content_hash="abc123",
+        )
+        source = source_from_value(value_struct)
+
+    assert isinstance(source, JsonSource)
+    assert source.paths == ("/tmp/staged.json",)
+    assert source.content_hash == "abc123"
 
 
 def test_source_from_value_returns_none_for_remote_multifile_csv() -> None:
@@ -422,14 +437,23 @@ def test_source_from_value_returns_none_for_remote_multifile_csv() -> None:
     assert source_from_value(value_struct) is None
 
 
-def test_source_from_value_returns_none_for_source_backed_local_html_value() -> None:
+def test_source_from_value_returns_html_tabular_source_for_source_backed_html_value(
+    tmp_path: Path,
+) -> None:
+    source_html = tmp_path / "page.html"
+    destination = tmp_path / "cached" / "cached_page.html"
+    source_html.write_text(
+        "<table><thead><tr><th>Col</th></tr></thead>"
+        "<tbody><tr><td>Val</td></tr></tbody></table>",
+        encoding="utf-8",
+    )
     value_struct = Struct(
         kind="value",
         name="cached_page",
         location=Struct(
             kind="location",
             type="posix",
-            attributes={"path": ["/tmp/cached_page.html"]},
+            attributes={"path": [str(destination)]},
         ),
         source=":cached_page_remote",
         _source_value=Struct(
@@ -453,7 +477,16 @@ def test_source_from_value_returns_none_for_source_backed_local_html_value() -> 
         ),
     )
 
-    assert source_from_value(value_struct) is None
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+        mock_materialize.return_value = _remote_asset(
+            source_html,
+            uri="https://example.com/page.html",
+            content_hash="xyz789",
+        )
+        source = source_from_value(value_struct)
+
+    assert isinstance(source, HtmlTabularSource)
+    assert source.path == destination
 
 
 def test_source_from_value_converts_html_source_backed_local_csv_value(

@@ -1,4 +1,4 @@
-"""Tabular adapter that converts the first HTML table into a local CSV artifact."""
+"""Tabular adapters for HTML sources."""
 
 from __future__ import annotations
 
@@ -8,10 +8,37 @@ from pathlib import Path
 from typing import Callable
 
 import pandas as pd
+import pyarrow as pa
 
 from mlody.core.assets.freshness_policy import should_refresh_copied_asset
 from mlody.core.assets.interfaces import AssetSource
 from mlody.core.tabular.interfaces import PreviewResult, QueryInput
+
+
+@dataclass(frozen=True, slots=True)
+class HtmlTabularSource:
+    """Read the first HTML table from a local file directly into an Arrow table."""
+
+    path: Path
+
+    def materialize(self) -> Path:
+        return self.path
+
+    def _read(self) -> pa.Table:
+        tables = pd.read_html(str(self.path), flavor="html5lib")
+        if not tables:
+            raise ValueError(f"No HTML tables found in {self.path}")
+        return pa.Table.from_pandas(tables[0], preserve_index=False)
+
+    def count(self) -> int:
+        return int(self._read().num_rows)
+
+    def preview(self, limit: int) -> PreviewResult:
+        table = self._read()
+        return PreviewResult(table=table.slice(0, limit), total_rows=table.num_rows)
+
+    def query_input(self) -> QueryInput:
+        return self._read()
 
 
 @dataclass(frozen=True)

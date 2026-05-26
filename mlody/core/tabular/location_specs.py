@@ -80,6 +80,30 @@ def _csv_source_from_paths(
     )
 
 
+def _interpret_blob(
+    value_struct: object,
+    paths: tuple[str, ...],
+    content_hash: str | None,
+) -> TabularSource | None:
+    """Map representation metadata onto a concrete tabular source for a materialized blob."""
+    from mlody.core.tabular.parquet_source import ParquetSource
+
+    representation_name = _representation_name(value_struct)
+    if representation_name == "csv":
+        return _csv_source_from_paths(paths, value_struct=value_struct, content_hash=content_hash)
+    if representation_name in {"parquet", None}:
+        return ParquetSource(paths=paths, content_hash=content_hash)
+    if representation_name == "json":
+        from mlody.core.tabular.json_source import JsonSource  # noqa: PLC0415
+
+        return JsonSource(paths=paths, content_hash=content_hash)
+    if representation_name == "html":
+        from mlody.core.tabular.html_table_csv_tabular_source import HtmlTabularSource  # noqa: PLC0415
+
+        return HtmlTabularSource(path=Path(paths[0]))
+    return None
+
+
 def _tabular_source_from_asset(
     value_struct: object,
     asset: AssetSource,
@@ -88,35 +112,19 @@ def _tabular_source_from_asset(
 ) -> TabularSource | None:
     """Wrap a generic asset in the matching tabular adapter."""
     from mlody.core.assets.local_asset import LocalPathAssetSource
-    from mlody.core.tabular.parquet_source import ParquetSource
 
     if _representation_bool(value_struct, "multifile", False):
         return None
 
     representation_name = _representation_name(value_struct)
-    if representation_name not in {"csv", "parquet"}:
-        if not (default_to_parquet and representation_name is None):
-            return None
-        representation_name = "parquet"
+    if representation_name is None and not default_to_parquet:
+        return None
 
-    content_hash: str | None = None
     if isinstance(asset, LocalPathAssetSource):
-        materialized_paths = (str(asset.path),)
-    else:
-        materialized = asset.materialize()
-        materialized_paths = (str(materialized.path),)
-        content_hash = materialized.content_hash
+        return _interpret_blob(value_struct, (str(asset.path),), None)
 
-    if representation_name == "csv":
-        return _csv_source_from_paths(
-            materialized_paths,
-            value_struct=value_struct,
-            content_hash=content_hash,
-        )
-    return ParquetSource(
-        paths=materialized_paths,
-        content_hash=content_hash,
-    )
+    materialized = asset.materialize()
+    return _interpret_blob(value_struct, (str(materialized.path),), materialized.content_hash)
 
 
 def _source_backed_local_source_from_value(
@@ -277,14 +285,7 @@ def source_from_value(value_struct: object) -> TabularSource | None:
             return asset_source
 
     if posix_spec is not None:
-        representation_name = _representation_name(value_struct)
-        if representation_name == "csv":
-            return _csv_source_from_paths(posix_spec.paths, value_struct=value_struct)
-        if representation_name is None or representation_name == "parquet":
-            from mlody.core.tabular.parquet_source import ParquetSource
-
-            return ParquetSource(paths=posix_spec.paths)
-        return None
+        return _interpret_blob(value_struct, posix_spec.paths, None)
 
     return None
 

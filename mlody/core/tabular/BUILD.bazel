@@ -1,5 +1,9 @@
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
+# gazelle:resolve py pandas @pip//pandas
+# gazelle:resolve py bs4 @pip//beautifulsoup4
+# gazelle:resolve py html5lib @pip//html5lib
+
 o_py_library(
     name = "interfaces_lib",
     srcs = ["interfaces.py"],
@@ -15,15 +19,15 @@ o_py_library(
     srcs = ["location_specs.py"],
     visibility = ["//:__subpackages__"],
     deps = [
-        ":csv_source_lib",
         ":copied_asset_tabular_source_lib",
+        ":csv_source_lib",
         ":html_table_csv_tabular_source_lib",
         ":interfaces_lib",
         ":parquet_source_lib",
-        "//mlody/core/assets:interfaces_lib",
-        "//mlody/core/assets:resolution_lib",
         "//mlody/core:location_specs_lib",
         "//mlody/core:query_spec_lib",
+        "//mlody/core/assets:interfaces_lib",
+        "//mlody/core/assets:resolution_lib",
         "//mlody/core/sql:sql_query_lib",
     ],
 )
@@ -96,13 +100,12 @@ o_py_test(
     name = "location_specs_test",
     srcs = ["location_specs_test.py"],
     deps = [
-        ":csv_source_lib",
-        ":copied_asset_tabular_source_lib",
-        ":html_table_csv_tabular_source_lib",
         ":derived_source_lib",
         ":location_specs_lib",
         ":parquet_source_lib",
+        ":tabular_lib",
         "//mlody/common:common_lib",
+        "//mlody/core:core_lib",
         "@pip//pyarrow",
         "@pip//pytest",
     ],
@@ -121,7 +124,7 @@ o_py_test(
     name = "csv_source_test",
     srcs = ["csv_source_test.py"],
     deps = [
-        ":csv_source_lib",
+        "//mlody/core:core_lib",
         "@pip//pytest",
     ],
 )
@@ -131,9 +134,32 @@ o_py_test(
     srcs = ["derived_source_test.py"],
     deps = [
         ":derived_source_lib",
-        ":location_specs_lib",
-        "//mlody/core:query_spec_lib",
+        "//mlody/core:core_lib",
         "@pip//pyarrow",
         "@pip//pytest",
+    ],
+)
+
+o_py_library(
+    name = "tabular_lib",
+    srcs = [
+        "copied_asset_tabular_source.py",
+        "csv_source.py",
+        "derived_source.py",
+        "html_table_csv_tabular_source.py",
+        "interfaces.py",
+        "json_source.py",
+        "location_specs.py",
+        "parquet_source.py",
+    ],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":derived_source_lib",
+        ":interfaces_lib",
+        ":parquet_source_lib",
+        "//mlody/core:core_lib",
+        "//mlody/core/sql:sql_query_lib",
+        "@pip//pandas",
+        "@pip//pyarrow",
     ],
 )
