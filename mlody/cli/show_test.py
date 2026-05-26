@@ -1791,9 +1791,12 @@ class TestShowRemoteTabularValue:
     def test_show_remote_unsupported_representation_falls_back(
         self,
         tmp_path: Path,
+        http_server: tuple[str, Path],
     ) -> None:
+        base_url, root = http_server
+        (root / "data.json").write_text('{"hello": "world"}', encoding="utf-8")
         value = _make_value_with_remote_location(
-            "https://example.com/data.json",
+            f"{base_url}/data.json",
             representation_name="json",
             representation_attributes={},
             name="remote_meta",
@@ -1806,7 +1809,7 @@ class TestShowRemoteTabularValue:
         )
 
         assert result.exit_code == 0  # type: ignore[union-attr]
-        assert "remote_meta" in result.output  # type: ignore[union-attr]
+        assert "hello" in result.output  # type: ignore[union-attr]
 
     def test_show_remote_unsupported_representation_displays_asset_metadata(
         self,
@@ -1829,10 +1832,8 @@ class TestShowRemoteTabularValue:
         )
 
         assert result.exit_code == 0  # type: ignore[union-attr]
-        assert "cache path" in result.output  # type: ignore[union-attr]
-        assert f"{base_url}/data.json" in result.output  # type: ignore[union-attr]
-        assert "representation" in result.output  # type: ignore[union-attr]
-        assert "json" in result.output  # type: ignore[union-attr]
+        assert "hello" in result.output  # type: ignore[union-attr]
+        assert "world" in result.output  # type: ignore[union-attr]
 
     def test_show_source_backed_local_csv_value_materializes_once_and_reuses_cache(
         self,

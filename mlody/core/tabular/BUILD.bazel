@@ -3,6 +3,7 @@ load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 # gazelle:resolve py pandas @pip//pandas
 # gazelle:resolve py bs4 @pip//beautifulsoup4
 # gazelle:resolve py html5lib @pip//html5lib
+# gazelle:resolve py mlody.core.tabular.json_source //mlody/core/tabular:json_source_lib
 
 o_py_library(
     name = "interfaces_lib",
@@ -23,6 +24,7 @@ o_py_library(
         ":csv_source_lib",
         ":html_table_csv_tabular_source_lib",
         ":interfaces_lib",
+        ":json_source_lib",  # keep — lazy import inside _interpret_blob
         ":parquet_source_lib",
         "//mlody/core:location_specs_lib",
         "//mlody/core:query_spec_lib",
@@ -39,6 +41,16 @@ o_py_library(
     deps = [
         ":interfaces_lib",
         "//mlody/core/sql:sql_query_lib",
+        "@pip//pyarrow",
+    ],
+)
+
+o_py_library(
+    name = "json_source_lib",
+    srcs = ["json_source.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":interfaces_lib",
         "@pip//pyarrow",
     ],
 )
@@ -101,9 +113,9 @@ o_py_test(
     srcs = ["location_specs_test.py"],
     deps = [
         ":derived_source_lib",
+        ":json_source_lib",
         ":location_specs_lib",
         ":parquet_source_lib",
-        ":tabular_lib",
         "//mlody/common:common_lib",
         "//mlody/core:core_lib",
         "@pip//pyarrow",
@@ -156,6 +168,7 @@ o_py_library(
     deps = [
         ":derived_source_lib",
         ":interfaces_lib",
+        ":json_source_lib",
         ":parquet_source_lib",
         "//mlody/core:core_lib",
         "//mlody/core/sql:sql_query_lib",

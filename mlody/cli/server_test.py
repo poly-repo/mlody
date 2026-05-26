@@ -1017,8 +1017,8 @@ class TestExecuteStageCommandResponse:
             ),
         )
         monkeypatch.setattr(
-            "mlody.cli.server.source_from_value",
-            lambda _value: None,
+            "mlody.cli.show_execution.source_from_value",
+            lambda _value, *, db_conn=None: None,
         )
 
         request = parse_verbatim_command_request(
