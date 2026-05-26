@@ -259,12 +259,19 @@ def source_from_location(location: object) -> TabularSource | None:
     return None
 
 
-def source_from_value(value_struct: object) -> TabularSource | None:
+def source_from_value(
+    value_struct: object,
+    *,
+    db_conn: object | None = None,
+) -> TabularSource | None:
     """Construct the best tabular adapter for a runtime value struct.
 
     Asset resolution is handled first in ``mlody.core.assets``; this function
     only decides whether and how the resolved artifact should be interpreted as
     CSV/parquet/derived tabular data.
+
+    *db_conn* is forwarded to ``asset_from_value`` so remote-asset downloads can
+    record metadata in the mlody SQLite DB when a connection is available.
     """
     derived_spec = derived_location_spec_from_value(value_struct)
     if derived_spec is not None:
@@ -278,7 +285,7 @@ def source_from_value(value_struct: object) -> TabularSource | None:
             if representation_name in {"csv", "parquet"}:
                 return _source_backed_local_source_from_value(value_struct, posix_spec)
 
-    asset = asset_from_value(value_struct)
+    asset = asset_from_value(value_struct, db_conn=db_conn)
     if asset is not None:
         asset_source = _tabular_source_from_asset(value_struct, asset)
         if asset_source is not None:
