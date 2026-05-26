@@ -218,8 +218,14 @@ def _launch_repl(session_globals: dict[str, object], history_file: Path) -> None
         "Repeatable: --load a.mlody --load b.mlody"
     ),
 )
+@click.option(
+    "--as",
+    "run_as",
+    default=None,
+    help="Registered user name to set as the active workspace user.",
+)
 @click.pass_context
-def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
+def shell(ctx: click.Context, eval_files: tuple[Path, ...], run_as: str | None) -> None:
     """Launch a restricted Starlarkish-safe Python REPL with mlody session globals.
 
     Available in the REPL:
@@ -265,6 +271,7 @@ def shell(ctx: click.Context, eval_files: tuple[Path, ...]) -> None:
         workspace_root=workspace_root,
         roots_file=roots,
         full_workspace=full_workspace,
+        user=run_as,
     )
     workspace_obj.registry_view.inject_persistent("actions", make_actions_struct())
     history_file = _get_history_path()

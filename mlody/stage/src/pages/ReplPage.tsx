@@ -17,12 +17,15 @@ import {
 } from "../promptCommands.js";
 import {
   createServerBootstrapController,
+  fetchDbClear,
+  fetchDbStatus,
   fetchServerStatus,
   fetchStageBootstrap,
   fetchStageQueryList,
   restartStageServer,
 } from "../serverApi.js";
 import type {
+  DbStatusPayload,
   ServerRuntimeStatusPayload,
   StageBootstrapPayload,
 } from "../serverApi.js";
@@ -137,20 +140,28 @@ function formatServerEndpoint(protocol: string, endpoint: ServerHealthStatus["ht
   return `${protocol}://${endpoint.host}:${endpoint.port}`;
 }
 
+function formatDbAdmonitionSegment(stats: DbStatusPayload): string {
+  const tableParts = Object.entries(stats.tables)
+    .map(([name, ts]) => `${name}: ${ts.rows} rows`)
+    .join(" · ");
+  return `DB: ${fmtBytes(stats.db_size)}${tableParts ? ` · ${tableParts}` : ""}`;
+}
+
 function buildServerConnectedAdmonition(
   health: ServerHealthStatus,
+  dbStats: DbStatusPayload | null = null,
 ): SystemAdmonition {
   const restEndpoint = formatServerEndpoint("http", health.http);
   const lspTransport = health.lsp.transport ?? "tcp";
   const lspEndpoint = formatServerEndpoint(lspTransport, health.lsp);
+  const dbSegment = dbStats ? ` · ${formatDbAdmonitionSegment(dbStats)}` : "";
 
   return {
     id: "server-connected",
     tone: "gray",
     title: "mlody server connected",
     message:
-      `Everything is good. REST ${restEndpoint} · ` +
-      `LSP ${lspEndpoint}.`,
+      `Everything is good. REST ${restEndpoint} · LSP ${lspEndpoint}${dbSegment}.`,
   };
 }
 
@@ -210,6 +221,36 @@ function formatServerStatusLines(payload: ServerRuntimeStatusPayload): string[] 
   ];
 }
 
+function fmtBytes(n: number): string {
+  if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${n} B`;
+}
+
+function formatDbStatusLines(payload: DbStatusPayload): string[] {
+  const lines: string[] = [
+    `DB path: ${payload.db_path}`,
+    `DB size: ${fmtBytes(payload.db_size)}`,
+    `WAL size: ${payload.wal_size ? fmtBytes(payload.wal_size) : "—"}`,
+    `Total rows: ${payload.total_rows}`,
+  ];
+  for (const [tableName, ts] of Object.entries(payload.tables)) {
+    lines.push(`\n${tableName} (${ts.rows} rows)`);
+    if (ts.oldest !== undefined)
+      lines.push(`  oldest: ${ts.oldest ?? "—"}`, `  newest: ${ts.newest ?? "—"}`);
+    if (ts.uncompressed_bytes !== undefined)
+      lines.push(
+        `  uncompressed: ${fmtBytes(ts.uncompressed_bytes ?? 0)}`,
+        `  compressed: ${fmtBytes(ts.compressed_bytes ?? 0)}`,
+      );
+    for (const [k, v] of Object.entries(ts)) {
+      if (k.startsWith("with_"))
+        lines.push(`  ${k.replace("_", " ")}: ${String(v)} / ${ts.rows}`);
+    }
+  }
+  return lines;
+}
+
 function sameWorkspaceRoot(
   left: WorkspaceSummary | null,
   right: WorkspaceSummary | null,
@@ -258,6 +299,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
   function applyBootstrapPayload(
     payload: StageBootstrapPayload,
     preferredWorkspaceRoot: string | null = null,
+    dbStats: DbStatusPayload | null = null,
   ) {
     const workspaces = payload.workspaces.some((candidate) =>
       sameWorkspaceRoot(candidate, payload.workspace),
@@ -277,7 +319,7 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     setAvailableUsers(payload.users);
     setPrimedHistoryEntries(payload.history);
     setServerStatus("connected");
-    setAdmonitions([buildServerConnectedAdmonition(payload.health)]);
+    setAdmonitions([buildServerConnectedAdmonition(payload.health, dbStats)]);
   }
 
   function applyServerUnavailableState(message: string) {
@@ -303,10 +345,13 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     const { controller, timeoutId } = createServerBootstrapController();
     let active = true;
 
-    void fetchStageBootstrap(controller.signal)
-      .then((payload) => {
+    void Promise.all([
+      fetchStageBootstrap(controller.signal),
+      fetchDbStatus().catch(() => null),
+    ])
+      .then(([payload, dbStats]) => {
         if (!active) return;
-        applyBootstrapPayload(payload);
+        applyBootstrapPayload(payload, null, dbStats);
       })
       .catch((error: unknown) => {
         if (!active) return;
@@ -539,9 +584,12 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
         },
         async (onChunk) => {
           try {
-            const payload = await fetchServerStatus();
+            const [payload, dbStats] = await Promise.all([
+              fetchServerStatus(),
+              fetchDbStatus().catch(() => null),
+            ]);
             setServerStatus("connected");
-            setAdmonitions([buildServerConnectedAdmonition(payload)]);
+            setAdmonitions([buildServerConnectedAdmonition(payload, dbStats)]);
             onChunk({
               kind: "meta",
               text: "Fetched live status from the mlody server.",
@@ -713,6 +761,88 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     );
   }
 
+  async function runDbCommand(
+    rawCommand: string,
+    args: string,
+    fallbackUserName: string,
+    fallbackWorkspaceRoot: string | null,
+  ): Promise<void> {
+    const trimmedArgs = args.trim();
+    if (trimmedArgs === "clear") {
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",db",
+          commandInput: args,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async (onChunk) => {
+          const result = await fetchDbClear();
+          for (const [table, count] of Object.entries(result.deleted)) {
+            onChunk({
+              kind: "stdout",
+              text: `  ${table}: deleted ${count} ${count === 1 ? "row" : "rows"}`,
+            });
+          }
+          onChunk({ kind: "stdout", text: "Done." });
+          return "done";
+        },
+      );
+      return;
+    }
+
+    if (trimmedArgs !== "status" && trimmedArgs !== "") {
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",db",
+          commandInput: args,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async () => {
+          throw new Error(
+            "Unknown db subcommand. Currently supported: ,db status, ,db clear.",
+          );
+        },
+      );
+      return;
+    }
+
+    await queueExecution(
+      {
+        id: createExecutionId(),
+        command: rawCommand,
+        commandName: ",db",
+        commandInput: args,
+        copyCommand: null,
+        runAs: fallbackUserName,
+        workspaceRoot: fallbackWorkspaceRoot,
+        submittedAt: new Date().toISOString(),
+        status: "running",
+        output: [],
+      },
+      async (onChunk) => {
+        const stats = await fetchDbStatus();
+        for (const line of formatDbStatusLines(stats)) {
+          onChunk({ kind: "stdout", text: line });
+        }
+        return "done";
+      },
+    );
+  }
+
   const handleSubmit = ({
     command,
     input,
@@ -745,6 +875,16 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
       const commandName = parsedPromptCommand.name.trim();
       if (commandName === "e2e") {
         void runNamedE2eScenario(
+          parsedPromptCommand.raw,
+          parsedPromptCommand.args,
+          submittedUserName,
+          submittedWorkspace?.workspaceRoot ?? null,
+        );
+        return;
+      }
+
+      if (commandName === "db") {
+        void runDbCommand(
           parsedPromptCommand.raw,
           parsedPromptCommand.args,
           submittedUserName,

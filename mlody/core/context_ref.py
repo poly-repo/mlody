@@ -30,9 +30,13 @@ class ContextRef:
 def build_cfg_struct() -> object:
     """Return the ``cfg`` Starlark global — a Struct of ContextRef sentinels."""
     return struct(
-        sha=ContextRef("cfg.sha", "workspace.commit"),
-        user=ContextRef("cfg.user", "workspace.user"),
-        branch=ContextRef("cfg.branch", "workspace.branch"),
-        directory=ContextRef("cfg.directory", "workspace.directory"),
+        workspace=struct(
+            sha=ContextRef("cfg.workspace.sha", "workspace.commit"),
+            user=ContextRef("cfg.workspace.user", "workspace.user"),
+            branch=ContextRef("cfg.workspace.branch", "workspace.branch"),
+            directory=ContextRef("cfg.workspace.directory", "workspace.directory"),
+            modified_files=ContextRef("cfg.workspace.modified_files", "workspace.modified_files"),
+            untracked_files=ContextRef("cfg.workspace.untracked_files", "workspace.untracked_files"),
+        ),
         run_id=ContextRef("cfg.run_id", "run.id"),
     )

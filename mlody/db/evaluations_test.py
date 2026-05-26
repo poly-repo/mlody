@@ -143,6 +143,7 @@ def test_write_evaluation_all_columns(tmp_path: Path) -> None:
             local_only,
             value_description,
             local_diff_sha,
+            local_patch_sha,
         ) = row
         assert id_ == row_id
         assert created_at == "2026-03-27T10:00:01+00:00"
@@ -156,6 +157,7 @@ def test_write_evaluation_all_columns(tmp_path: Path) -> None:
         assert local_only == 1  # stored as INTEGER
         assert value_description == "bert-large config"
         assert local_diff_sha == "c" * 64
+        assert local_patch_sha is None
     finally:
         conn.close()
 

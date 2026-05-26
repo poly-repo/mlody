@@ -104,6 +104,7 @@ o_py_library(
         "execution.py",
         "freshness.py",
         "generic.py",
+        "git_diff.py",
         "implementation.py",
         "location.py",
         "mm_namespace.py",

@@ -51,6 +51,8 @@ from mlody.cli.dag_render import build_stage_dag_data
 from mlody.cli.lineage_render import is_lineage_type, lineage_rows_from_payload
 from mlody.cli.show_execution import PreparedShowValue, execute_show_action_graph
 from mlody.cli.show import (
+    _DEFAULT_CACHE_SUFFIX,
+    _DEFAULT_DB_NAME,
     _action_graph_title_for_value,
     _dag_title_for_value,
     _describe_mlody_value,
@@ -2414,6 +2416,22 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
             self._write_json_response(HTTPStatus.OK, _server_status_payload(self.server))
             return
 
+        if path == "/api/db/status":
+            from mlody.db.evaluations import open_db  # noqa: PLC0415
+            from mlody.db.stats import gather_stats  # noqa: PLC0415
+
+            db_path = Path.home() / _DEFAULT_CACHE_SUFFIX / _DEFAULT_DB_NAME
+            if not db_path.exists():
+                self._write_json_response(HTTPStatus.NOT_FOUND, {"error": "no database"})
+                return
+            conn = open_db(db_path)
+            try:
+                stats = gather_stats(conn, db_path)
+            finally:
+                conn.close()
+            self._write_json_response(HTTPStatus.OK, stats)
+            return
+
         if path == "/api/users":
             try:
                 workspace = _current_baseline_workspace(self.server.server_config)
@@ -2618,6 +2636,22 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": str(exc)},
                 )
+            return
+
+        if path == "/api/db/clear":
+            from mlody.db.evaluations import open_db  # noqa: PLC0415
+            from mlody.db.stats import clear_tables  # noqa: PLC0415
+
+            db_path = Path.home() / _DEFAULT_CACHE_SUFFIX / _DEFAULT_DB_NAME
+            if not db_path.exists():
+                self._write_json_response(HTTPStatus.NOT_FOUND, {"error": "no database"})
+                return
+            conn = open_db(db_path)
+            try:
+                deleted = clear_tables(conn)
+            finally:
+                conn.close()
+            self._write_json_response(HTTPStatus.OK, {"deleted": deleted})
             return
 
         if path == "/api/server/restart":

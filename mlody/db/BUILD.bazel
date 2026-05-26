@@ -6,6 +6,8 @@ o_py_library(
         "__init__.py",
         "evaluations.py",
         "local_diff.py",
+        "local_patches.py",
+        "stats.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = ["@pip//uuid_utils"],

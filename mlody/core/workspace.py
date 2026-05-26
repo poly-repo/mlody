@@ -139,6 +139,7 @@ class Workspace:
             force_hook=force,
             setf_hook=self._setf_for_mlody,
         )
+        self._patch_diff_ctx()
         self._registry = RegistryView(
             self._evaluator,
             workspace_attribute_writer=self._set_workspace_attribute,
@@ -198,6 +199,7 @@ class Workspace:
             previous=self._evaluator._extra_ctx,  # noqa: SLF001
         )
         self._evaluator.update_extra_ctx(updated_ctx)
+        self._refresh_workspace_attributes()
 
     @property
     def dag(self) -> "networkx.MultiDiGraph":
@@ -246,6 +248,17 @@ class Workspace:
         forked._dag_cache = None
         return forked
 
+    def _patch_diff_ctx(self) -> None:
+        from mlody.common.git_diff import count_workspace_changes  # noqa: PLC0415
+
+        ws_ctx = getattr(self._evaluator._extra_ctx, "workspace", None)
+        sha = str(getattr(ws_ctx, "commit", ""))
+        if not sha:
+            return
+        n_changed, n_untracked = count_workspace_changes(self._monorepo_root, sha)
+        updated_ws = ws_ctx.updated(modified_files=n_changed, untracked_files=n_untracked)
+        self._evaluator._extra_ctx = self._evaluator._extra_ctx.updated(workspace=updated_ws)
+
     def _git(self, *args: str) -> str:
         try:
             result = subprocess.run(
@@ -276,23 +289,36 @@ class Workspace:
         return value.updated(_entity_type=descriptor)
 
     def _build_workspace_info(self) -> Struct:
+        ws_ctx = getattr(self._evaluator._extra_ctx, "workspace", None)
+        run_ctx = getattr(self._evaluator._extra_ctx, "run", None)
+        user = str(getattr(ws_ctx, "user", None) or getattr(run_ctx, "user", None) or "")
         return cast(
             Struct,
             self._decorate_workspace_attribute(
                 "info",
                 Struct(
                     path=str(self._monorepo_root),
-                    branch=self._git("branch", "--show-current"),
-                    sha=self._git("rev-parse", "HEAD"),
+                    branch=str(getattr(ws_ctx, "branch", "")),
+                    sha=str(getattr(ws_ctx, "commit", "")),
                     roots=sorted(self._root_infos.keys()),
+                    user=user,
+                    modified_files=int(getattr(ws_ctx, "modified_files", 0)),
+                    untracked_files=int(getattr(ws_ctx, "untracked_files", 0)),
                 ),
             ),
         )
 
     def _refresh_workspace_attributes(self) -> None:
         current_info = self._workspace_attributes.get("info")
+        ws_ctx = getattr(self._evaluator._extra_ctx, "workspace", None)
+        run_ctx = getattr(self._evaluator._extra_ctx, "run", None)
+        user = str(getattr(ws_ctx, "user", None) or getattr(run_ctx, "user", None) or "")
         if isinstance(current_info, Struct):
-            current_info = current_info.updated(roots=sorted(self._root_infos.keys()))
+            current_info = current_info.updated(
+                roots=sorted(self._root_infos.keys()),
+                user=user,
+                sha=str(getattr(ws_ctx, "commit", current_info.sha)),
+            )
         else:
             current_info = self._build_workspace_info()
         self._workspace_attributes["info"] = self._decorate_workspace_attribute(

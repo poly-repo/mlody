@@ -11,6 +11,7 @@ o_py_library(
         "autocomplete.py",
         "dag_gui.py",
         "dag_render.py",
+        "db.py",
         "lineage_render.py",
         "main.py",
         "server.py",

@@ -100,6 +100,27 @@ function completeServerArgs(args: string): StagePromptAutocompleteResult | null 
   };
 }
 
+function completeDbArgs(args: string): StagePromptAutocompleteResult | null {
+  if (/\s/.test(args)) {
+    return null;
+  }
+
+  return {
+    from: ",db ".length,
+    options: [
+      {
+        label: "clear",
+        detail: "Delete all rows from every table.",
+      },
+      {
+        label: "status",
+        detail: "Show row counts, date ranges, and storage statistics.",
+      },
+    ],
+    validFor: STAGE_PROMPT_COMMAND_VALID_FOR,
+  };
+}
+
 function completeQueryArgs(args: string): StagePromptAutocompleteResult | null {
   if (!/\s/.test(args)) {
     return {
@@ -138,19 +159,24 @@ function completeQueryArgs(args: string): StagePromptAutocompleteResult | null {
 
 const STAGE_PROMPT_COMMANDS: readonly StagePromptCommandDefinition[] = [
   {
+    name: "db",
+    description: "Show database statistics.",
+    completeArgs: completeDbArgs,
+  },
+  {
     name: "e2e",
     description: "Run a named client-side end-to-end scenario.",
     completeArgs: completeE2eArgs,
   },
   {
-    name: "server",
-    description: "Manage the local stage backend.",
-    completeArgs: completeServerArgs,
-  },
-  {
     name: "query",
     description: "Inspect registered workspace entities.",
     completeArgs: completeQueryArgs,
+  },
+  {
+    name: "server",
+    description: "Manage the local stage backend.",
+    completeArgs: completeServerArgs,
   },
 ];
 

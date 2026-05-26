@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from mlody.common.git_diff import count_local_changes
 from mlody.common.image_builder.errors import BazelBuildError
 from mlody.common.image_builder.log import info
 from mlody.common.image_builder.phases.clone import CloneResult
@@ -66,17 +67,11 @@ def _build_labels(
     if ref is not None:
         labels["com.polymath.mlody.ref"] = ref
     if dirty:
-        changed_files = len(
-            {
-                line
-                for line in clone_result.applied_patch.splitlines()
-                if line.startswith("diff ")
-            }
+        changed_files, n_untracked = count_local_changes(
+            clone_result.applied_patch, clone_result.applied_untracked
         )
         labels["com.polymath.mlody.dirty_files_changed"] = str(changed_files)
-        labels["com.polymath.mlody.dirty_untracked"] = str(
-            len(clone_result.applied_untracked)
-        )
+        labels["com.polymath.mlody.dirty_untracked"] = str(n_untracked)
     return labels
 
 

@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 
+from mlody.common.git_diff import local_changes as _git_local_changes
 from mlody.common.image_builder.errors import CloneError
 from mlody.common.image_builder.log import info
 
@@ -97,41 +98,7 @@ def _clone_from(source: str, sha: str, dest: Path) -> None:
 
 
 def _local_changes(cwd: Path, sha: str) -> tuple[str, list[str]]:
-    """Return (patch, untracked_paths) for changes in cwd relative to sha.
-
-    patch           — unified diff output of `git diff <sha>` (empty if none
-                      or if sha is unknown locally), with untracked file diffs
-                      appended via `git diff --no-index /dev/null <path>`
-    untracked_paths — relative paths of untracked files (empty if none)
-    """
-    diff = subprocess.run(
-        ["git", "diff", sha],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    patch = diff.stdout if diff.returncode == 0 else ""
-
-    ls = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    untracked = [p for p in ls.stdout.splitlines() if p] if ls.returncode == 0 else []
-
-    for rel_path in untracked:
-        result = subprocess.run(
-            ["git", "diff", "--no-index", "--", "/dev/null", rel_path],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-        )
-        # exit code 1 = differences found (normal for any non-empty new file)
-        if result.returncode in (0, 1):
-            patch += result.stdout
-
-    return patch, untracked
+    return _git_local_changes(cwd, sha)
 
 
 def _apply_local_changes(

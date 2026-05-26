@@ -284,6 +284,31 @@ export async function fetchServerStatus(): Promise<ServerRuntimeStatusPayload> {
   return payload;
 }
 
+export interface DbTableStats {
+  rows: number;
+  oldest?: string | null;
+  newest?: string | null;
+  uncompressed_bytes?: number;
+  compressed_bytes?: number;
+  [key: string]: unknown;
+}
+
+export interface DbStatusPayload {
+  db_path: string;
+  db_size: number;
+  wal_size: number;
+  total_rows: number;
+  tables: Record<string, DbTableStats>;
+}
+
+export async function fetchDbStatus(): Promise<DbStatusPayload> {
+  return fetchJson<DbStatusPayload>("/api/db/status");
+}
+
+export async function fetchDbClear(): Promise<{ deleted: Record<string, number> }> {
+  return postJson<{ deleted: Record<string, number> }>("/api/db/clear", {});
+}
+
 export async function executeStageCommand(
   command: string,
   input: string,

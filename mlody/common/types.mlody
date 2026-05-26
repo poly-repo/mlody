@@ -607,10 +607,13 @@ typedef(
 typedef(
     name = "mlody_workspace_info",
     base = record(fields = [
-        field(name = "path",   type = string()),
-        field(name = "branch", type = string()),
-        field(name = "sha",    type = string()),
-        field(name = "roots",  type = vector(element_type=string())),
+        field(name = "path",          type = string()),
+        field(name = "branch",        type = string()),
+        field(name = "sha",           type = string()),
+        field(name = "roots",         type = vector(element_type=string())),
+        field(name = "user",          type = string()),
+        field(name = "modified_files",  type = int()),
+        field(name = "untracked_files", type = int()),
     ]),
 )
 

@@ -76,10 +76,13 @@ def build_ctx(
         workspace_fields["commit"] = commit
     if user is not None:
         workspace_fields["user"] = user
+    elif "user" not in workspace_fields:
+        workspace_fields["user"] = getpass.getuser()
 
+    effective_user = str(workspace_fields["user"])
     run_ctx = struct(
         id=str(previous_run.get("id", str(uuid.uuid4()))),
-        user=str(previous_run.get("user", getpass.getuser())),
+        user=effective_user,
     )
     workspace_ctx = struct(**workspace_fields)
     return struct(workspace=workspace_ctx, run=run_ctx)

@@ -44,13 +44,23 @@ def open_db(db_path: Path) -> sqlite3.Connection:
     Applies 0o600 file permissions, enables WAL mode, and runs the DDL
     idempotently before returning.
     """
+    from mlody.db.local_patches import LOCAL_PATCHES_DDL  # noqa: PLC0415
+
     db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     # Enforce owner-only read/write on the DB file (NFR-SEC-001).
     # Called unconditionally — idempotent on already-correct files.
     os.chmod(db_path, 0o600)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(LOCAL_PATCHES_DDL)
     conn.execute(EVALUATIONS_DDL)
+    try:
+        conn.execute(
+            "ALTER TABLE evaluations ADD COLUMN local_patch_sha TEXT"
+            " REFERENCES local_patches(sha)"
+        )
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
     return conn
 
@@ -67,6 +77,7 @@ def write_evaluation(
     local_only: bool,
     value_description: str,
     local_diff_sha: str | None = None,
+    local_patch_sha: str | None = None,
     created_at: str | None = None,
 ) -> str:
     """Insert one evaluation row and return the UUID v7 primary key.
@@ -98,8 +109,8 @@ def write_evaluation(
             id, created_at, completed_at,
             username, hostname,
             requested_ref, resolved_sha, resolved_at,
-            repo, local_only, value_description, local_diff_sha
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            repo, local_only, value_description, local_diff_sha, local_patch_sha
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             row_id,
@@ -114,6 +125,7 @@ def write_evaluation(
             int(local_only),
             value_description,
             local_diff_sha,
+            local_patch_sha,
         ),
     )
     conn.commit()

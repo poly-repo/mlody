@@ -54,6 +54,7 @@ from mlody.core.tabular.location_specs import source_from_value
 from mlody.core.workspace import Workspace, WorkspaceLoadError, force
 from mlody.db.evaluations import open_db, write_evaluation
 from mlody.db.local_diff import compute_local_diff_sha, get_repo_root
+from mlody.db.local_patches import write_local_patch
 from mlody.resolver import (
     MlodyActionValue,
     MlodyFolderValue,
@@ -212,19 +213,20 @@ def _record_evaluation(
     repo: str,
     resolved_at: str,
     value_description: str,
+    patch: str = "",
 ) -> None:
-    """Write one evaluation row to the local SQLite database.
+    """Write one evaluation row (and optionally a local_patches row) to the local SQLite DB.
 
     Best-effort: logs at ERROR level and returns on any failure so a DB error
-    never terminates the show command (NFR-AVAIL-001: never a silent crash —
-    the error is logged clearly). Connection is always closed in the finally
-    block.
+    never terminates the show command (NFR-AVAIL-001). Connection is always
+    closed in the finally block.
     """
     db_path = Path.home() / _DEFAULT_CACHE_SUFFIX / _DEFAULT_DB_NAME
     conn = None
     try:
         conn = open_db(db_path)
         local_diff_sha = compute_local_diff_sha(get_repo_root())
+        local_patch_sha = write_local_patch(conn, patch)
         write_evaluation(
             conn,
             username=_get_username(),
@@ -236,12 +238,19 @@ def _record_evaluation(
             local_only=local_only,
             value_description=value_description,
             local_diff_sha=local_diff_sha,
+            local_patch_sha=local_patch_sha,
         )
     except Exception as exc:
         _logger.error("Failed to write evaluation to %s: %s", db_path, exc)
     finally:
         if conn is not None:
             conn.close()
+
+
+def _head_sha_from_workspace(workspace: Workspace) -> str | None:
+    ws_ctx = getattr(getattr(workspace.evaluator, "_extra_ctx", None), "workspace", None)
+    sha = str(getattr(ws_ctx, "commit", "") or "")
+    return sha if len(sha) == 40 else None
 
 
 def show_fn(
@@ -1590,26 +1599,31 @@ def show(
                     )
                     continue
 
-                if resolved_sha is not None:
-                    # Only record evaluations for committoid-qualified labels
-                    # (cwd-relative labels have no resolved_sha).
-                    cache_root = Path.home() / _DEFAULT_WORKSPACES_SUFFIX
-                    meta = _read_meta(cache_root, resolved_sha)
+                effective_sha = resolved_sha or _head_sha_from_workspace(workspace)
+                if effective_sha:
+                    if resolved_sha is not None:
+                        cache_root = Path.home() / _DEFAULT_WORKSPACES_SUFFIX
+                        meta = _read_meta(cache_root, resolved_sha)
+                        _rec_ref = str(meta.get("requested_ref", _committoid or target))
+                        _rec_local_only = bool(meta.get("local_only", False))
+                        _rec_repo = meta.get("repo") if isinstance(meta.get("repo"), str) else ""  # type: ignore[arg-type]
+                        _rec_resolved_at = str(meta.get("resolved_at", datetime.now(timezone.utc).isoformat()))
+                    else:
+                        from mlody.resolver.git_client import GitClient  # noqa: PLC0415
+                        _rec_ref = target
+                        _rec_local_only = True
+                        _rec_repo = GitClient(monorepo_root).remote_url() or ""
+                        _rec_resolved_at = datetime.now(timezone.utc).isoformat()
+                    from mlody.common.git_diff import local_changes  # noqa: PLC0415
+                    patch, _ = local_changes(monorepo_root, effective_sha)
                     _record_evaluation(
-                        resolved_sha=resolved_sha,
-                        requested_ref=str(
-                            meta.get("requested_ref", _committoid or target)
-                        ),
-                        local_only=bool(meta.get("local_only", False)),
-                        repo=meta.get("repo")
-                        if isinstance(meta.get("repo"), str)
-                        else "",  # type: ignore[arg-type]
-                        resolved_at=str(
-                            meta.get(
-                                "resolved_at", datetime.now(timezone.utc).isoformat()
-                            )
-                        ),
+                        resolved_sha=effective_sha,
+                        requested_ref=_rec_ref,
+                        local_only=_rec_local_only,
+                        repo=_rec_repo,
+                        resolved_at=_rec_resolved_at,
                         value_description=_describe_mlody_value(mlody_value),
+                        patch=patch,
                     )
 
                 if rendered_any_output or not _is_dag_value(mlody_value):
