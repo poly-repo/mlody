@@ -63,17 +63,17 @@ const STAGE_E2E_TESTS: Record<string, StageE2eScenario> = {
       [
         "mav",
         LAUNCH_WORKSPACE_ROOT,
-        "@hooli//basics:country-stats-page-remote._source_range",
+        "@hooli//basics/basic:country-stats-page-remote._source_range",
       ],
       [
         "mav",
         LAUNCH_WORKSPACE_ROOT,
-        "@hooli//basics:country-stats-page-remote.location.info",
+        "@hooli//basics/basic:country-stats-page-remote.location.info",
       ],
       [
         "mav",
         LAUNCH_WORKSPACE_ROOT,
-        "@hooli//basics:country-stats[@sql select country, pop_change ORDER BY pop_change DESC LIMIT 5]",
+        "@hooli//basics/basic:country-stats[@sql select country, pop_change ORDER BY pop_change DESC LIMIT 5]",
       ],
       // CSV remote — Airflow tutorial employees CSV from GitHub
       [
