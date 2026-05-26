@@ -122,6 +122,12 @@ class TestBuildCfgStruct:
         assert isinstance(cfg.workspace.untracked_files, ContextRef)
         assert cfg.workspace.untracked_files.ctx_path == "workspace.untracked_files"
 
+    def test_local_patch_sha_is_context_ref(self) -> None:
+        cfg = build_cfg_struct()
+        assert isinstance(cfg.workspace.local_patch_sha, ContextRef)
+        assert cfg.workspace.local_patch_sha.source == "cfg.workspace.local_patch_sha"
+        assert cfg.workspace.local_patch_sha.ctx_path == "workspace.local_patch_sha"
+
     def test_run_id_is_context_ref(self) -> None:
         cfg = build_cfg_struct()
         assert isinstance(cfg.run_id, ContextRef)

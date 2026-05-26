@@ -249,14 +249,19 @@ class Workspace:
         return forked
 
     def _patch_diff_ctx(self) -> None:
-        from mlody.common.git_diff import count_workspace_changes  # noqa: PLC0415
+        from mlody.common.git_diff import count_workspace_changes, local_patch_sha  # noqa: PLC0415
 
         ws_ctx = getattr(self._evaluator._extra_ctx, "workspace", None)
         sha = str(getattr(ws_ctx, "commit", ""))
         if not sha:
             return
         n_changed, n_untracked = count_workspace_changes(self._monorepo_root, sha)
-        updated_ws = ws_ctx.updated(modified_files=n_changed, untracked_files=n_untracked)
+        patch_sha = local_patch_sha(self._monorepo_root, sha)
+        updated_ws = ws_ctx.updated(
+            modified_files=n_changed,
+            untracked_files=n_untracked,
+            local_patch_sha=patch_sha,
+        )
         self._evaluator._extra_ctx = self._evaluator._extra_ctx.updated(workspace=updated_ws)
 
     def _git(self, *args: str) -> str:

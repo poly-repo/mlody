@@ -50,6 +50,16 @@ def count_local_changes(patch: str, untracked: list[str]) -> tuple[int, int]:
     return n_changed, len(untracked)
 
 
+def local_patch_sha(cwd: Path, sha: str) -> str | None:
+    """Return SHA-256 of the local patch relative to sha, or None if no local diffs."""
+    import hashlib
+
+    patch, _ = local_changes(cwd, sha)
+    if not patch:
+        return None
+    return hashlib.sha256(patch.encode()).hexdigest()
+
+
 def count_workspace_changes(cwd: Path, sha: str) -> tuple[int, int]:
     """Return (n_modified_files, n_untracked_files) relative to sha using name-only queries.
 

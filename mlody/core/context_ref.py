@@ -37,6 +37,7 @@ def build_cfg_struct() -> object:
             directory=ContextRef("cfg.workspace.directory", "workspace.directory"),
             modified_files=ContextRef("cfg.workspace.modified_files", "workspace.modified_files"),
             untracked_files=ContextRef("cfg.workspace.untracked_files", "workspace.untracked_files"),
+            local_patch_sha=ContextRef("cfg.workspace.local_patch_sha", "workspace.local_patch_sha"),
         ),
         run_id=ContextRef("cfg.run_id", "run.id"),
     )
