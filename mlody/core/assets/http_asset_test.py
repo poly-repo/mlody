@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import http.server
+import sqlite3
 import threading
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,13 @@ import pytest
 from mlody.common.struct import Struct
 from mlody.core.assets.http_asset import HttpAssetError, HttpAssetSource
 from mlody.core.assets.manifest import load_manifest
+from mlody.db.assets import (
+    ASSET_BLOBS_DDL,
+    ASSET_OBSERVATIONS_DDL,
+    EXTERNAL_ASSETS_DDL,
+    latest_observation,
+    upsert_external_asset,
+)
 
 
 @pytest.fixture()
@@ -171,3 +179,173 @@ def test_http_asset_source_logs_uri_access(
         "Staged remote URI" in record.message and uri in record.message
         for record in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# DB-backed path tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def asset_db(tmp_path: Path) -> sqlite3.Connection:
+    """Open a fresh in-memory SQLite connection with the three asset DDLs."""
+    conn = sqlite3.connect(tmp_path / "test_assets.sqlite")
+    conn.execute(EXTERNAL_ASSETS_DDL)
+    conn.execute(ASSET_BLOBS_DDL)
+    conn.execute(ASSET_OBSERVATIONS_DDL)
+    conn.commit()
+    return conn
+
+
+def _seed_asset(conn: sqlite3.Connection, uri: str) -> str:
+    from mlody.core.assets.manifest import cache_key_for_uri
+
+    return upsert_external_asset(
+        conn,
+        uri=uri,
+        transport="http",
+        cache_key=cache_key_for_uri(uri),
+    )
+
+
+def test_db_download_inserts_blob_and_observation(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+    asset_db: sqlite3.Connection,
+) -> None:
+    base_url, root = http_server
+    (root / "data.csv").write_text("a,b\n1,2\n")
+    uri = f"{base_url}/data.csv"
+    asset_id = _seed_asset(asset_db, uri)
+
+    materialized = HttpAssetSource(
+        uri=uri,
+        cache_root=tmp_path / "cache",
+        db_conn=asset_db,
+        asset_id=asset_id,
+    ).materialize()
+
+    blob_row = asset_db.execute(
+        "SELECT local_path, size_bytes FROM asset_blobs WHERE content_hash = ?",
+        (materialized.content_hash,),
+    ).fetchone()
+    assert blob_row is not None
+    assert blob_row[0] == str(materialized.path)
+
+    obs_count = asset_db.execute(
+        "SELECT COUNT(*) FROM asset_observations WHERE asset_id = ?",
+        (asset_id,),
+    ).fetchone()[0]
+    assert obs_count == 1
+
+    obs_row = asset_db.execute(
+        "SELECT status FROM asset_observations WHERE asset_id = ?",
+        (asset_id,),
+    ).fetchone()
+    assert obs_row[0] == "downloaded"
+
+
+def test_db_cache_hit_does_not_add_observation(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+    asset_db: sqlite3.Connection,
+) -> None:
+    base_url, root = http_server
+    (root / "data.csv").write_text("a,b\n1,2\n")
+    uri = f"{base_url}/data.csv"
+    asset_id = _seed_asset(asset_db, uri)
+    freshness = Struct(kind="freshness", type="ttl", name="ttl", attributes={"duration": "P1D"})
+
+    source = HttpAssetSource(
+        uri=uri,
+        cache_root=tmp_path / "cache",
+        db_conn=asset_db,
+        asset_id=asset_id,
+        freshness=freshness,
+    )
+    source.materialize()
+    (root / "data.csv").unlink()
+
+    with patch("mlody.core.assets.http_asset.fetch_http_info") as mock_fetch:
+        source.materialize()
+
+    mock_fetch.assert_not_called()
+    obs_count = asset_db.execute(
+        "SELECT COUNT(*) FROM asset_observations WHERE asset_id = ?",
+        (asset_id,),
+    ).fetchone()[0]
+    assert obs_count == 1
+
+
+def test_db_revalidation_adds_revalidated_observation(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+    asset_db: sqlite3.Connection,
+) -> None:
+    base_url, root = http_server
+    (root / "data.csv").write_text("a,b\n1,2\n")
+    uri = f"{base_url}/data.csv"
+    asset_id = _seed_asset(asset_db, uri)
+    freshness = Struct(kind="freshness", type="always", name="always", attributes={})
+
+    source = HttpAssetSource(
+        uri=uri,
+        cache_root=tmp_path / "cache",
+        db_conn=asset_db,
+        asset_id=asset_id,
+        freshness=freshness,
+    )
+    first = source.materialize()
+    # File unchanged — same content-length on second HEAD → no change → revalidated
+    second = source.materialize()
+
+    assert first.content_hash == second.content_hash
+    obs_rows = asset_db.execute(
+        "SELECT status FROM asset_observations WHERE asset_id = ? ORDER BY created_at",
+        (asset_id,),
+    ).fetchall()
+    assert len(obs_rows) == 2
+    assert obs_rows[0][0] == "downloaded"
+    assert obs_rows[1][0] == "revalidated"
+
+
+def test_db_revalidation_redownloads_when_content_changes(
+    http_server: tuple[str, Path],
+    tmp_path: Path,
+    asset_db: sqlite3.Connection,
+) -> None:
+    base_url, root = http_server
+    csv_path = root / "data.csv"
+    csv_path.write_text("a,b\n1,2\n")
+    uri = f"{base_url}/data.csv"
+    asset_id = _seed_asset(asset_db, uri)
+    freshness = Struct(kind="freshness", type="always", name="always", attributes={})
+
+    source = HttpAssetSource(
+        uri=uri,
+        cache_root=tmp_path / "cache",
+        db_conn=asset_db,
+        asset_id=asset_id,
+        freshness=freshness,
+    )
+    first = source.materialize()
+
+    csv_path.write_text("a,b\n1,2\n3,4\n")
+    second = source.materialize()
+
+    assert first.content_hash != second.content_hash
+    obs_rows = asset_db.execute(
+        "SELECT status FROM asset_observations WHERE asset_id = ? ORDER BY created_at",
+        (asset_id,),
+    ).fetchall()
+    assert len(obs_rows) == 2
+    assert obs_rows[1][0] == "downloaded"
+
+
+def test_db_latest_observation_returns_none_before_first_download(
+    asset_db: sqlite3.Connection,
+) -> None:
+    from mlody.core.assets.manifest import cache_key_for_uri
+
+    obs = latest_observation(asset_db, cache_key_for_uri("http://example.com/never.csv"))
+    assert obs is None
