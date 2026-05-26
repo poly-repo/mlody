@@ -14,9 +14,9 @@ COUNTRY_STATS_FIELDS = (
     "country",
     "pop_2022",
     "pop_2023",
+    "pop_change",
     "continent",
     "region",
-    "pop_change",
 )
 
 CONTINENT_STATS_FIELDS = (

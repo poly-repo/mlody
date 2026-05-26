@@ -28,6 +28,31 @@ def _representation_name(value_struct: object) -> str | None:
     return getattr(representation, "name", None) or getattr(representation, "type", None)
 
 
+def _schema_fields_from_representation(value_struct: object) -> tuple[tuple[str, str], ...] | None:
+    """Extract ordered (field_name, type_name) pairs from a representation schema."""
+    representation = getattr(value_struct, "representation", None)
+    if representation is None:
+        return None
+    schema = getattr(representation, "schema", None)
+    if schema is None:
+        return None
+    attrs = getattr(schema, "attributes", None)
+    if isinstance(attrs, dict):
+        raw_fields = attrs.get("fields") or []
+    elif hasattr(attrs, "as_mapping"):
+        raw_fields = attrs.as_mapping().get("fields") or []
+    else:
+        raw_fields = getattr(schema, "fields", None) or []
+    result = []
+    for f in raw_fields:
+        name = getattr(f, "name", None)
+        type_obj = getattr(f, "type", None)
+        type_name = getattr(type_obj, "name", None) or getattr(type_obj, "type", None) or "string"
+        if name:
+            result.append((str(name), str(type_name)))
+    return tuple(result) if result else None
+
+
 def _representation_bool(value_struct: object, attr_name: str, default: bool = False) -> bool:
     """Return a bool representation attribute with a fallback default."""
     representation = getattr(value_struct, "representation", None)
@@ -191,6 +216,7 @@ def _source_backed_local_source_from_value(
             separator=_representation_string(value_struct, "separator", ","),
             header_required=_representation_bool(value_struct, "header_required", True),
             freshness=freshness,
+            schema_fields=_schema_fields_from_representation(value_struct),
         )
 
     return CopiedAssetTabularSource(

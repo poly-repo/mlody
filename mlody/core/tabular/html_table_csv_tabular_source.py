@@ -52,6 +52,7 @@ class HtmlTableCsvTabularSource:
     separator: str = ","
     header_required: bool = True
     freshness: object | None = None
+    schema_fields: tuple[tuple[str, str], ...] | None = None
 
     @property
     def paths(self) -> tuple[str, ...]:
@@ -102,7 +103,17 @@ class HtmlTableCsvTabularSource:
             tables = pd.read_html(str(source_path), flavor="html5lib")
             if not tables:
                 raise ValueError(f"No HTML tables found in source {source_path}")
-            tables[0].to_csv(
+            df = tables[0]
+            if self.schema_fields and len(self.schema_fields) == len(df.columns):
+                df = df.copy()
+                df.columns = [name for name, _ in self.schema_fields]
+                for col_name, type_name in self.schema_fields:
+                    if type_name in ("float", "integer"):
+                        df[col_name] = pd.to_numeric(
+                            df[col_name].astype(str).str.replace(r"[^0-9.\-]", "", regex=True),
+                            errors="coerce",
+                        )
+            df.to_csv(
                 tmp_path,
                 index=False,
                 sep=self.separator,
