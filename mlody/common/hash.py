@@ -32,7 +32,7 @@ def _hash_value(
     seen.add(value_id)
 
     location = getattr(value, "location", None)
-    if getattr(location, "type", None) in {"remote", "ssh"}:
+    if getattr(location, "type", None) in {"remote", "https", "ssh"}:
         asset = asset_from_value(value, db_conn=db_conn)
         if asset is None:
             return None

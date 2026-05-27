@@ -169,16 +169,16 @@ def test_source_from_value_returns_derived_source_for_derived_value() -> None:
     assert source.spec.source_paths == ("data/*.parquet",)
 
 
-def test_remote_location_spec_reads_uri_from_attributes() -> None:
+def test_remote_location_spec_reads_uri_from_https_attributes() -> None:
     location = Struct(
         kind="location",
-        type="remote",
+        type="https",
         attributes={"uri": "https://example.com/data.csv"},
     )
 
     spec = RemoteLocationSpec.from_location(location)
 
-    assert spec == RemoteLocationSpec(uri="https://example.com/data.csv", name="remote")
+    assert spec == RemoteLocationSpec(uri="https://example.com/data.csv", name="https")
 
 
 def test_ssh_location_spec_reads_struct_like_attributes(

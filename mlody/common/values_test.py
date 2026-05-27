@@ -895,7 +895,7 @@ def test_cached_value_expands_to_remote_and_local_values() -> None:
         'cached_value(\n'
         '  name="raw_employees",\n'
         '  type=vector(element_type=":employee"),\n'
-        '  source=remote(uri="https://example.com/employees.csv"),\n'
+        '  source=https(uri="https://example.com/employees.csv"),\n'
         '  location=posix(path="~/.cache/mlody/employees.csv"),\n'
         '  representation=csv(),\n'
         '  freshness=ttl(duration="1day"),\n'
@@ -905,7 +905,7 @@ def test_cached_value_expands_to_remote_and_local_values() -> None:
     local_value = ev.registry.values.by_name["raw_employees"]
     remote_value = ev.registry.values.by_name["raw_employees-remote"]
 
-    assert remote_value.location.type == "remote"
+    assert remote_value.location.type == "https"
     assert remote_value.freshness.name == "manual"
     assert remote_value.representation.name == "csv"
 
@@ -940,6 +940,18 @@ def test_cached_value_accepts_ssh_source_location() -> None:
     assert local_value.location.type == "posix"
     assert local_value.source == ":raw_employees-remote"
     assert local_value._source_value.name == "raw_employees-remote"
+
+
+def test_cached_value_requires_remote_like_source_location() -> None:
+    with pytest.raises(ValueError, match="https.*remote.*ssh"):
+        _eval(
+            'cached_value(\n'
+            '  name="raw_employees",\n'
+            '  source=posix(path="data/employees.csv"),\n'
+            '  location=posix(path="~/.cache/mlody/employees.csv"),\n'
+            '  representation=csv(),\n'
+            ')\n'
+        )
 
 
 def test_cached_value_supports_non_tabular_html_representation() -> None:
@@ -997,18 +1009,6 @@ def test_cached_value_respects_custom_remote_name() -> None:
     assert "raw_employees" in ev.registry.values.by_name
     assert "raw_employees_origin" in ev.registry.values.by_name
     assert ev.registry.values.by_name["raw_employees"].source == ":raw_employees_origin"
-
-
-def test_cached_value_requires_remote_like_source_location() -> None:
-    with pytest.raises(ValueError, match="remote.*ssh"):
-        _eval(
-            'cached_value(\n'
-            '  name="raw_employees",\n'
-            '  source=posix(path="data/employees.csv"),\n'
-            '  location=posix(path="~/.cache/mlody/employees.csv"),\n'
-            '  representation=csv(),\n'
-            ')\n'
-        )
 
 
 def test_cached_value_generated_values_share_call_source_range() -> None:

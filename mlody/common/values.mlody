@@ -405,9 +405,9 @@ def cached_value(
         raise TypeError("cached_value(location=...) is required")
 
     remote_location = _resolve_location_ref(source)
-    if python.getattr(remote_location, "type", None) not in ("remote", "ssh"):
+    if python.getattr(remote_location, "type", None) not in ("remote", "https", "ssh"):
         raise ValueError(
-            "cached_value(source=...) requires location=remote(...) or ssh(...) in v1"
+            "cached_value(source=...) requires location=https(...), remote(...), or ssh(...) in v1"
         )
     local_location = _resolve_location_ref(location)
 

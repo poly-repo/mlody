@@ -163,22 +163,24 @@ class PosixLocationSpec:
 
 @dataclass(frozen=True)
 class RemoteLocationSpec:
-    """Typed view of a transport-only remote location."""
+    """Typed view of an HTTP-backed remote location."""
 
     uri: str
     name: str = "remote"
 
     @classmethod
     def from_location(cls, location: object) -> RemoteLocationSpec | None:
-        """Parse a runtime location object into a typed remote spec."""
-        if location is None or _specific_kind(location) != "remote":
+        """Parse a runtime location object into a typed HTTP-backed spec."""
+        kind = _specific_kind(location)
+        if location is None or kind not in {"remote", "https"}:
             return None
         uri = getattr(location, "uri", None)
         if uri is None:
             uri = _location_attributes(location).get("uri")
         if not isinstance(uri, str) or uri == "":
             return None
-        return cls(uri=uri, name=str(getattr(location, "name", "remote") or "remote"))
+        default_name = kind if kind in {"remote", "https"} else "https"
+        return cls(uri=uri, name=str(getattr(location, "name", default_name) or default_name))
 
 
 @dataclass(frozen=True)

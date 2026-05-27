@@ -199,30 +199,30 @@ def test_location_info_method_is_merged_with_custom_methods() -> None:
     assert result.methods.extra(result) == "custom_loc"
 
 
-def test_remote_requires_uri_and_stores_it() -> None:
-    """remote(uri=...) creates a location struct carrying the URI."""
-    ev = _eval('result = remote(uri="https://example.com/data.csv")')
+def test_https_requires_uri_and_stores_it() -> None:
+    """https(uri=...) creates a location struct carrying the URI."""
+    ev = _eval('result = https(uri="https://example.com/data.csv")')
     result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
     assert result.kind == "location"
-    assert result.type == "remote"
+    assert result.type == "https"
     assert result.attributes["uri"] == "https://example.com/data.csv"
 
 
-def test_remote_missing_uri_raises_value_error() -> None:
-    """remote() requires the mandatory uri attribute."""
+def test_https_missing_uri_raises_value_error() -> None:
+    """https() requires the mandatory uri attribute."""
     with pytest.raises(ValueError, match="Missing mandatory argument"):
-        _eval("result = remote()")
+        _eval("result = https()")
 
 
-def test_remote_rejects_non_string_uri() -> None:
-    """remote(uri=123) validates the uri type."""
+def test_https_rejects_non_string_uri() -> None:
+    """https(uri=123) validates the uri type."""
     with pytest.raises(TypeError):
-        _eval("result = remote(uri=123)")
+        _eval("result = https(uri=123)")
 
 
-def test_remote_location_info_method_returns_http_metadata_struct() -> None:
-    """remote.info() delegates to python.http_info() and returns a struct-like result."""
-    ev = _eval('result = remote(uri="https://example.com/data.csv")')
+def test_https_location_info_method_returns_http_metadata_struct() -> None:
+    """https.info() delegates to python.http_info() and returns a struct-like result."""
+    ev = _eval('result = https(uri="https://example.com/data.csv")')
     result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
 
     with patch.object(
@@ -243,6 +243,15 @@ def test_remote_location_info_method_returns_http_metadata_struct() -> None:
     assert info.digest_type == "etag"
     assert info.length == 17
     assert info.update_time == "2026-05-11T14:32:11Z"
+
+
+def test_remote_is_kept_as_compatibility_alias() -> None:
+    """remote(uri=...) remains available as a compatibility alias."""
+    ev = _eval('result = remote(uri="https://example.com/data.csv")')
+    result = ev._module_globals[ev.root_path / "test.mlody"]["result"]
+    assert result.kind == "location"
+    assert result.type == "remote"
+    assert result.attributes["uri"] == "https://example.com/data.csv"
 
 
 def test_inline_data_accepts_arbitrary_value_without_loading_types_module() -> None:

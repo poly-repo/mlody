@@ -21,7 +21,7 @@ def _normalize_location_kwargs(loc_struct, kwargs):
 
 def _location_info(location, enclosing):
     _ = enclosing
-    if python.getattr(location, "type", None) == "remote":
+    if python.getattr(location, "type", None) in ("remote", "https"):
         attributes = python.getattr(location, "attributes", None)
         uri = attributes.get("uri") if attributes != None else python.getattr(location, "uri", None)
         if uri != None:
@@ -269,6 +269,13 @@ location(
         "login": attr(type="string", mandatory=False),
         "password": attr(type="string", mandatory=False),
         "port": attr(type="integer", mandatory=False, default=5432),
+    },
+)
+
+location(
+    name = "https",
+    attrs = {
+        "uri": attr(type="string", mandatory=True), # we can do better than string for URIs
     },
 )
 

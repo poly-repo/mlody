@@ -82,10 +82,10 @@ def _write_ssh_cache(
     return cache_path
 
 
-def test_asset_from_location_returns_http_asset_for_remote_location() -> None:
+def test_asset_from_location_returns_http_asset_for_https_location() -> None:
     location = Struct(
         kind="location",
-        type="remote",
+        type="https",
         attributes={"uri": "https://example.com/data.json"},
     )
 
@@ -145,7 +145,7 @@ def test_asset_from_value_returns_http_asset_for_remote_non_tabular_value() -> N
     value_struct = Struct(
         kind="value",
         _lineage=[],
-        location=Struct(kind="location", type="remote", uri="https://example.com/data.bin"),
+        location=Struct(kind="location", type="https", uri="https://example.com/data.bin"),
         representation=Struct(kind="representation", name="json", attributes={}),
     )
 

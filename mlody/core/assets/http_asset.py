@@ -63,7 +63,7 @@ class HttpAssetSource:
         parsed = urlparse(self.uri)
         if parsed.scheme not in {"http", "https"}:
             raise HttpAssetError(
-                f"remote(uri=...) only supports http/https in v1, got {parsed.scheme!r}"
+                f"https(uri=...) only supports http/https in v1, got {parsed.scheme!r}"
             )
 
         if self.db_conn is not None and self.asset_id is not None:

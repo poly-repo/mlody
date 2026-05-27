@@ -194,6 +194,35 @@ def test_hash_generic_returns_upstream_remote_hash_for_source_backed_local_value
     mock_materialize.assert_called_once()
 
 
+def test_hash_generic_returns_upstream_ssh_hash_for_source_backed_local_value(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    contents = "ssh payload\n"
+    _write_ssh_cache(
+        tmp_path,
+        monkeypatch,
+        host="hooli",
+        remote_path="/exports/data.txt",
+        contents=contents,
+    )
+
+    ev = _eval(
+        """
+        cached_value(
+            name="artifact",
+            type=string(),
+            source=ssh(host="hooli", path="/exports/data.txt"),
+            location=posix(path="/tmp/artifact.txt"),
+            freshness=ttl(duration="P1D"),
+        )
+        result = hash(builtins.lookup("value", "artifact"))
+        """
+    )
+
+    assert _result(ev) == hashlib.sha256(contents.encode("utf-8")).hexdigest()
+
+
 def test_python_hash_returns_remote_content_hash() -> None:
     value_struct = Struct(
         kind="value",
