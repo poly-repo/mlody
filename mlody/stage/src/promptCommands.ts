@@ -121,6 +121,31 @@ function completeDbArgs(args: string): StagePromptAutocompleteResult | null {
   };
 }
 
+function completeCacheArgs(args: string): StagePromptAutocompleteResult | null {
+  if (/\s/.test(args)) {
+    return null;
+  }
+
+  return {
+    from: ",cache ".length,
+    options: [
+      {
+        label: "status",
+        detail: "Show cache size, top assets, and unreferenced entries.",
+      },
+      {
+        label: "clean",
+        detail: "Delete unreferenced cache entries.",
+      },
+      {
+        label: "clean --all",
+        detail: "Delete all cache entries.",
+      },
+    ],
+    validFor: STAGE_PROMPT_COMMAND_VALID_FOR,
+  };
+}
+
 function completeQueryArgs(args: string): StagePromptAutocompleteResult | null {
   if (!/\s/.test(args)) {
     return {
@@ -158,6 +183,11 @@ function completeQueryArgs(args: string): StagePromptAutocompleteResult | null {
 }
 
 const STAGE_PROMPT_COMMANDS: readonly StagePromptCommandDefinition[] = [
+  {
+    name: "cache",
+    description: "Show file-system cache statistics.",
+    completeArgs: completeCacheArgs,
+  },
   {
     name: "db",
     description: "Show database statistics.",

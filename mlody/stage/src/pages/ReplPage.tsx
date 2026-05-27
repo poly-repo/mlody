@@ -17,6 +17,8 @@ import {
 } from "../promptCommands.js";
 import {
   createServerBootstrapController,
+  fetchCacheClean,
+  fetchCacheStatus,
   fetchDbClear,
   fetchDbStatus,
   fetchServerStatus,
@@ -25,6 +27,9 @@ import {
   restartStageServer,
 } from "../serverApi.js";
 import type {
+  CacheAssetEntry,
+  CacheCleanPayload,
+  CacheStatusPayload,
   DbStatusPayload,
   ServerRuntimeStatusPayload,
   StageBootstrapPayload,
@@ -276,6 +281,59 @@ function formatDbStatusChunks(payload: DbStatusPayload): OutputChunk[] {
       }
     }
     chunks.push({ kind: "kv", entries });
+  }
+
+  return chunks;
+}
+
+function cacheEntryDisplayName(entry: CacheAssetEntry): string {
+  if (entry.value_name) return entry.value_name;
+  if (entry.uri) {
+    const lastSegment = entry.uri.split("/").filter(Boolean).pop();
+    if (lastSegment) return lastSegment;
+  }
+  if (entry.columns) return entry.columns;
+  return entry.hash.slice(0, 12);
+}
+
+function formatCacheAssetEntry(entry: CacheAssetEntry): OutputChunk {
+  const entries: KvEntry[] = [kv(cacheEntryDisplayName(entry), fmtBytes(entry.size_bytes))];
+  entries.push(kv("path", entry.path));
+  if (entry.downloaded_at) {
+    entries.push(kv("downloaded", fmtRelTime(entry.downloaded_at)));
+  }
+  if (entry.uri && entry.value_name) {
+    entries.push(kv("uri", entry.uri));
+  }
+  return { kind: "kv", entries };
+}
+
+function formatCacheStatusChunks(payload: CacheStatusPayload): OutputChunk[] {
+  const chunks: OutputChunk[] = [];
+
+  chunks.push({
+    kind: "kv",
+    entries: [
+      kv("cache", payload.cache_root),
+      kv("size", fmtBytes(payload.total_size_bytes)),
+      kv("http", String(payload.http_count)),
+      kv("derived", String(payload.derived_count)),
+      kv("unreferenced", String(payload.unreferenced_count)),
+    ],
+  });
+
+  if (payload.top_assets.length > 0) {
+    chunks.push({ kind: "stdout", text: "top assets" });
+    for (const entry of payload.top_assets) {
+      chunks.push(formatCacheAssetEntry(entry));
+    }
+  }
+
+  if (payload.unreferenced_count > 0) {
+    chunks.push({ kind: "stdout", text: "unreferenced assets" });
+    for (const entry of payload.unreferenced) {
+      chunks.push(formatCacheAssetEntry(entry));
+    }
   }
 
   return chunks;
@@ -873,6 +931,91 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
     );
   }
 
+  async function runCacheCommand(
+    rawCommand: string,
+    args: string,
+    fallbackUserName: string,
+    fallbackWorkspaceRoot: string | null,
+  ): Promise<void> {
+    const trimmedArgs = args.trim();
+
+    if (trimmedArgs === "clean" || trimmedArgs === "clean --all") {
+      const cleanAll = trimmedArgs === "clean --all";
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",cache",
+          commandInput: args,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async (onChunk) => {
+          const result: CacheCleanPayload = await fetchCacheClean(cleanAll);
+          const noun = result.deleted_count === 1 ? "entry" : "entries";
+          onChunk({
+            kind: "stdout",
+            text: `Deleted ${result.deleted_count} ${noun}, freed ${fmtBytes(result.freed_bytes)}.`,
+          });
+          for (const entry of result.deleted) {
+            onChunk(formatCacheAssetEntry(entry));
+          }
+          return "done";
+        },
+      );
+      return;
+    }
+
+    if (trimmedArgs !== "status" && trimmedArgs !== "") {
+      await queueExecution(
+        {
+          id: createExecutionId(),
+          command: rawCommand,
+          commandName: ",cache",
+          commandInput: args,
+          copyCommand: null,
+          runAs: fallbackUserName,
+          workspaceRoot: fallbackWorkspaceRoot,
+          submittedAt: new Date().toISOString(),
+          status: "running",
+          output: [],
+        },
+        async () => {
+          throw new Error(
+            "Unknown cache subcommand. Currently supported: ,cache status, ,cache clean.",
+          );
+        },
+      );
+      return;
+    }
+
+    await queueExecution(
+      {
+        id: createExecutionId(),
+        command: rawCommand,
+        commandName: ",cache",
+        commandInput: args,
+        copyCommand: null,
+        runAs: fallbackUserName,
+        workspaceRoot: fallbackWorkspaceRoot,
+        submittedAt: new Date().toISOString(),
+        status: "running",
+        output: [],
+      },
+      async (onChunk) => {
+        const stats = await fetchCacheStatus();
+        for (const chunk of formatCacheStatusChunks(stats)) {
+          onChunk(chunk);
+        }
+        return "done";
+      },
+    );
+  }
+
   const handleSubmit = ({
     command,
     input,
@@ -905,6 +1048,16 @@ export function ReplPage({ executor = serverExecutor }: ReplPageProps) {
       const commandName = parsedPromptCommand.name.trim();
       if (commandName === "e2e") {
         void runNamedE2eScenario(
+          parsedPromptCommand.raw,
+          parsedPromptCommand.args,
+          submittedUserName,
+          submittedWorkspace?.workspaceRoot ?? null,
+        );
+        return;
+      }
+
+      if (commandName === "cache") {
+        void runCacheCommand(
           parsedPromptCommand.raw,
           parsedPromptCommand.args,
           submittedUserName,

@@ -5,13 +5,17 @@ o_py_library(
     srcs = [
         "__init__.py",
         "assets.py",
+        "cache_stats.py",
         "evaluations.py",
         "local_diff.py",
         "local_patches.py",
         "stats.py",
     ],
     visibility = ["//:__subpackages__"],
-    deps = ["@pip//uuid_utils"],
+    deps = [
+        "//mlody/core:core_lib",
+        "@pip//uuid_utils",
+    ],
 )
 
 o_py_test(

@@ -2438,6 +2438,22 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
             self._write_json_response(HTTPStatus.OK, stats)
             return
 
+        if path == "/api/cache/status":
+            from mlody.db.evaluations import open_db  # noqa: PLC0415
+            from mlody.db.cache_stats import gather_cache_status  # noqa: PLC0415
+
+            cache_root = Path.home() / _DEFAULT_CACHE_SUFFIX
+            db_path = cache_root / _DEFAULT_DB_NAME
+            workspace = _current_baseline_workspace(self.server.server_config)
+            conn = open_db(db_path) if db_path.exists() else None
+            try:
+                stats = gather_cache_status(workspace, conn, cache_root)
+            finally:
+                if conn is not None:
+                    conn.close()
+            self._write_json_response(HTTPStatus.OK, stats)
+            return
+
         if path == "/api/users":
             try:
                 workspace = _current_baseline_workspace(self.server.server_config)
@@ -2658,6 +2674,23 @@ class MlodyApiRequestHandler(BaseHTTPRequestHandler):
             finally:
                 conn.close()
             self._write_json_response(HTTPStatus.OK, {"deleted": deleted})
+            return
+
+        if path == "/api/cache/clean":
+            from mlody.db.evaluations import open_db  # noqa: PLC0415
+            from mlody.db.cache_stats import clean_cache  # noqa: PLC0415
+
+            clean_all = bool(payload.get("all", False))
+            cache_root = Path.home() / _DEFAULT_CACHE_SUFFIX
+            db_path = cache_root / _DEFAULT_DB_NAME
+            workspace = _current_baseline_workspace(self.server.server_config)
+            conn = open_db(db_path) if db_path.exists() else None
+            try:
+                result = clean_cache(workspace, conn, cache_root, clean_all=clean_all)
+            finally:
+                if conn is not None:
+                    conn.close()
+            self._write_json_response(HTTPStatus.OK, result)
             return
 
         if path == "/api/server/restart":

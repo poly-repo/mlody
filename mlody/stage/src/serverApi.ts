@@ -305,6 +305,42 @@ export async function fetchDbStatus(): Promise<DbStatusPayload> {
   return fetchJson<DbStatusPayload>("/api/db/status");
 }
 
+export interface CacheAssetEntry {
+  hash: string;
+  path: string;
+  uri: string | null;
+  value_name: string | null;
+  columns: string | null;
+  size_bytes: number;
+  kind: "http" | "derived";
+  downloaded_at: string | null;
+  referenced: boolean;
+}
+
+export interface CacheStatusPayload {
+  cache_root: string;
+  total_size_bytes: number;
+  http_count: number;
+  derived_count: number;
+  unreferenced_count: number;
+  unreferenced: CacheAssetEntry[];
+  top_assets: CacheAssetEntry[];
+}
+
+export async function fetchCacheStatus(): Promise<CacheStatusPayload> {
+  return fetchJson<CacheStatusPayload>("/api/cache/status");
+}
+
+export interface CacheCleanPayload {
+  deleted_count: number;
+  freed_bytes: number;
+  deleted: CacheAssetEntry[];
+}
+
+export async function fetchCacheClean(cleanAll: boolean): Promise<CacheCleanPayload> {
+  return postJson<CacheCleanPayload>("/api/cache/clean", { all: cleanAll });
+}
+
 export async function fetchDbClear(): Promise<{ deleted: Record<string, number> }> {
   return postJson<{ deleted: Record<string, number> }>("/api/db/clear", {});
 }
