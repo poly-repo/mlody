@@ -128,6 +128,27 @@ def test_hash_generic_returns_none_for_non_remote_value() -> None:
     assert _result(ev) is None
 
 
+def test_hash_generic_returns_upstream_remote_hash_for_source_backed_local_value() -> None:
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+        mock_materialize.return_value = _remote_asset(content_hash="source-remote-hash")
+
+        ev = _eval(
+            """
+            cached_value(
+                name="artifact",
+                type=string(),
+                source=remote(uri="https://example.com/data.txt"),
+                location=posix(path="/tmp/artifact.txt"),
+                freshness=ttl(duration="P1D"),
+            )
+            result = hash(builtins.lookup("value", "artifact"))
+            """
+        )
+
+    assert _result(ev) == "source-remote-hash"
+    mock_materialize.assert_called_once()
+
+
 def test_python_hash_returns_remote_content_hash() -> None:
     value_struct = Struct(
         kind="value",
@@ -146,6 +167,40 @@ def test_python_hash_returns_remote_content_hash() -> None:
         result = value_hash(value_struct)
 
     assert result == "py-hash-1"
+    mock_materialize.assert_called_once()
+
+
+def test_python_hash_returns_upstream_remote_hash_for_source_backed_local_value() -> None:
+    remote_value = Struct(
+        kind="value",
+        name="artifact-remote",
+        location=Struct(
+            kind="location",
+            type="remote",
+            name="remote",
+            attributes={"uri": "https://example.com/data.txt"},
+        ),
+        freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+    )
+    local_value = Struct(
+        kind="value",
+        name="artifact",
+        location=Struct(
+            kind="location",
+            type="posix",
+            name="posix",
+            attributes={"path": ["/tmp/artifact.txt"]},
+        ),
+        source=":artifact-remote",
+        _source_value=remote_value,
+        freshness=Struct(kind="freshness", type="ttl", name="ttl", attributes={"duration": "P1D"}),
+    )
+
+    with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+        mock_materialize.return_value = _remote_asset(content_hash="py-source-remote-hash")
+        result = value_hash(local_value)
+
+    assert result == "py-source-remote-hash"
     mock_materialize.assert_called_once()
 
 

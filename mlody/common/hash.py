@@ -8,21 +8,45 @@ from mlody.core.assets.resolution import asset_from_value
 def hash(value: object, *, db_conn: object | None = None) -> str | None:
     """Return the semantic content hash for *value* when one is available.
 
-    Today only remote runtime values participate. Materialization is delegated
-    to the asset layer so freshness checks, revalidation, and downloads happen
-    in exactly one place.
+    Remote values materialize through the asset layer so freshness checks,
+    revalidation, and downloads happen in exactly one place. Source-backed
+    local values follow their resolved ``_source_value`` chain until a remote
+    source is reached, allowing ``hash(resolve(...))`` to work on cached remote
+    artifacts and similar wrappers.
     """
+    return _hash_value(value, db_conn=db_conn, seen=set())
+
+
+def _hash_value(
+    value: object,
+    *,
+    db_conn: object | None,
+    seen: set[int],
+) -> str | None:
     if getattr(value, "kind", None) != "value":
         return None
 
-    location = getattr(value, "location", None)
-    if getattr(location, "type", None) != "remote":
+    value_id = id(value)
+    if value_id in seen:
         return None
+    seen.add(value_id)
 
-    asset = asset_from_value(value, db_conn=db_conn)
-    if asset is None:
-        return None
-    return asset.materialize().content_hash
+    location = getattr(value, "location", None)
+    if getattr(location, "type", None) == "remote":
+        asset = asset_from_value(value, db_conn=db_conn)
+        if asset is None:
+            return None
+        return asset.materialize().content_hash
+
+    source_value = getattr(value, "_source_value", None)
+    if source_value is not None:
+        return _hash_value(source_value, db_conn=db_conn, seen=seen)
+
+    source_attr = getattr(value, "source", None)
+    if getattr(source_attr, "kind", None) == "value":
+        return _hash_value(source_attr, db_conn=db_conn, seen=seen)
+
+    return None
 
 
 __all__ = ["hash"]

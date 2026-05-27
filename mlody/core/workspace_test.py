@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import io
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
@@ -930,6 +931,87 @@ builtins.register("task", Struct(
         assert isinstance(updated, Struct)
         assert updated.description == "release"  # type: ignore[attr-defined]
         assert ws.resolve("@lexica//downloader:downloader.description") == "release"
+
+    def test_hash_of_resolved_source_backed_value_works_in_mlody_and_python(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        from mlody.common.hash import hash as value_hash
+        from mlody.core.assets.interfaces import MaterializedAsset
+        from mlody.core.assets.metadata import AssetMetadata
+
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/assets.mlody"),
+            contents="""\
+remote_artifact = Struct(
+    kind="value",
+    name="artifact-remote",
+    location=Struct(
+        kind="location",
+        type="remote",
+        name="remote",
+        attributes={"uri": "https://example.com/data.txt"},
+    ),
+    freshness=Struct(
+        kind="freshness",
+        type="manual",
+        name="manual",
+        attributes={},
+    ),
+)
+
+builtins.register("value", Struct(
+    kind="value",
+    name="artifact",
+    location=Struct(
+        kind="location",
+        type="posix",
+        name="posix",
+        attributes={"path": ["~/.cache/mlody/artifacts/lexica/artifact.txt"]},
+    ),
+    source=":artifact-remote",
+    _source_value=remote_artifact,
+    freshness=Struct(
+        kind="freshness",
+        type="ttl",
+        name="ttl",
+        attributes={"duration": "P1D"},
+    ),
+))
+
+builtins.register("root", Struct(
+    name="hash_result",
+    starlark_hash=hash(resolve("@lexica//assets:artifact")),
+))
+""",
+        )
+
+        materialized = MaterializedAsset(
+            path=Path("/tmp/artifact.txt"),
+            content_hash="resolved-remote-hash",
+            metadata=AssetMetadata(
+                uri="https://example.com/data.txt",
+                resolved_url="https://example.com/data.txt",
+                digest=None,
+                digest_type=None,
+                length=None,
+                update_time=None,
+            ),
+        )
+
+        with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
+            mock_materialize.return_value = materialized
+
+            ws = Workspace(monorepo_root=project)
+            ws.load()
+
+            result = ws.evaluator.registry.roots.by_name["hash_result"]  # type: ignore[attr-defined]
+            assert result.starlark_hash == "resolved-remote-hash"  # type: ignore[attr-defined]
+            assert (
+                value_hash(ws.resolve("@lexica//assets:artifact"))
+                == "resolved-remote-hash"
+            )
 
 
 class TestExpandWildcardLabel:

@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable
 
-from mlody.common.struct import Struct
+from mlody.common.struct import Struct, is_struct_like, struct_like_as_mapping
 from mlody.core.query_spec import QuerySpec
 
 
@@ -43,7 +43,19 @@ def _paths_from_location(location: object) -> tuple[str, ...]:
     attrs = getattr(location, "attributes", None)
     if isinstance(attrs, dict):
         return _coerce_path_tuple(attrs.get("path"))
+    if is_struct_like(attrs):
+        return _coerce_path_tuple(struct_like_as_mapping(attrs).get("path"))
     return ()
+
+
+def _location_attributes(location: object) -> dict[str, object]:
+    """Return a location's attributes payload regardless of mapping shape."""
+    attrs = getattr(location, "attributes", None)
+    if isinstance(attrs, dict):
+        return dict(attrs)
+    if is_struct_like(attrs):
+        return dict(struct_like_as_mapping(attrs))
+    return {}
 
 
 def _source_value_struct(value_struct: object) -> object | None:
@@ -163,9 +175,7 @@ class RemoteLocationSpec:
             return None
         uri = getattr(location, "uri", None)
         if uri is None:
-            attrs = getattr(location, "attributes", None)
-            if isinstance(attrs, dict):
-                uri = attrs.get("uri")
+            uri = _location_attributes(location).get("uri")
         if not isinstance(uri, str) or uri == "":
             return None
         return cls(uri=uri, name=str(getattr(location, "name", "remote") or "remote"))
@@ -186,9 +196,7 @@ class DerivedLocationSpec:
         """Parse a derived runtime location object into a typed spec."""
         if location is None or _specific_kind(location) != "derived":
             return None
-        attrs = getattr(location, "attributes", {}) or {}
-        if not isinstance(attrs, dict):
-            attrs = {}
+        attrs = _location_attributes(location)
         query = QuerySpec(
             sql=str(attrs.get("sql_fragment") or ""),
             dialect=str(attrs.get("dialect") or "duckdb"),
