@@ -209,6 +209,7 @@ def test_workspace_loader_propagates_stage_value_injection(
     project = Path("/workspace")
     fs.create_dir(str(project / "mlody" / "teams" / "lexica"))
     fs.create_file(str(project / "mlody" / "common" / "types.mlody"), contents="")
+    fs.create_file(str(project / "mlody" / "common" / "hash.mlody"), contents="")
     fs.create_file(str(project / "mlody" / "common" / "mm.mlody"), contents="")
     fs.create_file(str(project / "mlody" / "common" / "render.mlody"), contents="")
     fs.create_file(str(project / "mlody" / "common" / "config.mlody"), contents="")
@@ -238,9 +239,11 @@ def test_workspace_loader_propagates_stage_value_injection(
     loader.load()
 
     render_path = project / "mlody" / "common" / "render.mlody"
+    hash_path = project / "mlody" / "common" / "hash.mlody"
     propagated = {
         path: names for path, names in registry.propagated_injections
     }
+    assert "hash" in propagated[hash_path]
     assert "stage_value" in propagated[render_path]
 
 

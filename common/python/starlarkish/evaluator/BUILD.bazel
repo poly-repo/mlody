@@ -12,6 +12,7 @@ o_py_library(
     deps = [
         "//common/python:http_info_lib",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/common:hash_lib",
         "@pip//astropy",
         "@pip//uuid_utils",
     ],

@@ -57,6 +57,7 @@ from urllib.parse import urlparse, urlunparse
 
 import uuid_utils
 from common.python.http_info import fetch_http_info
+from mlody.common.hash import hash as _mlody_hash
 
 try:
     from mlody.common.struct import (
@@ -734,6 +735,7 @@ def _http_info(uri: object) -> dict[str, object]:
 PYTHON_SPECIFIC_BUILTINS = struct(
     hasattr=builtins.hasattr,
     getattr=builtins.getattr,
+    hash=_mlody_hash,
     parse_uri=_parse_uri,
     format_uri=_format_uri,
     http_info=_http_info,

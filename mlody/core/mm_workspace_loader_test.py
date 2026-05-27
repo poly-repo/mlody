@@ -21,6 +21,7 @@ from common.python.starlarkish.evaluator.evaluator import Evaluator
 _THIS_DIR = Path(__file__).parent
 _RULE_MLODY = (_THIS_DIR / "rule.mlody").read_text()
 _MM_MLODY = (_THIS_DIR.parent / "common" / "mm.mlody").read_text()
+_HASH_MLODY = (_THIS_DIR.parent / "common" / "hash.mlody").read_text()
 _RENDER_MLODY = (_THIS_DIR.parent / "common" / "render.mlody").read_text()
 _CONFIG_MLODY = (_THIS_DIR.parent / "common" / "config.mlody").read_text()
 
@@ -45,6 +46,7 @@ def _setup_project(
     fs.create_file(str(project / "mlody/core/rule.mlody"), contents=_RULE_MLODY)
     if include_mm:
         fs.create_file(str(project / "mlody/common/mm.mlody"), contents=_MM_MLODY)
+        fs.create_file(str(project / "mlody/common/hash.mlody"), contents=_HASH_MLODY)
         fs.create_file(str(project / "mlody/common/render.mlody"), contents=_RENDER_MLODY)
         fs.create_file(str(project / "mlody/common/config.mlody"), contents=_CONFIG_MLODY)
         # Provide a minimal types.mlody stub so WorkspaceLoader._phase1_root_discovery
@@ -113,6 +115,25 @@ def test_mm_available_in_user_file_without_explicit_load(fs: FakeFilesystem) -> 
     evaluator = registry._evaluator
     # The user file ran successfully, which means mm was in its scope.
     assert "result" in evaluator.registry.roots.by_name
+
+
+def test_hash_available_in_user_file_without_explicit_load(fs: FakeFilesystem) -> None:
+    """hash is bound in a user .mlody file without any explicit load() call."""
+    project = Path("/workspace")
+    loader, registry = _make_loader(
+        project,
+        fs=fs,
+        extra_user_files={
+            "pipeline.mlody": (
+                'hash_result = hash("anything")\n'
+                'builtins.register("root", struct(name="result", hash_is_none=(hash_result == None)))'
+            ),
+        },
+    )
+    loader.load()
+
+    result = registry._evaluator.registry.roots.by_name["result"]
+    assert result.hash_is_none is True
 
 
 def test_mm_not_evaluated_twice_when_already_loaded(fs: FakeFilesystem) -> None:

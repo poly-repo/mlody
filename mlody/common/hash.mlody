@@ -1,0 +1,27 @@
+# hash.mlody — semantic content-hash generic for mlody entities and values.
+#
+# `hash(value)` is intentionally not Python's object hash. The default
+# implementation returns None. The current value implementation only returns a
+# hash for remote values, delegating to the Python asset layer so freshness and
+# materialization semantics stay centralized.
+
+load("//mlody/common/mm.mlody", "mm", "defmethod")
+
+
+def _hash_value(ctx, value):
+    _ = ctx
+    return python.hash(value)
+
+
+def _hash_default(ctx, value):
+    _ = (ctx, value)
+    return None
+
+
+hash = mm.generic(
+    "hash",
+    description="Return a semantic content hash when one is available.",
+)
+
+defmethod(hash, [mm.value()], _hash_value)
+defmethod(hash, [mm.ANY], _hash_default)

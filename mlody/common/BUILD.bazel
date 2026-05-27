@@ -8,6 +8,7 @@ exports_files([
     "config.mlody",
     "execution.mlody",
     "freshness.mlody",
+    "hash.mlody",
     "implementation.mlody",
     "locations.mlody",
     "mm.mlody",
@@ -118,6 +119,7 @@ o_py_library(
     ],
     data = [
         "config.mlody",  # keep — loaded at workspace startup
+        "hash.mlody",  # keep — loaded at workspace startup
         "mm.mlody",  # keep — loaded at workspace startup
         "render.mlody",  # keep — loaded at workspace startup
     ],
@@ -125,6 +127,17 @@ o_py_library(
     deps = [
         "//common/python/starlarkish/core:core_lib",
         "@pip//gitpython",
+    ],
+)
+
+o_py_library(
+    name = "hash_lib",
+    srcs = ["hash.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":common_lib",
+        "//mlody:mlody_lib",
+        "//mlody/core/assets:resolution_lib",
     ],
 )
 
@@ -145,6 +158,29 @@ o_py_test(
         "//common/python/starlarkish/evaluator:evaluator_lib",
         "//mlody:mlody_lib",
         "//mlody/core:core_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "hash_test",
+    srcs = ["hash_test.py"],
+    data = [
+        "attrs.mlody",
+        "freshness.mlody",
+        "hash.mlody",
+        "locations.mlody",
+        "mm.mlody",
+        "types.mlody",
+        "values.mlody",
+        "//mlody/core:rule.mlody",
+    ],
+    deps = [
+        ":hash_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "//common/python/starlarkish/evaluator:evaluator_lib",
+        "//mlody:mlody_lib",
+        "//mlody/core/assets:assets_lib",
         "@pip//pytest",
     ],
 )

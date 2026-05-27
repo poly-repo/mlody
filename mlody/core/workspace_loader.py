@@ -147,6 +147,14 @@ class WorkspaceLoader:
                 mm_path, ["mm", "defmethod"]
             )
 
+        hash_path = self._monorepo_root / "mlody" / "common" / "hash.mlody"
+        if self._roots_file.exists():
+            if not self._registry.is_loaded(hash_path):
+                self._registry.eval_file(hash_path)
+            self._registry.propagate_globals_as_persistent_injections(
+                hash_path, ["hash"]
+            )
+
         types_path = self._monorepo_root / "mlody" / "common" / "types.mlody"
         if not self._registry.is_loaded(types_path):
             try:
