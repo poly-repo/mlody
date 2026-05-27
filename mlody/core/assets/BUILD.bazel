@@ -58,6 +58,17 @@ o_py_library(
 )
 
 o_py_library(
+    name = "ssh_asset_lib",
+    srcs = ["ssh_asset.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":interfaces_lib",
+        ":metadata_lib",
+        "//mlody/core:location_specs_lib",
+    ],
+)
+
+o_py_library(
     name = "copied_asset_lib",
     srcs = ["copied_asset.py"],
     visibility = ["//:__subpackages__"],
@@ -79,6 +90,7 @@ o_py_library(
         ":http_asset_lib",
         ":interfaces_lib",
         ":local_asset_lib",
+        ":ssh_asset_lib",
         "//mlody/common:common_lib",
         "//mlody/core:lineage",
         "//mlody/core:location_specs_lib",
@@ -99,6 +111,7 @@ o_py_library(
         ":manifest_lib",
         ":metadata_lib",
         ":resolution_lib",
+        ":ssh_asset_lib",
     ],
 )
 
@@ -164,6 +177,7 @@ o_py_library(
         "manifest.py",
         "metadata.py",
         "resolution.py",
+        "ssh_asset.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [

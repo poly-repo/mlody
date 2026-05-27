@@ -18,6 +18,7 @@ from mlody.core.location_specs import (
     DerivedLocationSpec,
     PosixLocationSpec,
     RemoteLocationSpec,
+    SshLocationSpec,
     derived_location_spec_from_value,
 )
 from mlody.core.tabular.copied_asset_tabular_source import CopiedAssetTabularSource
@@ -178,6 +179,26 @@ def test_remote_location_spec_reads_uri_from_attributes() -> None:
     spec = RemoteLocationSpec.from_location(location)
 
     assert spec == RemoteLocationSpec(uri="https://example.com/data.csv", name="remote")
+
+
+def test_ssh_location_spec_reads_struct_like_attributes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    location = Struct(
+        kind="location",
+        type="ssh",
+        attributes=Struct(host="hooli", path="/exports/data.csv"),
+    )
+
+    spec = SshLocationSpec.from_location(location)
+
+    assert spec == SshLocationSpec(host="hooli", path="/exports/data.csv", name="ssh")
+    assert spec is not None
+    assert spec.cache_path() == (
+        tmp_path / ".cache" / "mlody" / "assets" / "ssh" / "hooli" / "exports" / "data.csv"
+    )
 
 
 def test_source_from_value_returns_csv_source_for_posix_csv_value() -> None:

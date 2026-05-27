@@ -35,6 +35,7 @@ from mlody.core.assets.manifest import (
 )
 from mlody.core.assets.metadata import AssetMetadata
 from mlody.core.assets.resolution import asset_from_location, asset_from_value
+from mlody.core.assets.ssh_asset import SshAssetError, SshAssetSource
 
 __all__ = [
     "AssetMetadata",
@@ -63,5 +64,7 @@ __all__ = [
     "remote_metadata_indicates_change",
     "should_refresh_copied_asset",
     "should_revalidate_http_asset",
+    "SshAssetError",
+    "SshAssetSource",
     "write_manifest",
 ]

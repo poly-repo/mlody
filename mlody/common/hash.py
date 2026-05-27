@@ -8,11 +8,11 @@ from mlody.core.assets.resolution import asset_from_value
 def hash(value: object, *, db_conn: object | None = None) -> str | None:
     """Return the semantic content hash for *value* when one is available.
 
-    Remote values materialize through the asset layer so freshness checks,
-    revalidation, and downloads happen in exactly one place. Source-backed
+    Remote-like values materialize through the asset layer so freshness checks,
+    revalidation, and staged copies happen in exactly one place. Source-backed
     local values follow their resolved ``_source_value`` chain until a remote
-    source is reached, allowing ``hash(resolve(...))`` to work on cached remote
-    artifacts and similar wrappers.
+    or SSH-backed source is reached, allowing ``hash(resolve(...))`` to work on
+    cached artifacts and similar wrappers.
     """
     return _hash_value(value, db_conn=db_conn, seen=set())
 
@@ -32,7 +32,7 @@ def _hash_value(
     seen.add(value_id)
 
     location = getattr(value, "location", None)
-    if getattr(location, "type", None) == "remote":
+    if getattr(location, "type", None) in {"remote", "ssh"}:
         asset = asset_from_value(value, db_conn=db_conn)
         if asset is None:
             return None

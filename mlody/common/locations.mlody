@@ -279,6 +279,14 @@ location(
     },
 )
 
+location(
+    name = "ssh",
+    attrs = {
+        "host": attr(type="string", mandatory=True),
+        "path": attr(type="string", mandatory=True),
+    },
+)
+
 # derived is basically an internal “computed dataset” location, not a real storage backend like posix, s3, or your new postgres.
 # It exists to represent: “this value should be materialized as a cached parquet file by running a SQL fragment over another value.”
 # At runtime, that derived location is used for three things:

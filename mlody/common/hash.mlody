@@ -2,8 +2,8 @@
 #
 # `hash(value)` is intentionally not Python's object hash. The default
 # implementation returns None. The current value implementation only returns a
-# hash for remote values, delegating to the Python asset layer so freshness and
-# materialization semantics stay centralized.
+# hash for remote-like values, delegating to the Python asset layer so
+# freshness and materialization semantics stay centralized.
 
 load("//mlody/common/mm.mlody", "mm", "defmethod")
 

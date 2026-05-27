@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from textwrap import dedent
 from unittest.mock import patch
@@ -58,6 +59,22 @@ def _remote_asset(
         content_hash=content_hash,
         metadata=_metadata(uri),
     )
+
+
+def _write_ssh_cache(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    host: str = "hooli",
+    remote_path: str = "/exports/data.txt",
+    contents: str = "ssh payload\n",
+) -> Path:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    relative = remote_path[1:] if remote_path.startswith("/") else remote_path
+    cache_path = tmp_path / ".cache" / "mlody" / "assets" / "ssh" / host / relative
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(contents)
+    return cache_path
 
 
 def _eval(extra_mlody: str) -> Evaluator:
@@ -128,6 +145,34 @@ def test_hash_generic_returns_none_for_non_remote_value() -> None:
     assert _result(ev) is None
 
 
+def test_hash_generic_returns_content_hash_for_ssh_value(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    contents = "ssh payload\n"
+    _write_ssh_cache(
+        tmp_path,
+        monkeypatch,
+        host="hooli",
+        remote_path="/exports/data.txt",
+        contents=contents,
+    )
+
+    ev = _eval(
+        """
+        artifact = value(
+            name="artifact",
+            type=string(),
+            location=ssh(host="hooli", path="/exports/data.txt"),
+            freshness=manual(),
+        )
+        result = hash(artifact)
+        """
+    )
+
+    assert _result(ev) == hashlib.sha256(contents.encode("utf-8")).hexdigest()
+
+
 def test_hash_generic_returns_upstream_remote_hash_for_source_backed_local_value() -> None:
     with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
         mock_materialize.return_value = _remote_asset(content_hash="source-remote-hash")
@@ -168,6 +213,35 @@ def test_python_hash_returns_remote_content_hash() -> None:
 
     assert result == "py-hash-1"
     mock_materialize.assert_called_once()
+
+
+def test_python_hash_returns_content_hash_for_ssh_value(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    contents = "ssh payload\n"
+    _write_ssh_cache(
+        tmp_path,
+        monkeypatch,
+        host="hooli",
+        remote_path="/exports/data.txt",
+        contents=contents,
+    )
+    value_struct = Struct(
+        kind="value",
+        name="artifact",
+        location=Struct(
+            kind="location",
+            type="ssh",
+            name="ssh",
+            attributes={"host": "hooli", "path": "/exports/data.txt"},
+        ),
+        freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+    )
+
+    result = value_hash(value_struct)
+
+    assert result == hashlib.sha256(contents.encode("utf-8")).hexdigest()
 
 
 def test_python_hash_returns_upstream_remote_hash_for_source_backed_local_value() -> None:

@@ -916,6 +916,32 @@ def test_cached_value_expands_to_remote_and_local_values() -> None:
     assert local_value.representation.name == "csv"
 
 
+def test_cached_value_accepts_ssh_source_location() -> None:
+    ev = _eval(
+        'typedef(name="employee", base=record(fields=[\n'
+        '  field(name="name", type=string()),\n'
+        ']))\n'
+        'cached_value(\n'
+        '  name="raw_employees",\n'
+        '  type=vector(element_type=":employee"),\n'
+        '  source=ssh(host="hooli", path="/exports/employees.csv"),\n'
+        '  location=posix(path="~/.cache/mlody/employees.csv"),\n'
+        '  representation=csv(),\n'
+        '  freshness=ttl(duration="1day"),\n'
+        ')\n'
+    )
+
+    local_value = ev.registry.values.by_name["raw_employees"]
+    remote_value = ev.registry.values.by_name["raw_employees-remote"]
+
+    assert remote_value.location.type == "ssh"
+    assert remote_value.location.attributes["host"] == "hooli"
+    assert remote_value.location.attributes["path"] == "/exports/employees.csv"
+    assert local_value.location.type == "posix"
+    assert local_value.source == ":raw_employees-remote"
+    assert local_value._source_value.name == "raw_employees-remote"
+
+
 def test_cached_value_supports_non_tabular_html_representation() -> None:
     ev = _eval(
         'cached_value(\n'
@@ -973,8 +999,8 @@ def test_cached_value_respects_custom_remote_name() -> None:
     assert ev.registry.values.by_name["raw_employees"].source == ":raw_employees_origin"
 
 
-def test_cached_value_requires_remote_source_location() -> None:
-    with pytest.raises(ValueError, match="location=remote"):
+def test_cached_value_requires_remote_like_source_location() -> None:
+    with pytest.raises(ValueError, match="remote.*ssh"):
         _eval(
             'cached_value(\n'
             '  name="raw_employees",\n'

@@ -6,7 +6,7 @@ import glob
 import hashlib
 import os
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 from mlody.common.struct import Struct, is_struct_like, struct_like_as_mapping
@@ -179,6 +179,55 @@ class RemoteLocationSpec:
         if not isinstance(uri, str) or uri == "":
             return None
         return cls(uri=uri, name=str(getattr(location, "name", "remote") or "remote"))
+
+
+@dataclass(frozen=True)
+class SshLocationSpec:
+    """Typed view of an SSH-backed artifact staged in the local cache."""
+
+    host: str
+    path: str
+    name: str = "ssh"
+
+    @classmethod
+    def from_location(cls, location: object) -> SshLocationSpec | None:
+        """Parse a runtime location object into a typed SSH spec."""
+        if location is None or _specific_kind(location) != "ssh":
+            return None
+        host = getattr(location, "host", None)
+        path = getattr(location, "path", None)
+        attrs = _location_attributes(location)
+        if host is None:
+            host = attrs.get("host")
+        if path is None:
+            path = attrs.get("path")
+        if not isinstance(host, str) or host == "":
+            return None
+        if not isinstance(path, str) or path == "":
+            return None
+        return cls(host=host, path=path, name=str(getattr(location, "name", "ssh") or "ssh"))
+
+    def cache_relative_path(self) -> PurePosixPath:
+        """Return the cache-relative path for the staged SSH artifact."""
+        raw_path = self.path[1:] if self.path.startswith("/") else self.path
+        parts = tuple(
+            part for part in PurePosixPath(raw_path).parts
+            if part not in {"", "."}
+        )
+        if not parts:
+            raise ValueError("ssh(path=...) must reference a concrete file path")
+        if any(part == ".." for part in parts):
+            raise ValueError("ssh(path=...) may not contain '..'")
+        return PurePosixPath(*parts)
+
+    def cache_path(self, *, cache_root: Path | None = None) -> Path:
+        """Return the local cache path used for this SSH-backed artifact."""
+        root = (
+            cache_root
+            if cache_root is not None
+            else Path.home() / ".cache" / "mlody" / "assets" / "ssh"
+        )
+        return root / self.host / self.cache_relative_path()
 
 
 @dataclass(frozen=True)

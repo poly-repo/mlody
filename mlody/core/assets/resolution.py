@@ -11,10 +11,12 @@ from mlody.core.assets.copied_asset import CopiedAssetSource
 from mlody.core.assets.http_asset import HttpAssetSource
 from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
 from mlody.core.assets.local_asset import LocalPathAssetSource
+from mlody.core.assets.ssh_asset import SshAssetSource
 from mlody.core.lineage import build_lineage_event, record_lineage
 from mlody.core.location_specs import (
     PosixLocationSpec,
     RemoteLocationSpec,
+    SshLocationSpec,
     _source_value_struct,
     derived_location_spec_from_value,
 )
@@ -65,6 +67,13 @@ def asset_from_location(
             freshness=freshness,
             db_conn=db_conn,  # type: ignore[arg-type]
             asset_id=asset_id,
+        )
+
+    ssh_spec = SshLocationSpec.from_location(location)
+    if ssh_spec is not None:
+        return SshAssetSource(
+            host=ssh_spec.host,
+            remote_path=ssh_spec.path,
         )
 
     posix_spec = PosixLocationSpec.from_location(location)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import http.server
 import threading
 from pathlib import Path
@@ -17,6 +18,7 @@ from mlody.core.assets.http_asset import HttpAssetSource
 from mlody.core.assets.local_asset import LocalAssetError, LocalPathAssetSource
 from mlody.core.assets.metadata import AssetMetadata
 from mlody.core.assets.resolution import asset_from_location, asset_from_value
+from mlody.core.assets.ssh_asset import SshAssetSource
 
 
 @pytest.fixture()
@@ -64,6 +66,22 @@ def _always() -> Struct:
     return Struct(kind="freshness", type="always", name="always", attributes={})
 
 
+def _write_ssh_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    host: str = "hooli",
+    remote_path: str = "/exports/data.bin",
+    contents: str = "ssh payload\n",
+) -> Path:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    relative = remote_path[1:] if remote_path.startswith("/") else remote_path
+    cache_path = tmp_path / ".cache" / "mlody" / "assets" / "ssh" / host / relative
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(contents)
+    return cache_path
+
+
 def test_asset_from_location_returns_http_asset_for_remote_location() -> None:
     location = Struct(
         kind="location",
@@ -75,6 +93,35 @@ def test_asset_from_location_returns_http_asset_for_remote_location() -> None:
 
     assert isinstance(asset, HttpAssetSource)
     assert asset.uri == "https://example.com/data.json"
+
+
+def test_asset_from_location_returns_ssh_asset_for_ssh_location(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_path = _write_ssh_cache(
+        tmp_path,
+        monkeypatch,
+        host="hooli",
+        remote_path="/exports/data.json",
+        contents='{"hello": "world"}\n',
+    )
+    location = Struct(
+        kind="location",
+        type="ssh",
+        attributes={"host": "hooli", "path": "/exports/data.json"},
+    )
+
+    asset = asset_from_location(location)
+
+    assert isinstance(asset, SshAssetSource)
+    materialized = asset.materialize()
+    assert materialized.path == cache_path
+    assert materialized.content_hash == hashlib.sha256(
+        b'{"hello": "world"}\n'
+    ).hexdigest()
+    assert materialized.metadata.transport == "ssh"
+    assert materialized.metadata.extra["cache_path"] == str(cache_path)
 
 
 def test_asset_from_location_returns_local_asset_for_single_posix_path(tmp_path: Path) -> None:
@@ -155,6 +202,45 @@ def test_asset_from_value_returns_copied_asset_for_source_backed_local_value(tmp
     materialized = asset.materialize()
     assert materialized.path == destination_path
     assert destination_path.read_text() == source_path.read_text()
+
+
+def test_asset_from_value_copies_source_backed_local_ssh_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_path = _write_ssh_cache(
+        tmp_path,
+        monkeypatch,
+        host="hooli",
+        remote_path="/exports/source.csv",
+        contents="name,age\nAlice,30\n",
+    )
+    destination_path = tmp_path / "cached.csv"
+    value_struct = Struct(
+        kind="value",
+        location=Struct(kind="location", type="posix", path=str(destination_path)),
+        freshness=_always(),
+        _source_value=Struct(
+            kind="value",
+            freshness=_manual(),
+            location=Struct(
+                kind="location",
+                type="ssh",
+                attributes={"host": "hooli", "path": "/exports/source.csv"},
+            ),
+        ),
+    )
+
+    asset = asset_from_value(value_struct)
+
+    assert isinstance(asset, CopiedAssetSource)
+    first = asset.materialize()
+    source_path.write_text("name,age\nAlice,30\nBob,40\n")
+    second = asset.materialize()
+
+    assert first.path == second.path == destination_path
+    assert destination_path.read_text() == source_path.read_text()
+    assert first.content_hash != second.content_hash
 
 
 def test_asset_from_value_copies_source_backed_local_html_value(
