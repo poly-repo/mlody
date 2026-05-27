@@ -225,7 +225,7 @@ class SshLocationSpec:
         root = (
             cache_root
             if cache_root is not None
-            else Path.home() / ".cache" / "mlody" / "assets" / "ssh"
+            else Path.home() / ".cache" / "mlody" / "remotes"
         )
         return root / self.host / self.cache_relative_path()
 

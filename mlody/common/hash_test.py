@@ -71,7 +71,7 @@ def _write_ssh_cache(
 ) -> Path:
     monkeypatch.setenv("HOME", str(tmp_path))
     relative = remote_path[1:] if remote_path.startswith("/") else remote_path
-    cache_path = tmp_path / ".cache" / "mlody" / "assets" / "ssh" / host / relative
+    cache_path = tmp_path / ".cache" / "mlody" / "remotes" / host / relative
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(contents)
     return cache_path

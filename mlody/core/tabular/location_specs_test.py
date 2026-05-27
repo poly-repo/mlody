@@ -197,7 +197,7 @@ def test_ssh_location_spec_reads_struct_like_attributes(
     assert spec == SshLocationSpec(host="hooli", path="/exports/data.csv", name="ssh")
     assert spec is not None
     assert spec.cache_path() == (
-        tmp_path / ".cache" / "mlody" / "assets" / "ssh" / "hooli" / "exports" / "data.csv"
+        tmp_path / ".cache" / "mlody" / "remotes" / "hooli" / "exports" / "data.csv"
     )
 
 
