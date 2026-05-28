@@ -352,7 +352,10 @@ class Workspace:
             # can carry transient label metadata without mutating registry objects.
             normalized = struct_like_to_struct(value)
             if isinstance(normalized, Struct):
-                return normalized.updated(_resolved_label=label)
+                return normalized.updated(
+                    _resolved_label=label,
+                    _resolved_value=value,
+                )
         return value
 
     @staticmethod

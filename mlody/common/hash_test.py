@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import time
 from pathlib import Path
 from textwrap import dedent
 from unittest.mock import patch
@@ -75,6 +77,20 @@ def _write_ssh_cache(
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(contents)
     return cache_path
+
+
+def _write_local_artifact(
+    path: Path,
+    *,
+    contents: str,
+    age_seconds: float | None = None,
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(contents)
+    if age_seconds is not None:
+        timestamp = time.time() - age_seconds
+        os.utime(path, (timestamp, timestamp))
+    return path
 
 
 def _eval(extra_mlody: str) -> Evaluator:
@@ -173,54 +189,112 @@ def test_hash_generic_returns_content_hash_for_ssh_value(
     assert _result(ev) == hashlib.sha256(contents.encode("utf-8")).hexdigest()
 
 
-def test_hash_generic_returns_upstream_remote_hash_for_source_backed_local_value() -> None:
+def test_hash_generic_returns_cached_local_hash_for_fresh_source_backed_remote_value(
+    tmp_path: Path,
+) -> None:
+    destination = _write_local_artifact(
+        tmp_path / "artifact.txt",
+        contents="cached local payload\n",
+    )
+
     with patch("mlody.core.assets.http_asset.HttpAssetSource.materialize") as mock_materialize:
         mock_materialize.return_value = _remote_asset(content_hash="source-remote-hash")
 
         ev = _eval(
-            """
+            f"""
             cached_value(
                 name="artifact",
                 type=string(),
                 source=remote(uri="https://example.com/data.txt"),
-                location=posix(path="/tmp/artifact.txt"),
+                location=posix(path="{destination}"),
                 freshness=ttl(duration="P1D"),
             )
             result = hash(builtins.lookup("value", "artifact"))
             """
         )
 
-    assert _result(ev) == "source-remote-hash"
-    mock_materialize.assert_called_once()
+    assert _result(ev) == hashlib.sha256(b"cached local payload\n").hexdigest()
+    mock_materialize.assert_not_called()
 
 
-def test_hash_generic_returns_upstream_ssh_hash_for_source_backed_local_value(
+def test_hash_generic_returns_cached_local_hash_for_fresh_source_backed_ssh_value(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    contents = "ssh payload\n"
+    remote_contents = "ssh payload\n"
     _write_ssh_cache(
         tmp_path,
         monkeypatch,
         host="hooli",
         remote_path="/exports/data.txt",
-        contents=contents,
+        contents=remote_contents,
+    )
+    destination = _write_local_artifact(
+        tmp_path / "artifact.txt",
+        contents="cached local payload\n",
     )
 
     ev = _eval(
-        """
+        f"""
         cached_value(
             name="artifact",
             type=string(),
             source=ssh(host="hooli", path="/exports/data.txt"),
-            location=posix(path="/tmp/artifact.txt"),
+            location=posix(path="{destination}"),
             freshness=ttl(duration="P1D"),
         )
         result = hash(builtins.lookup("value", "artifact"))
         """
     )
 
-    assert _result(ev) == hashlib.sha256(contents.encode("utf-8")).hexdigest()
+    assert _result(ev) == hashlib.sha256(b"cached local payload\n").hexdigest()
+    assert destination.read_text() == "cached local payload\n"
+
+
+def test_python_hash_refreshes_source_backed_ssh_value_when_freshness_due(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    remote_contents = "ssh payload\n"
+    _write_ssh_cache(
+        tmp_path,
+        monkeypatch,
+        host="hooli",
+        remote_path="/exports/data.txt",
+        contents=remote_contents,
+    )
+    destination = _write_local_artifact(
+        tmp_path / "artifact.txt",
+        contents="stale local payload\n",
+        age_seconds=2 * 24 * 60 * 60,
+    )
+    remote_value = Struct(
+        kind="value",
+        name="artifact-remote",
+        location=Struct(
+            kind="location",
+            type="ssh",
+            name="ssh",
+            attributes={"host": "hooli", "path": "/exports/data.txt"},
+        ),
+        freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+    )
+    local_value = Struct(
+        kind="value",
+        name="artifact",
+        location=Struct(
+            kind="location",
+            type="posix",
+            name="posix",
+            attributes={"path": [str(destination)]},
+        ),
+        source=":artifact-remote",
+        _source_value=remote_value,
+        freshness=Struct(kind="freshness", type="ttl", name="ttl", attributes={"duration": "P1D"}),
+    )
+
+    assert value_hash(local_value) == hashlib.sha256(remote_contents.encode("utf-8")).hexdigest()
+    assert destination.read_text() == remote_contents
 
 
 def test_python_hash_returns_remote_content_hash() -> None:
@@ -273,7 +347,9 @@ def test_python_hash_returns_content_hash_for_ssh_value(
     assert result == hashlib.sha256(contents.encode("utf-8")).hexdigest()
 
 
-def test_python_hash_returns_upstream_remote_hash_for_source_backed_local_value() -> None:
+def test_python_hash_returns_cached_local_hash_for_fresh_source_backed_remote_value(
+    tmp_path: Path,
+) -> None:
     remote_value = Struct(
         kind="value",
         name="artifact-remote",
@@ -285,6 +361,10 @@ def test_python_hash_returns_upstream_remote_hash_for_source_backed_local_value(
         ),
         freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
     )
+    destination = _write_local_artifact(
+        tmp_path / "artifact.txt",
+        contents="cached local payload\n",
+    )
     local_value = Struct(
         kind="value",
         name="artifact",
@@ -292,7 +372,7 @@ def test_python_hash_returns_upstream_remote_hash_for_source_backed_local_value(
             kind="location",
             type="posix",
             name="posix",
-            attributes={"path": ["/tmp/artifact.txt"]},
+            attributes={"path": [str(destination)]},
         ),
         source=":artifact-remote",
         _source_value=remote_value,
@@ -303,8 +383,8 @@ def test_python_hash_returns_upstream_remote_hash_for_source_backed_local_value(
         mock_materialize.return_value = _remote_asset(content_hash="py-source-remote-hash")
         result = value_hash(local_value)
 
-    assert result == "py-source-remote-hash"
-    mock_materialize.assert_called_once()
+    assert result == hashlib.sha256(b"cached local payload\n").hexdigest()
+    mock_materialize.assert_not_called()
 
 
 def test_python_hash_returns_none_for_non_remote_values_and_entities() -> None:

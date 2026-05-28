@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import dataclasses
 import io
 from pathlib import Path
@@ -941,6 +942,7 @@ builtins.register("task", Struct(
         from mlody.core.assets.interfaces import MaterializedAsset
         from mlody.core.assets.metadata import AssetMetadata
 
+        fs.create_file("/tmp/source-artifact.txt", contents="remote artifact\n")
         fs.create_file(
             str(ROOT / "mlody/teams/lexica/assets.mlody"),
             contents="""\
@@ -988,7 +990,7 @@ builtins.register("root", Struct(
         )
 
         materialized = MaterializedAsset(
-            path=Path("/tmp/artifact.txt"),
+            path=Path("/tmp/source-artifact.txt"),
             content_hash="resolved-remote-hash",
             metadata=AssetMetadata(
                 uri="https://example.com/data.txt",
@@ -1008,9 +1010,14 @@ builtins.register("root", Struct(
 
             result = ws.evaluator.registry.roots.by_name["hash_result"]  # type: ignore[attr-defined]
             assert result.starlark_hash == "resolved-remote-hash"  # type: ignore[attr-defined]
+            expected_cached_hash = hashlib.sha256(b"remote artifact\n").hexdigest()
             assert (
                 value_hash(ws.resolve("@lexica//assets:artifact"))
-                == "resolved-remote-hash"
+                == expected_cached_hash
+            )
+            assert (
+                value_hash(ws._resolve_for_mlody("@lexica//assets:artifact"))
+                == expected_cached_hash
             )
 
 

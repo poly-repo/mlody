@@ -1,9 +1,9 @@
 # hash.mlody — semantic content-hash generic for mlody entities and values.
 #
 # `hash(value)` is intentionally not Python's object hash. The default
-# implementation returns None. The current value implementation only returns a
-# hash for remote-like values, delegating to the Python asset layer so
-# freshness and materialization semantics stay centralized.
+# implementation returns None. The current value implementation delegates to
+# the Python asset layer for remote-like values and source-backed local copies
+# so freshness and materialization semantics stay centralized.
 
 load("//mlody/common/mm.mlody", "mm", "defmethod")
 
