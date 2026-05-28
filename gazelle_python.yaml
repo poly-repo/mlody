@@ -163,6 +163,7 @@ manifest:
     attrs: attrs
     babel: babel
     blis: blis
+    bs4: beautifulsoup4
     catalogue: catalogue
     cattr: cattrs
     cattrs: cattrs
@@ -202,6 +203,7 @@ manifest:
     gnupg: python_gnupg
     h11: h11
     hf_xet: hf_xet
+    html5lib: html5lib
     httpcore: httpcore
     httpx: httpx
     huggingface_hub: huggingface_hub
@@ -241,6 +243,7 @@ manifest:
     opencv_contrib_python.libs.libopenblas-r0-f650aae0: opencv_contrib_python
     opencv_python.libs.libopenblas-r0-f650aae0: opencv_python
     packaging: packaging
+    pandas: pandas
     parso: parso
     pathspec: pathspec
     phonemizer: phonemizer
@@ -284,6 +287,7 @@ manifest:
     smart_open: smart_open
     smmap: smmap
     sounddevice: sounddevice
+    soupsieve: soupsieve
     spacy: spacy
     spacy_curated_transformers: spacy_curated_transformers
     spacy_legacy: spacy_legacy
@@ -315,6 +319,7 @@ manifest:
     wasabi: wasabi
     wcwidth: wcwidth
     weasel: weasel
+    webencodings: webencodings
     wrapt: wrapt
     yaml: pyyaml
   pip_repository:
