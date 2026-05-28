@@ -3,7 +3,16 @@ load("@common//:types.mlody", "opaque", "typedef", "string", "integer", "record"
 load("//mlody/common/values.mlody")
 load("//mlody/common/locations.mlody")
 load("//mlody/common/action.mlody")
-load("//mlody/common/representation.mlody", "json")
+load("//mlody/common/representation.mlody", "json", "csv")
+
+cached_value(
+    name="test-remote",
+    source=ssh(host="localhost", path="test.csv"),
+    location=posix(path="~/.cache/mlody/artifacts/test/test.csv"),	
+    representation=csv(),
+    freshness = ttl(duration="5m")
+)
+
 
 typedef(
     name = "hf-model",
