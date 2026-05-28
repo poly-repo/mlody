@@ -1,0 +1,16 @@
+load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
+
+o_py_library(
+    name = "tests_lib",
+    srcs = ["__init__.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_test(
+    name = "playback_test",
+    srcs = ["playback_test.py"],
+    deps = [
+        "//common/python/audio:audio_lib",
+        "@pip//pytest",
+    ],
+)

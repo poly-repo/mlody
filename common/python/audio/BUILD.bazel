@@ -1,0 +1,10 @@
+load("//build/bzl:python.bzl", "o_py_library")
+
+o_py_library(
+    name = "audio_lib",
+    srcs = [
+        "__init__.py",
+        "playback.py",
+    ],
+    visibility = ["//:__subpackages__"],
+)
