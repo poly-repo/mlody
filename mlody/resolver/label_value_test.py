@@ -89,6 +89,7 @@ ROOT = Path("/project")
 # Real source files required by workspace_loader Phase 1.
 _REAL_RULE_MLODY = Path(__file__).parent.parent / "core" / "rule.mlody"
 _REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
+_REAL_HASH_MLODY = Path(__file__).parent.parent / "common" / "hash.mlody"
 _REAL_RENDER_MLODY = Path(__file__).parent.parent / "common" / "render.mlody"
 _REAL_CONFIG_MLODY = Path(__file__).parent.parent / "common" / "config.mlody"
 _REAL_ATTRS_MLODY_TEXT = (Path(__file__).parent.parent / "common" / "attrs.mlody").read_text()
@@ -340,6 +341,7 @@ def _make_workspace(fs: FakeFilesystem, extra_files: dict[str, str] | None = Non
     # mm.mlody, render.mlody, and rule.mlody are required by workspace_loader Phase 1.
     fs.add_real_file(_REAL_RULE_MLODY, target_path=str(ROOT / "mlody/core/rule.mlody"))
     fs.add_real_file(_REAL_MM_MLODY, target_path=str(ROOT / "mlody/common/mm.mlody"))
+    fs.add_real_file(_REAL_HASH_MLODY, target_path=str(ROOT / "mlody/common/hash.mlody"))
     fs.add_real_file(_REAL_RENDER_MLODY, target_path=str(ROOT / "mlody/common/render.mlody"))
     fs.add_real_file(_REAL_CONFIG_MLODY, target_path=str(ROOT / "mlody/common/config.mlody"))
 

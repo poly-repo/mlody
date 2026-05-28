@@ -33,6 +33,7 @@ from mlody.resolver.values.structural import MlodyUnresolvedValue
 # Real source files required by workspace_loader Phase 1.
 _REAL_RULE_MLODY = Path(__file__).parent.parent / "core" / "rule.mlody"
 _REAL_MM_MLODY = Path(__file__).parent.parent / "common" / "mm.mlody"
+_REAL_HASH_MLODY = Path(__file__).parent.parent / "common" / "hash.mlody"
 _REAL_RENDER_MLODY = Path(__file__).parent.parent / "common" / "render.mlody"
 _REAL_CONFIG_MLODY = Path(__file__).parent.parent / "common" / "config.mlody"
 
@@ -60,11 +61,12 @@ def _remote_asset(path: Path, *, uri: str, content_hash: str) -> MaterializedAss
 
 
 def _add_mm_files(root: Path) -> None:
-    """Copy rule.mlody, mm.mlody, render.mlody, and config.mlody into the workspace under root."""
+    """Copy Phase 1 support files into the workspace under root."""
     (root / "mlody" / "core").mkdir(parents=True, exist_ok=True)
     (root / "mlody" / "common").mkdir(parents=True, exist_ok=True)
     shutil.copy2(_REAL_RULE_MLODY, root / "mlody" / "core" / "rule.mlody")
     shutil.copy2(_REAL_MM_MLODY, root / "mlody" / "common" / "mm.mlody")
+    shutil.copy2(_REAL_HASH_MLODY, root / "mlody" / "common" / "hash.mlody")
     shutil.copy2(_REAL_RENDER_MLODY, root / "mlody" / "common" / "render.mlody")
     shutil.copy2(_REAL_CONFIG_MLODY, root / "mlody" / "common" / "config.mlody")
 
