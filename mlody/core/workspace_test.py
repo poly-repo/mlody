@@ -1014,6 +1014,56 @@ builtins.register("root", Struct(
                 == expected_cached_hash
             )
 
+    def test_hash_of_resolved_task_output_works_in_mlody_and_python(
+        self,
+        project: Path,
+        fs: FakeFilesystem,
+    ) -> None:
+        from mlody.common.hash import hash as value_hash
+
+        fs.create_file(
+            str(ROOT / "mlody/teams/lexica/downloader.mlody"),
+            contents="""\
+model = Struct(
+    kind="value",
+    name="model",
+    type=Struct(kind="type", type="string", name="string"),
+    location=Struct(
+        kind="location",
+        type="inline",
+        name="inline",
+        data="model.bin",
+    ),
+)
+
+builtins.register("task", Struct(
+    kind="task",
+    name="downloader",
+    inputs=[],
+    outputs=[model],
+    config=[],
+    action=Struct(kind="action", name="fetch", inputs=[], outputs=[], config=[]),
+))
+
+builtins.register("root", Struct(
+    name="hash_result",
+    starlark_hash=hash(resolve("@lexica//downloader:downloader.outputs.model")),
+))
+""",
+        )
+
+        ws = Workspace(monorepo_root=project)
+        ws.load()
+
+        resolved_output = ws.resolve("@lexica//downloader:downloader.outputs.model")
+        shell_output = ws._resolve_for_mlody("@lexica//downloader:downloader.outputs.model")
+        result = ws.evaluator.registry.roots.by_name["hash_result"]  # type: ignore[attr-defined]
+
+        assert isinstance(shell_output, Struct)
+        assert not hasattr(shell_output, "_producer_task")
+        assert result.starlark_hash == value_hash(resolved_output)  # type: ignore[attr-defined]
+        assert value_hash(shell_output) == value_hash(resolved_output)
+
 
 class TestExpandWildcardLabel:
     def test_query_only_mlody_wildcard_returns_matching_entities(

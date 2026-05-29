@@ -10,6 +10,7 @@ from common.python.starlarkish.core.struct import Struct as Struct
 from common.python.starlarkish.core.struct import struct as struct
 
 _MISSING = object()
+_STRUCT_SNAPSHOT_OMIT_FIELDS = frozenset({"_producer_task"})
 
 
 def _is_dataclass_instance(value: object) -> bool:
@@ -108,6 +109,7 @@ def struct_like_to_struct(value: object) -> object:
                 **{
                     name: _convert(value)
                     for name, value in child.as_mapping().items()
+                    if name not in _STRUCT_SNAPSHOT_OMIT_FIELDS
                 },
             )
         if _is_dataclass_instance(child):
@@ -116,6 +118,7 @@ def struct_like_to_struct(value: object) -> object:
                 **{
                     name: _convert(value)
                     for name, value in mapping.items()
+                    if name not in _STRUCT_SNAPSHOT_OMIT_FIELDS
                 },
             )
         if isinstance(child, dict):
