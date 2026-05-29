@@ -1,18 +1,30 @@
 load("//build/bzl:python.bzl", "o_py_library", "o_py_test")
 
 o_py_library(
+    name = "lineage_events_lib",
+    srcs = ["lineage_events.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "//mlody/common:common_lib",
+        "@pip//uuid_utils",
+    ],
+)
+
+o_py_library(
     name = "db_lib",
     srcs = [
         "__init__.py",
         "assets.py",
         "cache_stats.py",
         "evaluations.py",
+        "lineage_events.py",
         "local_diff.py",
         "local_patches.py",
         "stats.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":lineage_events_lib",
         "//mlody/core:core_lib",
         "@pip//uuid_utils",
     ],
@@ -32,6 +44,17 @@ o_py_test(
     srcs = ["evaluations_test.py"],
     deps = [
         ":db_lib",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
+    name = "lineage_events_test",
+    srcs = ["lineage_events_test.py"],
+    deps = [
+        ":lineage_events_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "//mlody/core:lineage",
         "@pip//pytest",
     ],
 )

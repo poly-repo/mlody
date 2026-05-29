@@ -387,6 +387,63 @@ def test_python_hash_returns_cached_local_hash_for_fresh_source_backed_remote_va
     mock_materialize.assert_not_called()
 
 
+def test_python_hash_returns_cached_local_hash_for_source_backed_local_value(
+    tmp_path: Path,
+) -> None:
+    source_path = _write_local_artifact(
+        tmp_path / "source.txt",
+        contents="shared local payload\n",
+    )
+    destination = _write_local_artifact(
+        tmp_path / "artifact.txt",
+        contents="shared local payload\n",
+    )
+    source_value = Struct(
+        kind="value",
+        name="artifact-source",
+        location=Struct(
+            kind="location",
+            type="posix",
+            name="posix",
+            attributes={"path": [str(source_path)]},
+        ),
+        freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+    )
+    local_value = Struct(
+        kind="value",
+        name="artifact",
+        location=Struct(
+            kind="location",
+            type="posix",
+            name="posix",
+            attributes={"path": [str(destination)]},
+        ),
+        source=":artifact-source",
+        _source_value=source_value,
+        freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+    )
+
+    assert value_hash(local_value) == hashlib.sha256(b"shared local payload\n").hexdigest()
+
+
+def test_python_hash_returns_payload_hash_for_inline_data_value() -> None:
+    value_struct = Struct(
+        kind="value",
+        name="run_config",
+        location=Struct(
+            kind="location",
+            type="inline",
+            data=Struct(batch_size=32, enabled=True),
+        ),
+    )
+
+    expected = hashlib.sha256(
+        b'{"batch_size":32,"enabled":true}'
+    ).hexdigest()
+
+    assert value_hash(value_struct) == expected
+
+
 def test_python_hash_returns_none_for_non_remote_values_and_entities() -> None:
     local_value = Struct(
         kind="value",

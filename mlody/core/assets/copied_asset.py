@@ -187,6 +187,7 @@ class CopiedAssetSource:
                 "source_label": self.source_label,
                 "source_path": str(source_path) if source_path is not None else None,
                 "destination_path": str(destination),
+                "content_hash": self._file_content_hash(destination),
             },
         )
         record_lineage(self.lineage_owner, event)

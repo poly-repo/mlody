@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
+from mlody.common.struct import Struct, struct_like_to_struct
 from mlody.core.assets.resolution import asset_from_value
 
 
@@ -54,6 +56,10 @@ def _hash_value(
     if getattr(source_attr, "kind", None) == "value":
         return _hash_value(source_attr, db_conn=db_conn, seen=seen)
 
+    inline_data = getattr(location, "data", None)
+    if inline_data is not None:
+        return _structured_payload_hash(inline_data)
+
     return None
 
 
@@ -81,6 +87,33 @@ def _file_content_hash(path: Path) -> str:
                 break
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _structured_payload_hash(value: object) -> str:
+    payload = json.dumps(
+        _json_payload(struct_like_to_struct(value)),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _json_payload(value: object) -> object:
+    if isinstance(value, Struct):
+        return {
+            str(name): _json_payload(child)
+            for name, child in value.as_mapping().items()
+        }
+    if isinstance(value, dict):
+        return {
+            str(name): _json_payload(child)
+            for name, child in value.items()
+        }
+    if isinstance(value, list):
+        return [_json_payload(child) for child in value]
+    if isinstance(value, tuple):
+        return [_json_payload(child) for child in value]
+    return value
 
 
 __all__ = ["hash"]

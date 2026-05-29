@@ -44,6 +44,7 @@ o_py_library(
         ":place",
         "//common/python/starlarkish/core:core_lib",
         "//mlody/common:common_lib",
+        "//mlody/db:lineage_events_lib",
     ],
 )
 
@@ -597,6 +598,7 @@ o_py_library(
         "//mlody/core/label:label_pkg",  # keep
         "//mlody/core/tabular:derived_source_lib",
         "//mlody/core/tabular:location_specs_lib",
+        "//mlody/db:lineage_events_lib",
         "@pip//networkx",  # keep — workspace DAG builder
         "@pip//rich",
         "@pip//tree_sitter",

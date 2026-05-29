@@ -609,16 +609,29 @@ def _apply_registered_configs(workspace: Workspace) -> None:
 
 def build_baseline_workspace(workspace: Workspace) -> Workspace:
     """Apply defaults and registered config rules exactly once on a loaded workspace."""
+    from mlody.core.lineage import remember_value_tree_labels  # noqa: PLC0415
+
+    def _remember_workspace_labels() -> None:
+        registry_view = getattr(workspace, "_registry", None)
+        if registry_view is None:
+            return
+        for key, value in workspace.registry_view.iter_registry_items():
+            label = _registry_entity_label(workspace, key)
+            if label is not None:
+                remember_value_tree_labels(value, label)
+
     if not isinstance(workspace, _WORKSPACE_TYPE):
         _normalize_workspace_defaults(workspace)
         _normalize_action_implementations(workspace)
         _apply_registered_configs(workspace)
+        _remember_workspace_labels()
         return workspace
 
     if workspace.state_kind is WorkspaceStateKind.LOADED:
         _normalize_workspace_defaults(workspace)
         _normalize_action_implementations(workspace)
         _apply_registered_configs(workspace)
+        _remember_workspace_labels()
         workspace.mark_baseline()
     return workspace
 

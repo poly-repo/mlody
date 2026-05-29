@@ -49,6 +49,11 @@ def open_db(db_path: Path) -> sqlite3.Connection:
         ASSET_OBSERVATIONS_DDL,
         EXTERNAL_ASSETS_DDL,
     )
+    from mlody.db.lineage_events import (  # noqa: PLC0415
+        LINEAGE_EVENTS_DDL,
+        LINEAGE_EVENTS_FINGERPRINT_IDX_DDL,
+        LINEAGE_EVENTS_OWNER_IDX_DDL,
+    )
     from mlody.db.local_patches import LOCAL_PATCHES_DDL  # noqa: PLC0415
 
     db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -62,6 +67,9 @@ def open_db(db_path: Path) -> sqlite3.Connection:
     conn.execute(ASSET_BLOBS_DDL)
     conn.execute(ASSET_OBSERVATIONS_DDL)
     conn.execute(EVALUATIONS_DDL)
+    conn.execute(LINEAGE_EVENTS_DDL)
+    conn.execute(LINEAGE_EVENTS_OWNER_IDX_DDL)
+    conn.execute(LINEAGE_EVENTS_FINGERPRINT_IDX_DDL)
     try:
         conn.execute(
             "ALTER TABLE evaluations ADD COLUMN local_patch_sha TEXT"

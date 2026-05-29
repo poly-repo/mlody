@@ -9,7 +9,7 @@ from mlody.common.struct import Struct, is_struct_like
 
 from mlody.core.anchor import Anchor
 from mlody.core.label import parse_label as parse_ref_label
-from mlody.core.lineage import append_lineage, build_lineage_event
+from mlody.core.lineage import append_lineage, build_lineage_event, remember_value_tree_labels
 from mlody.core.place import AssignmentMode, MISSING_PLACE_VALUE, Place, PlaceSet
 from mlody.core.setf_strategies import (
     DictKeySetter,
@@ -622,6 +622,7 @@ def _apply_anchor_assignment(
 def _write_back_anchor(anchor: SetfAnchor, updated_root: object) -> None:
     """Persist an updated anchor root back into the owning workspace."""
     anchor.target.write_back(anchor.workspace.registry_view, updated_root)
+    remember_value_tree_labels(updated_root, anchor.resolved_label)
 
 
 def setf(

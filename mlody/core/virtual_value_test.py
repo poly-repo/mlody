@@ -10,6 +10,7 @@ from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.assets.interfaces import MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
+from mlody.core.lineage import build_lineage_event, record_lineage, remember_runtime_label
 from mlody.core.virtual_value import lookup_runtime_attribute, step_object
 
 
@@ -55,6 +56,68 @@ class TestStepObject:
 
 
 class TestLineageVirtualAttribute:
+    def test_lineage_attribute_reads_persisted_events_when_memory_is_empty(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        lineage_type = Struct(
+            kind="type",
+            name="vector",
+            _root_kind="vector",
+            attributes={
+                "element_type": Struct(
+                    kind="type",
+                    name="mlody-lineage-event",
+                    _root_kind="record",
+                    attributes={},
+                    _allowed_attrs={},
+                )
+            },
+            _allowed_attrs={},
+        )
+        value_struct = Struct(
+            kind="value",
+            name="run_config",
+            type=Struct(
+                kind="type",
+                name="mlody-value",
+                virtual_attributes=[Struct(name="lineage", type=lineage_type)],
+                _allowed_attrs={},
+            ),
+            _lineage=[],
+            location=Struct(
+                kind="location",
+                type="inline",
+                data=Struct(batch_size=32, enabled=True),
+            ),
+        )
+        monkeypatch.setattr(
+            "mlody.core.lineage._default_db_path",
+            lambda: tmp_path / "mlody.sqlite",
+        )
+        remember_runtime_label(value_struct, "@demo//training:run_config")
+
+        event = build_lineage_event(
+            accessor=".location",
+            new_value=Struct(kind="location", data="32"),
+            source="DEFAULT: 32",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+        )
+        assert record_lineage(value_struct, event) is True
+        value_struct._lineage.clear()
+
+        lineage_attr = lookup_runtime_attribute(value_struct, "lineage")
+
+        assert lineage_attr is not None
+        lineage = lineage_attr.materializer(value_struct)
+
+        assert len(lineage) == 1
+        assert lineage[0].source == "DEFAULT: 32"
+        assert lineage[0].new_value.data == "32"
+
     def test_lineage_attribute_populates_remote_download_lineage(self) -> None:
         lineage_type = Struct(
             kind="type",

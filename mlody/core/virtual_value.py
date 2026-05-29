@@ -141,7 +141,9 @@ def _synthetic_lineage_attribute(lineage_type: object | None = None) -> Struct:
                     except Exception:
                         pass
 
-        return list(getattr(owner, "_lineage", []))
+        from mlody.core.lineage import materialized_lineage  # noqa: PLC0415
+
+        return materialized_lineage(owner)
 
     return Struct(
         kind="field",
