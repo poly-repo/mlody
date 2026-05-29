@@ -57,7 +57,7 @@ def lineage_rows_from_payload(payload: object) -> list[LineageRow] | None:
     rows: list[LineageRow] = []
     for index, event in enumerate(payload):
         source_text = _event_source_text(event)
-        details = _mapping_or_attr(event, "details")
+        details = _display_details(_mapping_or_attr(event, "details"))
         rows.append(
             LineageRow(
                 source=_display_source(source_text),
@@ -149,6 +149,19 @@ def _display_source(source_text: str) -> str:
     if source_text == "downloaded from" or source_text == "copied from":
         return source_text
     return _source_kind(source_text)
+
+
+def _display_details(details: object | None) -> object | None:
+    detail_mapping = _as_mapping(details)
+    if detail_mapping is None:
+        return details
+
+    visible_details = {
+        key: value
+        for key, value in detail_mapping.items()
+        if str(key) != "previous_owner_hash"
+    }
+    return visible_details or None
 
 
 def _transfer_value_summary(

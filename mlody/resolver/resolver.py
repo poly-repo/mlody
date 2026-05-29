@@ -445,7 +445,12 @@ def _normalize_workspace_defaults(workspace: Workspace) -> Workspace:
             timestamp=None,
             mode="inplace",
         )
-        updated_value = append_lineage(updated_value, event, mode="inplace")
+        updated_value = append_lineage(
+            updated_value,
+            event,
+            mode="inplace",
+            previous_owner=value,
+        )
         workspace.registry_view.set_registry_entity(key, updated_value)
     return workspace
 
@@ -701,6 +706,7 @@ def apply_request_overrides(workspace: Workspace, config: Iterable[str]) -> Work
                         updated_value,
                         event,
                         owner_label=owner_label,
+                        previous_owner=resolved,
                     )
                     continue
             setf(concrete_ref, value, workspace=workspace, source=source)

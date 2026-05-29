@@ -185,7 +185,120 @@ class TestLineageHelpers:
         assert persisted[0].new_value == event.new_value
         assert persisted[0].source == event.source
 
-    def test_materialized_lineage_uses_asset_db_identity_for_remote_value(
+    def test_materialized_lineage_reads_all_versions_for_canonical_owner_label(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        monkeypatch.setattr(
+            "mlody.core.lineage._default_db_path",
+            lambda: tmp_path / "mlody.sqlite",
+        )
+        default_value = Struct(
+            kind="value",
+            name="a-string",
+            location=Struct(kind="location", type="inline", data="foo"),
+        )
+        stale_config_value = Struct(
+            kind="value",
+            name="a-string",
+            location=Struct(kind="location", type="inline", data="FOOBAR"),
+        )
+        remember_runtime_label(stale_config_value, "//simple:a-string")
+        stale_config_event = build_lineage_event(
+            accessor=".location",
+            new_value=Struct(kind="location", type="inline", data="FOOBAR"),
+            source="CONFIG: xxx: //simple:a-string=FOOBAR",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+        )
+        assert record_lineage(stale_config_value, stale_config_event) is True
+
+        stale_command_line_value = Struct(
+            kind="value",
+            name="a-string",
+            location=Struct(kind="location", type="inline", data="bar"),
+        )
+        remember_runtime_label(stale_command_line_value, "//simple:a-string")
+        stale_command_line_event = build_lineage_event(
+            accessor=".location",
+            new_value=Struct(kind="location", type="inline", data="bar"),
+            source="COMMAND_LINE: //simple:a-string=bar",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+        )
+        assert record_lineage(stale_command_line_value, stale_command_line_event) is True
+
+        remember_runtime_label(default_value, "@workspace//simple:a-string")
+        default_event = build_lineage_event(
+            accessor=".location",
+            new_value=Struct(kind="location", type="inline", data="foo"),
+            source="DEFAULT: foo",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+        )
+        assert record_lineage(default_value, default_event) is True
+
+        config_value = Struct(
+            kind="value",
+            name="a-string",
+            location=Struct(kind="location", type="inline", data="FOOBAR"),
+        )
+        remember_runtime_label(config_value, "//simple:a-string")
+        config_event = build_lineage_event(
+            accessor=".location",
+            new_value=Struct(kind="location", type="inline", data="FOOBAR"),
+            source="CONFIG: xxx: //simple:a-string=FOOBAR",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+        )
+        assert record_lineage(
+            config_value,
+            config_event,
+            previous_owner=default_value,
+        ) is True
+
+        command_line_value = Struct(
+            kind="value",
+            name="a-string",
+            location=Struct(kind="location", type="inline", data="bar"),
+        )
+        command_line_event = build_lineage_event(
+            accessor=".location",
+            new_value=Struct(kind="location", type="inline", data="bar"),
+            source="COMMAND_LINE: //simple:a-string=bar",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+        )
+        remember_runtime_label(command_line_value, "//simple:a-string")
+        assert record_lineage(
+            command_line_value,
+            command_line_event,
+            previous_owner=config_value,
+        ) is True
+
+        fresh = Struct(
+            kind="value",
+            name="a-string",
+            location=Struct(kind="location", type="inline", data="bar"),
+        )
+        remember_runtime_label(fresh, "//simple:a-string")
+
+        persisted = materialized_lineage(fresh)
+
+        assert [event.source for event in persisted] == [
+            "DEFAULT: foo",
+            "CONFIG: xxx: //simple:a-string=FOOBAR",
+            "COMMAND_LINE: //simple:a-string=bar",
+        ]
+        assert [event.new_value.data for event in persisted] == ["foo", "FOOBAR", "bar"]
+
+    def test_materialized_lineage_reads_persisted_remote_event_from_db(
         self,
         tmp_path,
         monkeypatch,

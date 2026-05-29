@@ -449,6 +449,14 @@ def setf_root(
                 "concrete place selector did not resolve to exactly one place"
             )
         fresh_place = fresh_place_set.places[0]
+        previous_root = working_root
+        previous_sink = None
+        if fresh_place.lineage_selector is not None and fresh_place.lineage_selector.segments:
+            previous_sink = (
+                resolve_places(previous_root, fresh_place.lineage_selector)
+                .places[0]
+                .current_value
+            )
         new_owner = fresh_place.strategy.commit(fresh_place, new_value, mode=mode)
         working_root = _rebuild_owner(
             working_root,
@@ -477,6 +485,7 @@ def setf_root(
                     event,
                     mode=mode,
                     owner_label=root_label or "<root>",
+                    previous_owner=previous_root,
                 )
             else:
                 sink = (
@@ -497,6 +506,7 @@ def setf_root(
                     event,
                     mode=mode,
                     owner_label=sink_label,
+                    previous_owner=previous_sink,
                 )
                 working_root = _replace_path_value(
                     working_root,
@@ -659,6 +669,7 @@ def _apply_anchor_assignment(
                 event,
                 mode=mode,
                 owner_label=anchor.resolved_label,
+                previous_owner=anchor.root_value,
             )
         return updated_root
     return setf_root(

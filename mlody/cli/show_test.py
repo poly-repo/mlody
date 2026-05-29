@@ -1193,6 +1193,45 @@ class TestShowCommandLineageRendering:
             "content_hash: abc123"
         )
 
+    def test_lineage_hides_internal_chain_metadata(self) -> None:
+        lineage_type = _make_type_struct(
+            "vector",
+            root_kind="vector",
+            attributes={
+                "element_type": _make_type_struct(
+                    "mlody-lineage-event",
+                    root_kind="record",
+                )
+            },
+        )
+        lineage_value = MlodyValueValue(
+            struct=Struct(
+                kind="value",
+                name="lineage",
+                type=lineage_type,
+            ),
+        )
+        lineage_events = [
+            Struct(
+                kind="lineage_event",
+                source="CONFIG: xxx: //simple:a-string=FOOBAR",
+                new_value=Struct(kind="location", data="FOOBAR"),
+                details={
+                    "previous_owner_hash": "abc123",
+                    "content_hash": "def456",
+                },
+            )
+        ]
+
+        with patch("mlody.cli.show.force", return_value=lineage_events):
+            node = mlody.cli.show._render_mlody_value(lineage_value)
+
+        renderable = node.render(SimpleNamespace(console=Console(file=StringIO())))
+
+        table = renderable.renderable
+        assert [cell.plain for cell in table.columns[0]._cells] == ["config"]
+        assert table.columns[1]._cells[0].plain == "FOOBAR\ncontent_hash: def456"
+
     def test_source_range_uses_syntax_highlighted_source_panel(
         self,
         tmp_path: Path,

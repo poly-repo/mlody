@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from mlody.common.struct import (
@@ -56,6 +56,14 @@ def build_lineage_event(
     )
 
 
+def _canonical_owner_label(label: str | None) -> str | None:
+    if not label:
+        return None
+    if label.startswith("@workspace//"):
+        return label[len("@workspace") :]
+    return label
+
+
 def remember_runtime_label(
     value: object,
     label: str | None,
@@ -63,6 +71,7 @@ def remember_runtime_label(
     overwrite: bool = True,
 ) -> None:
     """Remember a stable concrete label for one runtime object when available."""
+    label = _canonical_owner_label(label)
     if label and (overwrite or id(value) not in _RUNTIME_LABELS):
         _RUNTIME_LABELS[id(value)] = label
 
@@ -97,7 +106,7 @@ def remember_value_tree_labels(value: object, label: str | None) -> None:
 
 def materialized_lineage(value: object) -> list[object]:
     """Return persisted lineage events for *value* from the shared SQLite DB."""
-    owner_label = _runtime_label(value)
+    owner_label = _canonical_owner_label(_runtime_label(value))
     if owner_label is None:
         return []
 
@@ -110,11 +119,24 @@ def materialized_lineage(value: object) -> list[object]:
         owner_hash = _value_hash(value, conn=conn)
         if not owner_hash:
             return []
-        return read_lineage_events(
-            conn,
-            owner_label=owner_label,
-            owner_hash=owner_hash,
-        )
+
+        lineage: list[object] = []
+        seen_hashes: set[str] = set()
+        current_hash: str | None = owner_hash
+        while current_hash and current_hash not in seen_hashes:
+            seen_hashes.add(current_hash)
+            current_events = read_lineage_events(
+                conn,
+                owner_label=owner_label,
+                owner_hash=current_hash,
+            )
+            if not current_events:
+                break
+            current_event = current_events[-1]
+            lineage.append(current_event)
+            current_hash = _previous_owner_hash(current_event)
+        lineage.reverse()
+        return lineage
     except Exception:
         return []
     finally:
@@ -127,9 +149,15 @@ def record_lineage(
     event: LineageEvent,
     *,
     owner_label: str | None = None,
+    previous_owner: object | None = None,
 ) -> bool:
     """Persist *event* for *value* in the shared SQLite lineage store."""
-    return _record_lineage_db_best_effort(value, event, owner_label=owner_label)
+    return _record_lineage_db_best_effort(
+        value,
+        event,
+        owner_label=owner_label,
+        previous_owner=previous_owner,
+    )
 
 
 def append_lineage(
@@ -138,10 +166,16 @@ def append_lineage(
     *,
     mode: AssignmentMode,
     owner_label: str | None = None,
+    previous_owner: object | None = None,
 ) -> object:
     """Persist a lineage event and return *value* unchanged."""
     _ = mode
-    _record_lineage_db_best_effort(value, event, owner_label=owner_label)
+    _record_lineage_db_best_effort(
+        value,
+        event,
+        owner_label=owner_label,
+        previous_owner=previous_owner,
+    )
     return value
 
 
@@ -150,8 +184,9 @@ def _record_lineage_db_best_effort(
     event: LineageEvent,
     *,
     owner_label: str | None = None,
+    previous_owner: object | None = None,
 ) -> bool:
-    owner_label = owner_label or _runtime_label(value)
+    owner_label = _canonical_owner_label(owner_label or _runtime_label(value))
     if owner_label is None:
         return False
 
@@ -161,6 +196,10 @@ def _record_lineage_db_best_effort(
     conn = None
     try:
         conn = open_db(_default_db_path())
+        previous_owner_hash = None
+        if previous_owner is not None:
+            previous_owner_hash = _value_hash(previous_owner, conn=conn)
+        event = _event_with_previous_owner_hash(event, previous_owner_hash)
         owner_hash = _value_hash(value, conn=conn, event=event)
         if not owner_hash:
             return False
@@ -238,18 +277,45 @@ def _event_content_hash(event: object | None) -> str | None:
     return None
 
 
+def _event_with_previous_owner_hash(
+    event: LineageEvent,
+    previous_owner_hash: str | None,
+) -> LineageEvent:
+    if not previous_owner_hash:
+        return event
+
+    details = getattr(event, "details", None)
+    if details is None:
+        updated_details = {"previous_owner_hash": previous_owner_hash}
+    elif isinstance(details, dict):
+        updated_details = dict(details)
+        updated_details["previous_owner_hash"] = previous_owner_hash
+    else:
+        return event
+    return replace(event, details=updated_details)
+
+
+def _previous_owner_hash(event: object) -> str | None:
+    details = getattr(event, "details", None)
+    if isinstance(details, dict):
+        previous_owner_hash = details.get("previous_owner_hash")
+        if isinstance(previous_owner_hash, str) and previous_owner_hash:
+            return previous_owner_hash
+    return None
+
+
 def _runtime_label(value: object) -> str | None:
     label = getattr(value, "label", None)
     if isinstance(label, str) and label:
-        return label
+        return _canonical_owner_label(label)
 
     resolved_label = getattr(value, "_resolved_label", None)
     if isinstance(resolved_label, str) and resolved_label:
-        return resolved_label
+        return _canonical_owner_label(resolved_label)
 
     remembered = _RUNTIME_LABELS.get(id(value))
     if remembered:
-        return remembered
+        return _canonical_owner_label(remembered)
 
     name = getattr(value, "name", None)
     if isinstance(name, str) and name:
