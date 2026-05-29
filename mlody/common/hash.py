@@ -90,6 +90,14 @@ def _hash_value(
     if resolved_value is not None and resolved_value is not value:
         return _hash_value(resolved_value, db_conn=db_conn, seen=seen)
 
+    if getattr(value, "_producer_task", None) is not None:
+        return _value_fingerprint_hash(
+            value,
+            db_conn=db_conn,
+            seen_tasks=set(),
+            seen_values=set(),
+        )
+
     location = getattr(value, "location", None)
     if getattr(location, "type", None) in {"remote", "https", "ssh"}:
         return _materialized_content_hash(value, db_conn=db_conn)
@@ -278,6 +286,11 @@ def _value_fingerprint_hash(
 
     seen_values.add(value_id)
     try:
+        producer_task_hash = _producer_task_hash(
+            value,
+            db_conn=db_conn,
+            seen_tasks=seen_tasks,
+        )
         upstream_payload = _upstream_hash_payload(
             value,
             db_conn=db_conn,
@@ -293,10 +306,14 @@ def _value_fingerprint_hash(
         semantic_hash = _semantic_hash_for_fingerprint(
             value,
             db_conn=db_conn,
+            producer_task_hash=producer_task_hash,
             upstream_payload=upstream_payload,
         )
         if semantic_hash is not None:
             payload["semantic_hash"] = semantic_hash
+
+        if producer_task_hash is not None:
+            payload["producer_task_hash"] = producer_task_hash
 
         if upstream_payload is not None:
             payload["upstream"] = upstream_payload
@@ -310,8 +327,11 @@ def _semantic_hash_for_fingerprint(
     value: object,
     *,
     db_conn: object | None,
+    producer_task_hash: str | None,
     upstream_payload: dict[str, str] | None,
 ) -> str | None:
+    if producer_task_hash is not None:
+        return None
     if upstream_payload is not None and "producer_task_hash" in upstream_payload:
         return None
     return _hash_value(value, db_conn=db_conn, seen=set())
@@ -395,6 +415,22 @@ def _upstream_hash_payload(
             seen_values=seen_values,
         )
     }
+
+
+def _producer_task_hash(
+    value: object,
+    *,
+    db_conn: object | None,
+    seen_tasks: set[int],
+) -> str | None:
+    producer_task = getattr(value, "_producer_task", None)
+    if producer_task is None:
+        return None
+    return _hash_task(
+        producer_task,
+        db_conn=db_conn,
+        seen=seen_tasks,
+    )
 
 
 def _normalize_payload(value: object) -> object:

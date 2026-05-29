@@ -1061,6 +1061,8 @@ builtins.register("root", Struct(
 
         assert isinstance(shell_output, Struct)
         assert not hasattr(shell_output, "_producer_task")
+        assert isinstance(result.starlark_hash, str)  # type: ignore[attr-defined]
+        assert len(result.starlark_hash) == 64  # type: ignore[attr-defined]
         assert result.starlark_hash == value_hash(resolved_output)  # type: ignore[attr-defined]
         assert value_hash(shell_output) == value_hash(resolved_output)
 

@@ -665,6 +665,54 @@ def test_python_hash_of_task_follows_producer_task_hash_transitively() -> None:
     assert first != second
 
 
+def test_python_hash_of_produced_output_uses_producer_task_hash() -> None:
+    producer_output = Struct(
+        kind="value",
+        name="model",
+        type=Struct(kind="type", type="string", name="string"),
+        location=Struct(
+            kind="location",
+            type="posix",
+            name="posix",
+            attributes={"path": ["/tmp/model.bin"]},
+        ),
+        freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+    )
+    producer_a = Struct(
+        kind="task",
+        name="producer",
+        inputs={},
+        config={
+            "epochs": Struct(
+                kind="value",
+                name="epochs",
+                type=Struct(kind="type", type="integer", name="integer"),
+                location=Struct(kind="location", type="inline", name="inline", data=Struct(value=3)),
+                freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+            )
+        },
+    )
+    producer_b = producer_a.updated(
+        config={
+            "epochs": Struct(
+                kind="value",
+                name="epochs",
+                type=Struct(kind="type", type="integer", name="integer"),
+                location=Struct(kind="location", type="inline", name="inline", data=Struct(value=5)),
+                freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+            )
+        }
+    )
+
+    with patch("mlody.common.hash._task_base_hash", return_value="task-base-hash"):
+        first = value_hash(producer_output.updated(_producer_task=producer_a))
+        second = value_hash(producer_output.updated(_producer_task=producer_b))
+
+    assert isinstance(first, str)
+    assert len(first) == 64
+    assert first != second
+
+
 def test_hash_generic_returns_task_hash_in_mlody() -> None:
     with patch("mlody.common.hash._task_base_hash", return_value="task-base-hash"):
         ev = _eval(
