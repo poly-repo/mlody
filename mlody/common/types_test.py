@@ -1939,9 +1939,7 @@ def test_mlody_descriptor_types_declare_source_range_field() -> None:
 
     task_descriptor = ev.registry.types.by_name["mlody-task"]
     task_fields = task_descriptor.attributes["fields"]  # type: ignore[attr-defined]
-    assert [field.name for field in task_fields] == ["_source_range", "raw", "_hash"]
-    assert task_fields[2].type.name == "string"
-    assert callable(getattr(task_fields[2], "materializer", None))
+    assert [field.name for field in task_fields] == ["_source_range", "raw"]
 
     workspace_descriptor = ev.registry.types.by_name["mlody-workspace"]
     workspace_fields = workspace_descriptor.attributes["fields"]  # type: ignore[attr-defined]

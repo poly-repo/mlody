@@ -135,6 +135,12 @@ def _value_impl(**field_patterns):
     return struct(kind="mm_entity_pattern", entity_kind="value", entity_name="", field_patterns=field_patterns)
 
 
+def _task_impl(**field_patterns):
+    # Produces an mm_entity_pattern that matches any task-kind struct
+    # (entity_name="" acts as a wildcard — any task, regardless of its name).
+    return struct(kind="mm_entity_pattern", entity_kind="task", entity_name="", field_patterns=field_patterns)
+
+
 # source_range is kept as a struct constant (not a callable) so that existing
 # call sites using [mm.source_range] (without parens) continue to work.
 # entity_name="" matches any mlody-source-range instance regardless of name.
@@ -168,6 +174,7 @@ mm = builtins.make_mm_namespace(
     text=text,
     console=console,
     stage=stage,
+    task=_task_impl,
     value=_value_impl,
     source_range=source_range,
 )

@@ -18,7 +18,7 @@ _RESERVED_STRUCT_FIELDS = {
     "_entity_type",
     "_source_range",
     "_source_value",
-    "_hash",
+    "_producer_task",
     "raw",
     "lineage",
 }

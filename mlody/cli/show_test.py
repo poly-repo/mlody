@@ -630,16 +630,16 @@ class TestShowCommandOutput:
     ) -> None:
         mock_ws = MagicMock()
         mock_ws.root_infos = {}
-        mock_ws.expand_wildcard_label.return_value = ["@bert//models:trainer._hash"]
+        mock_ws.expand_wildcard_label.return_value = ["@bert//models:trainer.raw"]
         mock_ws.evaluator = MagicMock()
         mock_ws.evaluator._method_registry = {"render_value": {"methods": [object()]}}
         hash_type = _make_type_struct("string", root_kind="string")
         resolved_value = MlodyValueValue(
             struct=make_virtual_value(
                 value_type=hash_type,
-                label="@bert//models:trainer._hash",
+                label="@bert//models:trainer.raw",
                 materializer=lambda _value: "abc123",
-                name="_hash",
+                name="raw",
             )
         )
 
@@ -651,7 +651,7 @@ class TestShowCommandOutput:
             mock_rlv.return_value = resolved_value
             result = runner.invoke(
                 cli,
-                ["show", "@bert//models:trainer._hash"],
+                ["show", "@bert//models:trainer.raw"],
                 obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
             )
 
@@ -710,7 +710,7 @@ class TestShowCommandOutput:
                 value_type=raw_type,
                 label="@bert//models:cfg.raw",
                 materializer=lambda _value: json.dumps(
-                    {"kind": "task", "name": "trainer", "_hash": "abc123"},
+                    {"kind": "task", "name": "trainer", "state": "ready"},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -732,7 +732,7 @@ class TestShowCommandOutput:
         assert result.exit_code == 0
         assert '"kind": "task"' in result.output
         assert '"name": "trainer"' in result.output
-        assert '"_hash": "abc123"' in result.output
+        assert '"state": "ready"' in result.output
 
     def test_multiple_targets_displayed_in_order(self) -> None:
         ws = MagicMock()
@@ -1419,19 +1419,19 @@ class TestShowMlodyValueRendering:
         assert result.exit_code == 0  # type: ignore[union-attr]
         assert "task" in result.output  # type: ignore[union-attr]
 
-    def test_show_renders_materialized_virtual_hash_value(self, tmp_path: Path) -> None:
-        """Regression: virtual scalar leaves like task._hash render their materialized payload."""
+    def test_show_renders_materialized_virtual_scalar_value(self, tmp_path: Path) -> None:
+        """Regression: virtual scalar leaves like task.raw render their materialized payload."""
         mock_ws = MagicMock()
         mock_ws.root_infos = {}
-        mock_ws.expand_wildcard_label.return_value = ["@common//huggingface/downloader:downloader._hash"]
+        mock_ws.expand_wildcard_label.return_value = ["@common//huggingface/downloader:downloader.raw"]
         mock_ws.evaluator = MagicMock()
         mock_ws.evaluator._method_registry = {"render_value": {"methods": [object()]}}
         value = MlodyValueValue(
             struct=make_virtual_value(
                 value_type=_make_type_struct("string", root_kind="string"),
-                label="@common//huggingface/downloader:downloader._hash",
+                label="@common//huggingface/downloader:downloader.raw",
                 materializer=lambda _value: "abc123",
-                name="_hash",
+                name="raw",
             )
         )
 
@@ -1442,7 +1442,7 @@ class TestShowMlodyValueRendering:
             mock_rlv.return_value = value
             result = runner.invoke(
                 cli,
-                ["show", "@common//huggingface/downloader:downloader._hash"],
+                ["show", "@common//huggingface/downloader:downloader.raw"],
                 obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
             )
 

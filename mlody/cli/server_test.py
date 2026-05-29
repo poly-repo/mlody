@@ -1069,7 +1069,7 @@ class TestExecuteStageCommandResponse:
             lambda _label, _workspace: MlodyValueValue(
                 struct=Struct(
                     kind="value",
-                    name="_hash",
+                    name="raw",
                     type=string_type,
                 )
             ),
@@ -1086,7 +1086,7 @@ class TestExecuteStageCommandResponse:
         request = parse_verbatim_command_request(
             {
                 "command": "show",
-                "input": "@common//huggingface/downloader:downloader._hash",
+                "input": "@common//huggingface/downloader:downloader.raw",
             }
         )
         response = execute_stage_command_response(_server_config(tmp_path), request)

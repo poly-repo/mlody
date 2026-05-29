@@ -6,6 +6,7 @@ import dataclasses
 import hashlib
 from pathlib import Path
 
+from mlody.common.hash import combine_commit_and_patch_sha
 from mlody.common.image_builder.auth import DockerConfigAuth, RegistryAuth
 from mlody.common.image_builder.errors import BuilderError
 from mlody.common.image_builder.output import SuccessResult
@@ -61,7 +62,7 @@ def run(inputs: PipelineInputs) -> SuccessResult:
     if has_local_changes:
         patch_content = _patch_file_content(clone_result.applied_patch, clone_result.applied_untracked)
         local_patch_sha: str | None = hashlib.sha256(patch_content.encode()).hexdigest()
-        image_sha = hashlib.sha256(f"{inputs.sha}:{local_patch_sha}".encode()).hexdigest()
+        image_sha = combine_commit_and_patch_sha(inputs.sha, local_patch_sha)
     else:
         local_patch_sha = None
         image_sha = inputs.sha

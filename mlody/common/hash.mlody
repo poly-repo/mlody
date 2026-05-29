@@ -1,9 +1,10 @@
 # hash.mlody — semantic content-hash generic for mlody entities and values.
 #
 # `hash(value)` is intentionally not Python's object hash. The default
-# implementation returns None. The current value implementation delegates to
-# the Python asset layer for remote-like values and source-backed local copies
-# so freshness and materialization semantics stay centralized.
+# implementation returns None. Value hashing delegates to the Python asset
+# layer for remote-like values and source-backed local copies so freshness and
+# materialization semantics stay centralized. Task hashing is also implemented
+# in Python because it needs deterministic repo-state and dependency hashing.
 
 load("//mlody/common/mm.mlody", "mm", "defmethod")
 
@@ -11,6 +12,11 @@ load("//mlody/common/mm.mlody", "mm", "defmethod")
 def _hash_value(ctx, value):
     _ = ctx
     return python.hash(value)
+
+
+def _hash_task(ctx, task):
+    _ = ctx
+    return python.hash(task)
 
 
 def _hash_default(ctx, value):
@@ -24,4 +30,5 @@ hash = mm.generic(
 )
 
 defmethod(hash, [mm.value()], _hash_value)
+defmethod(hash, [mm.task()], _hash_task)
 defmethod(hash, [mm.ANY], _hash_default)

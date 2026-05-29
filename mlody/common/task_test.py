@@ -1,7 +1,5 @@
 """Integration tests for mlody/common/task.mlody."""
 from __future__ import annotations
-
-import uuid
 from pathlib import Path
 from textwrap import dedent
 
@@ -10,7 +8,6 @@ import pytest
 from common.python.starlarkish.evaluator.evaluator import Evaluator
 from common.python.starlarkish.evaluator.testing import InMemoryFS
 import mlody
-from mlody.core.workspace import force
 from mlody.core.value_context_validation import (
     ContextRestrictedValueValidationError,
     validate_context_restricted_values_evaluator,
@@ -95,25 +92,6 @@ def test_task_preserves_description() -> None:
     )
     t = ev.registry.tasks.by_name["my_task"]
     assert t.description == "Fine-tune the classifier"
-
-
-def test_task_hash_is_virtual_uuid7_and_accessible_in_mlody() -> None:
-    ev = _eval(
-        'action(name="my_action", inputs=[], outputs=[], implementation=shell_script(content="dummy"))\n'
-        'captured = task(name="my_task", inputs=[], outputs=[], action="my_action")\n'
-        'builtins.register("root", struct(name="capture", hash_value=captured._hash))\n'
-    )
-
-    task_value = ev.registry.tasks.by_name["my_task"]
-    assert getattr(task_value._hash, "kind", None) == "value"  # type: ignore[attr-defined]
-    assert getattr(getattr(task_value._hash, "location", None), "type", None) == "virtual"  # type: ignore[attr-defined]
-
-    mlody_visible_hash = ev.registry.roots.by_name["capture"].hash_value  # type: ignore[attr-defined]
-    first = force(mlody_visible_hash)
-    second = force(mlody_visible_hash)
-
-    assert first == second
-    assert uuid.UUID(first).version == 7
 
 
 # ---------------------------------------------------------------------------

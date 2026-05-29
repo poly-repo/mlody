@@ -554,7 +554,7 @@ def _runtime_json_data(obj: object, *, _seen: set[int] | None = None) -> object:
         if _is_struct_like(obj):
             result: dict[str, object] = {}
             for key, value in _struct_like_as_mapping(obj).items():
-                if key in {"raw", "_entity_type"}:
+                if key in {"raw", "_entity_type", "_producer_task"}:
                     continue
                 result[str(key)] = _runtime_json_data(value, _seen=_seen)
             return result

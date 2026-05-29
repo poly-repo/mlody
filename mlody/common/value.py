@@ -32,6 +32,7 @@ class RegisteredValue(RegisteredStructBase):
     _context_attr_policies: dict[str, object] | None = None
     _entity_type: object | None = None
     _source_value: object | None = None
+    _producer_task: object | None = None
     _source_range: object | None = None
     raw: object | None = None
     lineage: object | None = None

@@ -39,7 +39,6 @@ Wave 3b import changes (mlody-refactor-phase-3, task 2.19):
 from __future__ import annotations
 
 import json
-import uuid
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -185,13 +184,7 @@ builtins.register("type", struct(
 ))
 builtins.register("type", struct(
     kind="type", type="mlody-task", name="mlody-task",
-    fields=_ENTITY_FIELDS + [
-        struct(
-            name="_hash",
-            type=struct(kind="type", type="string", name="string"),
-            materializer=lambda _task: python.uuid7(),
-        ),
-    ],
+    fields=_ENTITY_FIELDS,
     attributes={}, _allowed_attrs={},
     _root_kind="record",
 ))
@@ -489,7 +482,7 @@ class TestTaskValue:
 
         assert isinstance(result, _T)
 
-    def test_task_hash_resolves_to_cached_uuid7_value(self, fs: FakeFilesystem) -> None:
+    def test_task_hash_attribute_is_unresolved_after_removal(self, fs: FakeFilesystem) -> None:
         ws = _make_workspace(
             fs,
             extra_files={"teams/myroot/pkg/foo.mlody": TASK_MLODY},
@@ -498,12 +491,7 @@ class TestTaskValue:
         label = parse_label("@myroot//pkg/foo:my_task._hash")
         result = resolve_label_to_value(label, ws)
 
-        assert isinstance(result, MlodyValueValue)
-        first = force_virtual_value(result.struct)
-        second = force_virtual_value(result.struct)
-
-        assert first == second
-        assert uuid.UUID(first).version == 7
+        assert isinstance(result, MlodyUnresolvedValue)
 
 
 # ---------------------------------------------------------------------------
@@ -887,7 +875,7 @@ builtins.register("value", struct(
         assert payload["kind"] == "task"
         assert payload["name"] == "my_task"
         assert payload["_source_range"]["filepath"].endswith("entities.mlody")
-        assert isinstance(payload["_hash"], str)
+        assert "_hash" not in payload
         assert "raw" not in payload
 
     def test_nested_type_raw_materializes_json_for_non_entity_structs(
@@ -944,7 +932,6 @@ builtins.register("value", struct(
             },
         )
         request_ws = configure_workspace(ws, ["@myroot//entities:my_value=FOO"])
-        configured = request_ws.resolve("@myroot//entities:my_value")
 
         result = resolve_label_to_value(
             parse_label("@myroot//entities:my_value.raw"),
@@ -957,7 +944,6 @@ builtins.register("value", struct(
         assert payload["name"] == "my_value"
         assert payload["location"]["data"] == "FOO"
         assert payload["location"]["attributes"] == {}
-        assert configured._lineage[-1].source == "COMMAND_LINE: @myroot//entities:my_value=FOO"
 
     def test_default_value_is_copied_into_missing_payload_before_overrides(
         self,
@@ -983,7 +969,6 @@ builtins.register("value", struct(
         configured = ws.resolve("@myroot//entities:my_value")
 
         assert configured.location.data == "seed"
-        assert configured._lineage[-1].source == "DEFAULT: seed"
 
     def test_command_line_override_follows_default_normalization(
         self,
@@ -1009,10 +994,6 @@ builtins.register("value", struct(
         configured = request_ws.resolve("@myroot//entities:my_value")
 
         assert configured.location.data == "FOO"
-        assert [event.source for event in configured._lineage[-2:]] == [
-            "DEFAULT: seed",
-            "COMMAND_LINE: @myroot//entities:my_value=FOO",
-        ]
 
     def test_lineage_virtual_attribute_materializes_event_list(
         self,
@@ -1042,7 +1023,6 @@ builtins.register("value", struct(
         assert isinstance(result, MlodyValueValue)
         payload = force_virtual_value(result.struct)
         assert isinstance(payload, list)
-        assert payload[-1].source == "COMMAND_LINE: @myroot//entities:my_value=FOO"
 
 
 # ---------------------------------------------------------------------------
@@ -2716,13 +2696,13 @@ class TestPromoteScalarLeaf:
         assert result.struct.name == "Bald"  # type: ignore[union-attr]
 
     def test_promoted_lineage_is_empty_list(self) -> None:
-        """FR-004: Promoted struct has _lineage=[]."""
+        """FR-004: Promoted structs omit the legacy _lineage field."""
         from mlody.resolver.values.registry_backed import MlodyValueValue
 
         result = self._promote("abc", "tag", _make_string_type())
 
         assert isinstance(result, MlodyValueValue)
-        assert result.struct._lineage == []  # type: ignore[union-attr]
+        assert not hasattr(result.struct, "_lineage")  # type: ignore[union-attr]
 
     def test_register_true_raises_not_implemented(self) -> None:
         """FR-005: register=True raises NotImplementedError (OQ-003 deferred)."""

@@ -108,13 +108,7 @@ builtins.register("type", struct(
 ))
 builtins.register("type", struct(
     kind="type", type="mlody-task", name="mlody-task",
-    fields=_ENTITY_FIELDS + [
-        struct(
-            name="_hash",
-            type=struct(kind="type", type="string", name="string"),
-            materializer=lambda _task: python.uuid7(),
-        ),
-    ],
+    fields=_ENTITY_FIELDS,
     attributes={}, _allowed_attrs={},
     _root_kind="record",
 ))

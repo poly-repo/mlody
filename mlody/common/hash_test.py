@@ -14,6 +14,7 @@ from common.python.starlarkish.evaluator.testing import InMemoryFS
 from common.python.starlarkish.core.struct import Struct
 
 from mlody.common.hash import hash as value_hash
+from mlody.core.dag import PortRef
 from mlody.core.assets.interfaces import MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
 
@@ -444,7 +445,7 @@ def test_python_hash_returns_payload_hash_for_inline_data_value() -> None:
     assert value_hash(value_struct) == expected
 
 
-def test_python_hash_returns_none_for_non_remote_values_and_entities() -> None:
+def test_python_hash_returns_none_for_plain_local_values() -> None:
     local_value = Struct(
         kind="value",
         name="local",
@@ -455,7 +456,224 @@ def test_python_hash_returns_none_for_non_remote_values_and_entities() -> None:
             attributes={"path": ["/tmp/local.txt"]},
         ),
     )
-    task = Struct(kind="task", name="trainer")
 
     assert value_hash(local_value) is None
-    assert value_hash(task) is None
+
+
+def test_python_hash_returns_deterministic_task_hash() -> None:
+    task = Struct(
+        kind="task",
+        name="trainer",
+        inputs={
+            "dataset": Struct(
+                kind="value",
+                name="dataset",
+                type=Struct(kind="type", type="string", name="string"),
+                location=Struct(
+                    kind="location",
+                    type="inline",
+                    name="inline",
+                    data=Struct(uri="s3://datasets/train.csv"),
+                ),
+                freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+            )
+        },
+        config={
+            "batch_size": Struct(
+                kind="value",
+                name="batch_size",
+                type=Struct(kind="type", type="integer", name="integer"),
+                location=Struct(
+                    kind="location",
+                    type="inline",
+                    name="inline",
+                    data=Struct(value=32),
+                ),
+                freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+            )
+        },
+    )
+
+    with patch("mlody.common.hash._task_base_hash", return_value="task-base-hash"):
+        first = value_hash(task)
+        second = value_hash(task)
+
+    assert isinstance(first, str)
+    assert first == second
+
+
+def test_python_hash_of_task_includes_task_identity() -> None:
+    base_task = Struct(
+        kind="task",
+        name="trainer",
+        _source_range=Struct(
+            kind="mlody-source-range",
+            filepath="/repo/pipeline.mlody",
+            start_line=10,
+            end_line=14,
+        ),
+        inputs={},
+        config={},
+    )
+
+    with patch("mlody.common.hash._task_base_hash", return_value="task-base-hash"):
+        first = value_hash(base_task)
+        second = value_hash(base_task.updated(name="evaluator"))
+
+    assert first != second
+
+
+def test_python_hash_of_task_changes_when_config_changes() -> None:
+    def _task(batch_size: int) -> Struct:
+        return Struct(
+            kind="task",
+            name="trainer",
+            inputs={},
+            config={
+                "batch_size": Struct(
+                    kind="value",
+                    name="batch_size",
+                    type=Struct(kind="type", type="integer", name="integer"),
+                    location=Struct(
+                        kind="location",
+                        type="inline",
+                        name="inline",
+                        data=Struct(value=batch_size),
+                    ),
+                    freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+                )
+            },
+        )
+
+    with patch("mlody.common.hash._task_base_hash", return_value="task-base-hash"):
+        first = value_hash(_task(32))
+        second = value_hash(_task(64))
+
+    assert first != second
+
+
+def test_python_hash_of_task_sorts_input_and_config_names() -> None:
+    task_a = Struct(
+        kind="task",
+        name="trainer",
+        inputs={
+            "b": Struct(
+                kind="value",
+                name="b",
+                type=Struct(kind="type", type="string", name="string"),
+                location=Struct(kind="location", type="inline", name="inline", data=Struct(value="B")),
+                freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+            ),
+            "a": Struct(
+                kind="value",
+                name="a",
+                type=Struct(kind="type", type="string", name="string"),
+                location=Struct(kind="location", type="inline", name="inline", data=Struct(value="A")),
+                freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+            ),
+        },
+        config={},
+    )
+    task_b = Struct(
+        kind="task",
+        name="trainer",
+        inputs={
+            "a": task_a.inputs["a"],
+            "b": task_a.inputs["b"],
+        },
+        config={},
+    )
+
+    with patch("mlody.common.hash._task_base_hash", return_value="task-base-hash"):
+        first = value_hash(task_a)
+        second = value_hash(task_b)
+
+    assert first == second
+
+
+def test_python_hash_of_task_follows_producer_task_hash_transitively() -> None:
+    producer_output = Struct(
+        kind="value",
+        name="model",
+        type=Struct(kind="type", type="string", name="string"),
+        location=Struct(
+            kind="location",
+            type="posix",
+            name="posix",
+            attributes={"path": ["/tmp/model.bin"]},
+        ),
+        freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+    )
+    producer_a = Struct(
+        kind="task",
+        name="producer",
+        inputs={},
+        config={
+            "epochs": Struct(
+                kind="value",
+                name="epochs",
+                type=Struct(kind="type", type="integer", name="integer"),
+                location=Struct(kind="location", type="inline", name="inline", data=Struct(value=3)),
+                freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+            )
+        },
+    )
+    producer_b = producer_a.updated(
+        config={
+            "epochs": Struct(
+                kind="value",
+                name="epochs",
+                type=Struct(kind="type", type="integer", name="integer"),
+                location=Struct(kind="location", type="inline", name="inline", data=Struct(value=5)),
+                freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+            )
+        }
+    )
+    consumer_a = Struct(
+        kind="task",
+        name="consumer",
+        inputs={
+            "model": Struct(
+                kind="value",
+                name="model",
+                type=Struct(kind="type", type="string", name="string"),
+                location=Struct(
+                    kind="location",
+                    type="posix",
+                    name="posix",
+                    attributes={"path": ["/tmp/model.bin"]},
+                ),
+                freshness=Struct(kind="freshness", type="manual", name="manual", attributes={}),
+                source=PortRef(task="producer", port="model"),
+                _source_value=producer_output.updated(_producer_task=producer_a),
+            )
+        },
+        config={},
+    )
+    consumer_b = consumer_a.updated(
+        inputs={
+            "model": consumer_a.inputs["model"].updated(
+                _source_value=producer_output.updated(_producer_task=producer_b)
+            )
+        }
+    )
+
+    with patch("mlody.common.hash._task_base_hash", return_value="task-base-hash"):
+        first = value_hash(consumer_a)
+        second = value_hash(consumer_b)
+
+    assert first != second
+
+
+def test_hash_generic_returns_task_hash_in_mlody() -> None:
+    with patch("mlody.common.hash._task_base_hash", return_value="task-base-hash"):
+        ev = _eval(
+            """
+            trainer = struct(kind="task", name="trainer", inputs=[], config={})
+            result = hash(trainer)
+            """
+        )
+
+    result = _result(ev)
+    assert isinstance(result, str)
+    assert len(result) == 64

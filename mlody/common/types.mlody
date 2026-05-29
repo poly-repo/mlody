@@ -577,13 +577,6 @@ typedef(
 typedef(
     name = "mlody-task",
     base = builtins.lookup("type", "mlody-entity"),
-    fields = [
-        field(
-            name = "_hash",
-            type = string(),
-            materializer = lambda _task: python.uuid7(),
-        ),
-    ],
 )
 
 typedef(

@@ -603,40 +603,65 @@ class Workspace:
 
         for _key, entity in self._registry.iter_registry_items():
             if isinstance(entity, RegisteredTask):
+                for output_value in entity.outputs.values():
+                    object.__setattr__(output_value, "_producer_task", entity)
                 task_outputs[entity.name] = dict(entity.outputs)
             elif isinstance(entity, RegisteredValue):
                 standalone_values[entity.name] = entity
 
         def _resolve_one(rv: RegisteredValue) -> None:
             src = rv.source
-            if src is None or isinstance(src, (RegisteredValue, PortRef)):
+            if src is None:
+                return
+
+            if isinstance(src, RegisteredValue):
+                if getattr(rv, "_source_value", None) is None:
+                    object.__setattr__(rv, "_source_value", src)
+                return
+
+            if isinstance(src, PortRef):
+                if getattr(rv, "_source_value", None) is None:
+                    source_value = task_outputs.get(src.task, {}).get(src.port)
+                    if source_value is not None:
+                        object.__setattr__(rv, "_source_value", source_value)
                 return
 
             resolved: RegisteredValue | PortRef | None = None
+            resolved_source_value: RegisteredValue | None = None
 
             if isinstance(src, str) and src.startswith(":"):
                 after = src[1:]
                 if "." in after:
                     try:
                         resolved = parse_port_location(src)
+                        if isinstance(resolved, PortRef):
+                            resolved_source_value = task_outputs.get(resolved.task, {}).get(
+                                resolved.port
+                            )
                     except PortLocationParseError:
                         resolved = None
                 else:
                     for ports in task_outputs.values():
                         if after in ports:
                             resolved = ports[after]
+                            resolved_source_value = resolved
                             break
                     if resolved is None:
                         resolved = standalone_values.get(after)
+                        if resolved is not None:
+                            resolved_source_value = resolved
 
             elif is_struct_like(src) and getattr(src, "kind", None) == "value":
                 try:
                     resolved = RegisteredValue(src)  # type: ignore[arg-type]
+                    resolved_source_value = resolved
                 except (TypeError, ValueError):
                     pass
 
             if resolved is not None:
                 object.__setattr__(rv, "source", resolved)
+            if resolved_source_value is not None:
+                object.__setattr__(rv, "_source_value", resolved_source_value)
 
         for _key, entity in self._registry.iter_registry_items():
             if isinstance(entity, RegisteredValue):
