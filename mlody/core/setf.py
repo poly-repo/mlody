@@ -8,6 +8,7 @@ from pathlib import Path
 from mlody.core.anchor import Anchor
 from mlody.core.label import parse_label as parse_ref_label
 from mlody.core.lineage import (
+    _runtime_label,
     append_lineage,
     build_lineage_event,
     remember_runtime_label,
@@ -77,7 +78,13 @@ def _children(current: object) -> list[tuple[object, object]]:
 
 def _supports_lineage(value: object) -> bool:
     """Return True when *value* exposes the virtual ``lineage`` attribute."""
-    return lookup_runtime_attribute(value, "lineage") is not None
+    if is_virtual_value(value):
+        return lookup_runtime_attribute(value, "lineage") is not None
+
+    return (
+        getattr(value, "kind", None) in {"value", "task", "action"}
+        and lookup_runtime_attribute(value, "lineage") is not None
+    )
 
 
 def _declared_child_contract(
@@ -434,6 +441,7 @@ def setf_root(
     place_set.assert_non_empty()
     can_setf(root, selector, new_value, mode=mode)
     working_root = root
+    root_label = _runtime_label(root)
     for place in place_set.places:
         fresh_place_set = resolve_places(working_root, place.selector)
         if len(fresh_place_set.places) != 1:
@@ -447,6 +455,8 @@ def setf_root(
             fresh_place.selector.segments[:-1],
             new_owner,
         )
+        if root_label:
+            remember_runtime_label(working_root, root_label, overwrite=False)
         if fresh_place.lineage_selector is not None:
             event = build_lineage_event(
                 accessor=fresh_place.accessor,
@@ -457,16 +467,37 @@ def setf_root(
                 mode=mode,
             )
             if not fresh_place.lineage_selector.segments:
-                remember_runtime_label(working_root, "<root>")
-                working_root = append_lineage(working_root, event, mode=mode)
+                remember_runtime_label(
+                    working_root,
+                    root_label or "<root>",
+                    overwrite=False,
+                )
+                working_root = append_lineage(
+                    working_root,
+                    event,
+                    mode=mode,
+                    owner_label=root_label or "<root>",
+                )
             else:
                 sink = (
                     resolve_places(working_root, fresh_place.lineage_selector)
                     .places[0]
                     .current_value
                 )
-                remember_runtime_label(sink, str(fresh_place.lineage_selector))
-                updated_sink = append_lineage(sink, event, mode=mode)
+                sink_label = str(fresh_place.lineage_selector)
+                if root_label:
+                    sink_label = f"{root_label}{sink_label}"
+                remember_runtime_label(
+                    sink,
+                    sink_label,
+                    overwrite=False,
+                )
+                updated_sink = append_lineage(
+                    sink,
+                    event,
+                    mode=mode,
+                    owner_label=sink_label,
+                )
                 working_root = _replace_path_value(
                     working_root,
                     fresh_place.lineage_selector.segments,
@@ -494,6 +525,14 @@ def _selector_from_label_anchor(anchor: Anchor) -> PathExpression:
         ):
             segments.extend(query_expression.segments)
     return PathExpression(segments=tuple(segments))
+
+
+def _anchor_root_label(label: str, anchor: Anchor) -> str:
+    """Return the anchor's concrete root label without residual traversal."""
+    selector_text = str(_selector_from_label_anchor(anchor))
+    if selector_text and label.endswith(selector_text):
+        return label[: -len(selector_text)]
+    return label
 
 
 def _load_cwd_workspace() -> Workspace:
@@ -524,9 +563,11 @@ def resolve_setf_anchor(
     inner_label = label.format_inner()
 
     label_anchor = authoritative_workspace.resolve_label_anchor(inner_label)
+    root_label = _anchor_root_label(inner_label, label_anchor)
+    remember_value_tree_labels(label_anchor.root_value, root_label)
     return SetfAnchor(
         workspace=authoritative_workspace,
-        resolved_label=inner_label,
+        resolved_label=root_label,
         target=label_anchor,
         residual_selector=_selector_from_label_anchor(label_anchor),
     )
@@ -556,10 +597,12 @@ def _resolve_setf_anchors(
     anchors: list[SetfAnchor] = []
     for concrete_label in concrete_labels:
         label_anchor = authoritative_workspace.resolve_label_anchor(concrete_label)
+        root_label = _anchor_root_label(concrete_label, label_anchor)
+        remember_value_tree_labels(label_anchor.root_value, root_label)
         anchors.append(
             SetfAnchor(
                 workspace=authoritative_workspace,
-                resolved_label=concrete_label,
+                resolved_label=root_label,
                 target=label_anchor,
                 residual_selector=_selector_from_label_anchor(label_anchor),
             )
@@ -611,7 +654,12 @@ def _apply_anchor_assignment(
                 timestamp=timestamp,
                 mode=mode,
             )
-            updated_root = append_lineage(updated_root, event, mode=mode)
+            updated_root = append_lineage(
+                updated_root,
+                event,
+                mode=mode,
+                owner_label=anchor.resolved_label,
+            )
         return updated_root
     return setf_root(
         anchor.root_value,

@@ -418,6 +418,16 @@ def _declared_child_materializer(
     segment: str,
     attr_spec: object,
 ) -> Callable[[object], object]:
+    def _remember_parent_label(parent_value: object) -> None:
+        parent_label = getattr(parent, "label", None)
+        if not isinstance(parent_label, str) or parent_label == "":
+            parent_label = getattr(parent, "_resolved_label", None)
+        if not isinstance(parent_label, str) or parent_label == "":
+            return
+        from mlody.core.lineage import remember_runtime_label  # noqa: PLC0415
+
+        remember_runtime_label(parent_value, parent_label, overwrite=False)
+
     declared_materializer = getattr(attr_spec, "materializer", None)
     if callable(declared_materializer):
         cached_value: dict[str, object] = {"value": _SENTINEL}
@@ -427,6 +437,7 @@ def _declared_child_materializer(
             if existing is not _SENTINEL:
                 return existing
             parent_value = force_virtual_value(parent)
+            _remember_parent_label(parent_value)
             cached_value["value"] = declared_materializer(parent_value)
             return cached_value["value"]
 
@@ -434,6 +445,7 @@ def _declared_child_materializer(
 
     def _materializer(_v: object) -> object:
         parent_value = force_virtual_value(parent)
+        _remember_parent_label(parent_value)
         return step_object(parent_value, segment)
 
     return _materializer
@@ -446,6 +458,14 @@ def synthesize_runtime_child(
     label: str | None = None,
 ) -> object | None:
     """Build a typed virtual child from a declared runtime field when needed."""
+    if isinstance(label, str) and label.endswith(f".{segment}"):
+        from mlody.core.lineage import remember_runtime_label  # noqa: PLC0415
+
+        remember_runtime_label(
+            value,
+            label[: -(len(segment) + 1)],
+            overwrite=False,
+        )
     attr_spec = lookup_runtime_attribute(value, segment)
     if attr_spec is None:
         return None

@@ -10,6 +10,7 @@ from pyfakefs.fake_filesystem import FakeFilesystem
 from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.anchor import RegistryEntityAnchor
+from mlody.core.lineage import materialized_lineage, remember_runtime_label
 from mlody.core.setf import can_setf, resolve_places, setf, setf_root
 from mlody.core.setf_strategies import (
     DictKeySetter,
@@ -421,10 +422,19 @@ class TestSetfModuleSkeleton:
         assert root.values[0].payload == 1
         assert root.values[1].payload == "x"
 
-    def test_setf_appends_lineage_to_direct_selected_value(self) -> None:
+    def test_setf_appends_lineage_to_direct_selected_value(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
         """Task 5.3 / 5.4: direct writes append lineage to the updated value."""
-        root = Struct(config=Struct(value=1, _lineage=[]))
-        replacement = Struct(value=2, _lineage=[])
+        root = Struct(kind="value", config=Struct(kind="value", value=1))
+        replacement = Struct(kind="value", value=2)
+        monkeypatch.setattr(
+            "mlody.core.lineage._default_db_path",
+            lambda: tmp_path / "mlody.sqlite",
+        )
+        remember_runtime_label(root, "//demo:root")
 
         updated = setf_root(
             root,
@@ -434,38 +444,61 @@ class TestSetfModuleSkeleton:
             reason="bump",
             timestamp="2026-04-20T00:00:00Z",
         )
+        fresh = Struct(kind="value", value=2)
+        remember_runtime_label(fresh, "//demo:root.config")
+        persisted = materialized_lineage(fresh)
 
-        assert len(updated.config._lineage) == 1
-        event = updated.config._lineage[0]
-        assert event.accessor == ".config"
-        assert event.new_value == replacement
-        assert event.source == "tester"
+        assert getattr(updated.config, "value", None) == 2
+        assert len(persisted) == 1
+        assert persisted[0].accessor == ".config"
+        assert persisted[0].new_value == replacement
+        assert persisted[0].source == "tester"
 
-    def test_setf_appends_projected_lineage_to_aggregate_owner(self) -> None:
+    def test_setf_appends_projected_lineage_to_aggregate_owner(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
         """Task 5.5: projected writes preserve the aggregate accessor in lineage."""
-        root = {"items": [0, 1, 2, 3], "_lineage": []}
+        root = Struct(kind="value", items=[0, 1, 2, 3])
+        monkeypatch.setattr(
+            "mlody.core.lineage._default_db_path",
+            lambda: tmp_path / "mlody.sqlite",
+        )
+        remember_runtime_label(root, "//demo:aggregate")
 
         updated = setf_root(
             root,
-            '["items"][::2]',
+            ".items[::2]",
             42,
             source="tester",
             reason="mask",
             timestamp="2026-04-20T00:00:00Z",
         )
+        fresh = Struct(kind="value", items=[42, 1, 42, 3])
+        remember_runtime_label(fresh, "//demo:aggregate")
+        persisted = materialized_lineage(fresh)
 
-        assert updated["items"] == [42, 1, 42, 3]
-        assert len(updated["_lineage"]) == 1
-        event = updated["_lineage"][0]
-        assert event.accessor == '["items"][::2]'
-        assert event.source == "tester"
+        assert list(updated.items) == [42, 1, 42, 3]
+        assert len(persisted) == 1
+        assert persisted[0].accessor == ".items[::2]"
+        assert persisted[0].source == "tester"
 
-    def test_setf_appends_lineage_to_owner_when_child_has_no_lineage(self) -> None:
+    def test_setf_appends_lineage_to_owner_when_child_has_no_lineage(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
         """Direct child writes fall back to the owner's lineage sink."""
         root = Struct(
+            kind="value",
             location=Struct(type="inline", data="before"),
-            _lineage=[],
         )
+        monkeypatch.setattr(
+            "mlody.core.lineage._default_db_path",
+            lambda: tmp_path / "mlody.sqlite",
+        )
+        remember_runtime_label(root, "//demo:owner")
 
         updated = setf_root(
             root,
@@ -475,12 +508,56 @@ class TestSetfModuleSkeleton:
             reason="override",
             timestamp="2026-05-05T00:00:00Z",
         )
+        fresh = Struct(
+            kind="value",
+            location=Struct(type="inline", data="after"),
+        )
+        remember_runtime_label(fresh, "//demo:owner")
+        persisted = materialized_lineage(fresh)
 
         assert updated.location.data == "after"
-        assert len(updated._lineage) == 1
-        event = updated._lineage[0]
-        assert event.accessor == ".location"
-        assert event.source == "tester"
+        assert len(persisted) == 1
+        assert persisted[0].accessor == ".location"
+        assert persisted[0].source == "tester"
+
+    def test_setf_root_preserves_concrete_owner_label_for_db_lineage(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        """Inline child writes persist lineage under the full owner label."""
+        root = Struct(
+            kind="value",
+            type=_STRING_TYPE,
+            location=Struct(kind="location", type="inline", data="before"),
+        )
+        owner_label = "//simple:a-string"
+        remember_runtime_label(root, owner_label)
+        monkeypatch.setattr(
+            "mlody.core.lineage._default_db_path",
+            lambda: tmp_path / "mlody.sqlite",
+        )
+
+        updated = setf_root(
+            root,
+            ".location",
+            Struct(kind="location", type="inline", data="after"),
+            source="COMMAND_LINE: //simple:a-string=after",
+        )
+        fresh = Struct(
+            kind="value",
+            type=_STRING_TYPE,
+            location=Struct(kind="location", type="inline", data="after"),
+        )
+        remember_runtime_label(fresh, owner_label)
+
+        persisted = materialized_lineage(fresh)
+
+        assert updated.location.data == "after"
+        assert len(persisted) == 1
+        assert persisted[0].accessor == ".location"
+        assert persisted[0].new_value.data == "after"
+        assert persisted[0].source == "COMMAND_LINE: //simple:a-string=after"
 
     def test_setf_creates_missing_allowed_struct_field(self) -> None:
         """Terminal field writes may create a declared-but-absent child."""

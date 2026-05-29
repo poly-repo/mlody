@@ -142,16 +142,20 @@ def _deserialize_lineage_event(payload: str) -> object:
 
 
 def _json_payload(value: object) -> object:
+    if callable(value):
+        return None
     normalized = struct_like_to_struct(value)
     if isinstance(normalized, Struct):
         return {
             str(name): _json_payload(child)
             for name, child in normalized.as_mapping().items()
+            if not str(name).startswith("_")
         }
     if isinstance(normalized, dict):
         return {
             str(name): _json_payload(child)
             for name, child in normalized.items()
+            if not str(name).startswith("_")
         }
     if isinstance(normalized, list):
         return [_json_payload(child) for child in normalized]

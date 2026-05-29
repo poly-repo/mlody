@@ -55,6 +55,7 @@ o_py_test(
         ":core_lib",
         "//common/python/starlarkish/core:core_lib",
         "//mlody/common:common_lib",
+        "//mlody/db:db_lib",
     ],
 )
 
@@ -206,6 +207,7 @@ o_py_test(
     deps = [
         ":core_lib",
         "//common/python/starlarkish/core:core_lib",
+        "//mlody/db:db_lib",
         "@pip//pyfakefs",
         "@pip//pytest",
     ],

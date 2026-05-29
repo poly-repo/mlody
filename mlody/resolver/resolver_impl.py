@@ -1350,6 +1350,7 @@ def _traverse_one_step(
             synthesized_entity_value = synthesize_runtime_child(
                 current_struct,
                 effective_name,
+                label=_label_text(label),
             )
             if synthesized_entity_value is not None:
                 return MlodyValueValue(struct=synthesized_entity_value)
@@ -1575,7 +1576,11 @@ class ValueTraversalStrategy:
             if segment == "lineage":
                 field_decl = lookup_runtime_attribute(obj, segment)
                 if field_decl is not None:
-                    synthesized = synthesize_runtime_child(obj, segment)
+                    synthesized = synthesize_runtime_child(
+                        obj,
+                        segment,
+                        label=_label_text(label),
+                    )
                     if synthesized is not None:
                         obj = synthesized
                         continue
@@ -1589,7 +1594,11 @@ class ValueTraversalStrategy:
                     if raw_value is not _vt_sentinel and not synthesized_first:
                         obj = raw_value
                         continue
-                    synthesized = synthesize_runtime_child(obj, segment)
+                    synthesized = synthesize_runtime_child(
+                        obj,
+                        segment,
+                        label=_label_text(label),
+                    )
                     if synthesized is not None:
                         obj = synthesized
                         continue

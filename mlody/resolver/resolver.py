@@ -638,6 +638,7 @@ def build_baseline_workspace(workspace: Workspace) -> Workspace:
 
 def apply_request_overrides(workspace: Workspace, config: Iterable[str]) -> Workspace:
     """Apply ``--with LABEL=VALUE`` overrides to a request-local workspace."""
+    from mlody.core.lineage import build_lineage_event, record_lineage  # noqa: PLC0415
     from mlody.core.setf import setf  # noqa: PLC0415
 
     for raw in config:
@@ -677,11 +678,29 @@ def apply_request_overrides(workspace: Workspace, config: Iterable[str]) -> Work
                         source = f"COMMAND_LINE: {ref}={value}"
                 location = getattr(resolved, "location", None)
                 if getattr(location, "type", None) == "inline":
+                    updated_location = _updated_location_payload(location, value)
                     setf(
                         f"{concrete_ref}.location",
-                        _updated_location_payload(location, value),
+                        updated_location,
                         workspace=workspace,
                         source=source,
+                    )
+                    updated_value = workspace.resolve(concrete_ref)
+                    owner_label = getattr(updated_value, "_resolved_label", None)
+                    if not isinstance(owner_label, str) or owner_label == "":
+                        owner_label = concrete_ref
+                    event = build_lineage_event(
+                        accessor=".location",
+                        new_value=updated_location,
+                        source=source,
+                        reason=None,
+                        timestamp=None,
+                        mode="inplace",
+                    )
+                    record_lineage(
+                        updated_value,
+                        event,
+                        owner_label=owner_label,
                     )
                     continue
             setf(concrete_ref, value, workspace=workspace, source=source)

@@ -56,9 +56,14 @@ def build_lineage_event(
     )
 
 
-def remember_runtime_label(value: object, label: str | None) -> None:
+def remember_runtime_label(
+    value: object,
+    label: str | None,
+    *,
+    overwrite: bool = True,
+) -> None:
     """Remember a stable concrete label for one runtime object when available."""
-    if label:
+    if label and (overwrite or id(value) not in _RUNTIME_LABELS):
         _RUNTIME_LABELS[id(value)] = label
 
 
@@ -120,9 +125,11 @@ def materialized_lineage(value: object) -> list[object]:
 def record_lineage(
     value: object,
     event: LineageEvent,
+    *,
+    owner_label: str | None = None,
 ) -> bool:
     """Persist *event* for *value* in the shared SQLite lineage store."""
-    return _record_lineage_db_best_effort(value, event)
+    return _record_lineage_db_best_effort(value, event, owner_label=owner_label)
 
 
 def append_lineage(
@@ -130,15 +137,21 @@ def append_lineage(
     event: LineageEvent,
     *,
     mode: AssignmentMode,
+    owner_label: str | None = None,
 ) -> object:
     """Persist a lineage event and return *value* unchanged."""
     _ = mode
-    _record_lineage_db_best_effort(value, event)
+    _record_lineage_db_best_effort(value, event, owner_label=owner_label)
     return value
 
 
-def _record_lineage_db_best_effort(value: object, event: LineageEvent) -> bool:
-    owner_label = _runtime_label(value)
+def _record_lineage_db_best_effort(
+    value: object,
+    event: LineageEvent,
+    *,
+    owner_label: str | None = None,
+) -> bool:
+    owner_label = owner_label or _runtime_label(value)
     if owner_label is None:
         return False
 
