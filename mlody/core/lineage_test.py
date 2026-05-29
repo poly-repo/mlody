@@ -5,6 +5,7 @@ from __future__ import annotations
 from common.python.starlarkish.core.struct import Struct
 
 from mlody.common.value import RegisteredValue
+from mlody.core.assets.manifest import cache_key_for_uri
 from mlody.core.lineage import (
     LineageEvent,
     append_lineage,
@@ -13,6 +14,8 @@ from mlody.core.lineage import (
     record_lineage,
     remember_runtime_label,
 )
+from mlody.db.assets import record_observation, upsert_blob, upsert_external_asset
+from mlody.db.evaluations import open_db
 
 
 class TestLineageHelpers:
@@ -181,3 +184,94 @@ class TestLineageHelpers:
         assert persisted[0].accessor == event.accessor
         assert persisted[0].new_value == event.new_value
         assert persisted[0].source == event.source
+
+    def test_materialized_lineage_uses_asset_db_identity_for_remote_value(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        db_path = tmp_path / "mlody.sqlite"
+        cached_path = tmp_path / "employees.csv"
+        cached_path.write_text("name,salary\nAlice,120000\n")
+        uri = "https://example.com/employees.csv"
+        owner_label = "@demo//datasets:employees"
+
+        monkeypatch.setattr(
+            "mlody.core.lineage._default_db_path",
+            lambda: db_path,
+        )
+
+        original = Struct(
+            kind="value",
+            name="employees",
+            location=Struct(
+                kind="location",
+                type="remote",
+                attributes={"uri": uri},
+            ),
+        )
+        remember_runtime_label(original, owner_label)
+
+        event = build_lineage_event(
+            accessor=".location",
+            new_value=Struct(kind="location", data=uri),
+            source="downloaded from",
+            reason=None,
+            timestamp=None,
+            mode="inplace",
+            details={
+                "kind": "remote-download",
+                "uri": uri,
+                "staged_path": str(cached_path),
+                "content_hash": "abc123",
+                "location": {
+                    "kind": "location",
+                    "type": "remote",
+                    "attributes": {"uri": uri},
+                },
+            },
+        )
+        assert record_lineage(original, event) is True
+
+        conn = open_db(db_path)
+        try:
+            asset_id = upsert_external_asset(
+                conn,
+                uri=uri,
+                transport="http",
+                cache_key=cache_key_for_uri(uri),
+                value_name="employees",
+            )
+            upsert_blob(
+                conn,
+                content_hash="abc123",
+                local_path=str(cached_path),
+                size_bytes=cached_path.stat().st_size,
+            )
+            record_observation(
+                conn,
+                asset_id=asset_id,
+                blob_sha="abc123",
+                status="downloaded",
+                content_length=cached_path.stat().st_size,
+                resolved_url=uri,
+            )
+        finally:
+            conn.close()
+
+        fresh = Struct(
+            kind="value",
+            name="employees",
+            location=Struct(
+                kind="location",
+                type="remote",
+                attributes={"uri": uri},
+            ),
+        )
+        remember_runtime_label(fresh, owner_label)
+
+        persisted = materialized_lineage(fresh)
+
+        assert len(persisted) == 1
+        assert persisted[0].source == "downloaded from"
+        assert persisted[0].details["content_hash"] == "abc123"

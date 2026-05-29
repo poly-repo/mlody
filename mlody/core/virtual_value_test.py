@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +13,6 @@ from mlody.core.assets.interfaces import MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
 from mlody.core.lineage import (
     build_lineage_event,
-    materialized_lineage,
     record_lineage,
     remember_runtime_label,
 )
@@ -33,6 +33,12 @@ def _remote_asset(path: Path, *, uri: str, content_hash: str) -> MaterializedAss
             transport="http",
         ),
     )
+
+
+def _path_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 class TestStepObject:
@@ -198,6 +204,7 @@ class TestLineageVirtualAttribute:
     ) -> None:
         staged_path = tmp_path / "staged.csv"
         staged_path.write_text("name,salary\nAlice,120000\n")
+        content_hash = _path_hash(staged_path)
         destination_path = tmp_path / "cache" / "employees.csv"
         lineage_type = Struct(
             kind="type",
@@ -273,7 +280,7 @@ class TestLineageVirtualAttribute:
             mock_materialize.return_value = _remote_asset(
                 staged_path,
                 uri="https://example.com/employees.csv",
-                content_hash="abc123",
+                content_hash=content_hash,
             )
 
             lineage = lineage_attr.materializer(value_struct)
@@ -285,6 +292,3 @@ class TestLineageVirtualAttribute:
         ]
         assert lineage[0].new_value.data == "https://example.com/employees.csv"
         assert lineage[1].details["destination_path"] == str(destination_path)
-        source_lineage = materialized_lineage(value_struct._source_value)
-        assert len(source_lineage) == 1
-        assert source_lineage[0].source == "downloaded from"

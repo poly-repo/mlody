@@ -12,11 +12,20 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final
 
-import uuid_utils
+try:
+    import uuid_utils
+except ModuleNotFoundError:  # pragma: no cover - exercised only outside Bazel deps.
+    class _UuidUtilsCompat:
+        @staticmethod
+        def uuid7() -> uuid.UUID:
+            return uuid.uuid4()
+
+    uuid_utils = _UuidUtilsCompat()
 
 EVALUATIONS_DDL: Final[str] = """
 CREATE TABLE IF NOT EXISTS evaluations (

@@ -17,8 +17,6 @@ from mlody.core.place import AssignmentMode
 
 _DEFAULT_DB_SUFFIX = Path(".cache") / "mlody" / "mlody.sqlite"
 _RUNTIME_LABELS: dict[int, str] = {}
-_RUNTIME_OWNER_HASHES: dict[int, str] = {}
-_RUNTIME_LABEL_HASHES: dict[str, str] = {}
 _HASH_LOOKUPS_IN_PROGRESS: set[int] = set()
 
 
@@ -98,11 +96,12 @@ def materialized_lineage(value: object) -> list[object]:
     if owner_label is None:
         return []
 
-    from mlody.db.lineage_events import open_lineage_db, read_lineage_events  # noqa: PLC0415
+    from mlody.db.evaluations import open_db  # noqa: PLC0415
+    from mlody.db.lineage_events import read_lineage_events  # noqa: PLC0415
 
     conn = None
     try:
-        conn = open_lineage_db(_default_db_path())
+        conn = open_db(_default_db_path())
         owner_hash = _value_hash(value, conn=conn)
         if not owner_hash:
             return []
@@ -143,15 +142,15 @@ def _record_lineage_db_best_effort(value: object, event: LineageEvent) -> bool:
     if owner_label is None:
         return False
 
-    from mlody.db.lineage_events import open_lineage_db, write_lineage_event  # noqa: PLC0415
+    from mlody.db.evaluations import open_db  # noqa: PLC0415
+    from mlody.db.lineage_events import write_lineage_event  # noqa: PLC0415
 
     conn = None
     try:
-        conn = open_lineage_db(_default_db_path())
+        conn = open_db(_default_db_path())
         owner_hash = _value_hash(value, conn=conn, event=event)
         if not owner_hash:
             return False
-        _remember_runtime_hash(value, owner_hash)
         return write_lineage_event(
             conn,
             owner_label=owner_label,
@@ -171,7 +170,6 @@ def _value_hash(
     conn: object,
     event: LineageEvent | None = None,
 ) -> str | None:
-    _ = conn
     content_hash = _event_content_hash(event)
     if content_hash:
         return content_hash
@@ -185,6 +183,13 @@ def _value_hash(
         resolved_value = getattr(value, "_resolved_value", None)
         if resolved_value is not None and resolved_value is not value:
             return _value_hash(resolved_value, conn=conn)
+
+        if getattr(value, "kind", None) == "value":
+            from mlody.common.hash import hash as semantic_hash  # noqa: PLC0415
+
+            content_hash = semantic_hash(value, db_conn=conn)
+            if content_hash:
+                return content_hash
 
         location = getattr(value, "location", None)
         inline_data = getattr(location, "data", None)
@@ -202,10 +207,6 @@ def _value_hash(
         source_attr = getattr(value, "source", None)
         if getattr(source_attr, "kind", None) == "value":
             return _value_hash(source_attr, conn=conn)
-
-        remembered_hash = _runtime_hash(value)
-        if remembered_hash:
-            return remembered_hash
 
         if is_struct_like(value) or isinstance(value, (dict, list, tuple)):
             return _structured_payload_hash(value)
@@ -245,23 +246,6 @@ def _runtime_label(value: object) -> str | None:
 
 def _default_db_path() -> Path:
     return Path.home() / _DEFAULT_DB_SUFFIX
-
-
-def _remember_runtime_hash(value: object, owner_hash: str) -> None:
-    _RUNTIME_OWNER_HASHES[id(value)] = owner_hash
-    owner_label = _runtime_label(value)
-    if owner_label:
-        _RUNTIME_LABEL_HASHES[owner_label] = owner_hash
-
-
-def _runtime_hash(value: object) -> str | None:
-    remembered_hash = _RUNTIME_OWNER_HASHES.get(id(value))
-    if remembered_hash:
-        return remembered_hash
-    owner_label = _runtime_label(value)
-    if owner_label:
-        return _RUNTIME_LABEL_HASHES.get(owner_label)
-    return None
 
 
 def _named_children(value: object) -> tuple[tuple[str, object], ...]:

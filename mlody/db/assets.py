@@ -15,11 +15,20 @@ Schema notes (same constraints as evaluations.py):
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Final
 
-import uuid_utils
+try:
+    import uuid_utils
+except ModuleNotFoundError:  # pragma: no cover - exercised only outside Bazel deps.
+    class _UuidUtilsCompat:
+        @staticmethod
+        def uuid7() -> uuid.UUID:
+            return uuid.uuid4()
+
+    uuid_utils = _UuidUtilsCompat()
 
 EXTERNAL_ASSETS_DDL: Final[str] = """
 CREATE TABLE IF NOT EXISTS external_assets (
