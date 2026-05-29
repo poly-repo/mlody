@@ -23,7 +23,6 @@ class RegisteredValue(RegisteredStructBase):
     type: object
     location: object
     freshness: object
-    _lineage: list[object]
     unit: object | None = None
     default: object | None = None
     source: RegisteredValue | PortRef | None = None

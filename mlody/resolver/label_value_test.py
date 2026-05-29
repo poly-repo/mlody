@@ -167,7 +167,7 @@ _ENTITY_FIELDS = [
             name="vector",
             attributes={"element_type": builtins.lookup("type", "mlody-lineage-event")},
         ),
-        materializer=lambda owner: python.getattr(owner, "_lineage", []),
+        materializer=lambda owner: python.materialized_lineage(owner),
         mandatory=False,
     ),
     struct(

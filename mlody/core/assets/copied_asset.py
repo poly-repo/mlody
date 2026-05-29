@@ -14,7 +14,7 @@ from mlody.common.struct import Struct
 from mlody.core.assets.freshness_policy import should_refresh_copied_asset
 from mlody.core.assets.interfaces import AssetSource, MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
-from mlody.core.lineage import build_lineage_event, record_lineage
+from mlody.core.lineage import build_lineage_event, materialized_lineage, record_lineage
 
 _logger = logging.getLogger(__name__)
 
@@ -158,19 +158,17 @@ class CopiedAssetSource:
         for source_event in self._inherited_source_lineage_events(source_path=source_path):
             record_lineage(self.lineage_owner, source_event)
 
-        existing_lineage = getattr(self.lineage_owner, "_lineage", None)
-        if isinstance(existing_lineage, list):
-            for existing_event in existing_lineage:
-                if getattr(existing_event, "source", None) != "copied from":
-                    continue
-                existing_details = getattr(existing_event, "details", None)
-                if not isinstance(existing_details, dict):
-                    continue
-                if (
-                    existing_details.get("destination_path") == str(destination)
-                    and existing_details.get("source_label") == self.source_label
-                ):
-                    return
+        for existing_event in materialized_lineage(self.lineage_owner):
+            if getattr(existing_event, "source", None) != "copied from":
+                continue
+            existing_details = getattr(existing_event, "details", None)
+            if not isinstance(existing_details, dict):
+                continue
+            if (
+                existing_details.get("destination_path") == str(destination)
+                and existing_details.get("source_label") == self.source_label
+            ):
+                return
 
         source_ref = self.source_label or (
             str(source_path) if source_path is not None else "<unknown>"
@@ -224,9 +222,9 @@ class CopiedAssetSource:
                 if nested_event not in events:
                     events.append(nested_event)
 
-        existing_lineage = getattr(value, "_lineage", None)
-        if isinstance(existing_lineage, list) and existing_lineage:
-            for existing_event in existing_lineage:
+        persisted_lineage = materialized_lineage(value)
+        if persisted_lineage:
+            for existing_event in persisted_lineage:
                 if existing_event not in events:
                     events.append(existing_event)
             return events

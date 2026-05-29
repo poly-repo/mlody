@@ -571,7 +571,6 @@ def promote_scalar_leaf(
         name=field_name,
         type=vector_type_struct,
         location=location_struct,
-        _lineage=[],
     )
 
     if register:

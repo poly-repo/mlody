@@ -10,7 +10,12 @@ from common.python.starlarkish.core.struct import Struct
 
 from mlody.core.assets.interfaces import MaterializedAsset
 from mlody.core.assets.metadata import AssetMetadata
-from mlody.core.lineage import build_lineage_event, record_lineage, remember_runtime_label
+from mlody.core.lineage import (
+    build_lineage_event,
+    materialized_lineage,
+    record_lineage,
+    remember_runtime_label,
+)
 from mlody.core.virtual_value import lookup_runtime_attribute, step_object
 
 
@@ -85,7 +90,6 @@ class TestLineageVirtualAttribute:
                 virtual_attributes=[Struct(name="lineage", type=lineage_type)],
                 _allowed_attrs={},
             ),
-            _lineage=[],
             location=Struct(
                 kind="location",
                 type="inline",
@@ -107,7 +111,6 @@ class TestLineageVirtualAttribute:
             mode="inplace",
         )
         assert record_lineage(value_struct, event) is True
-        value_struct._lineage.clear()
 
         lineage_attr = lookup_runtime_attribute(value_struct, "lineage")
 
@@ -118,7 +121,11 @@ class TestLineageVirtualAttribute:
         assert lineage[0].source == "DEFAULT: 32"
         assert lineage[0].new_value.data == "32"
 
-    def test_lineage_attribute_populates_remote_download_lineage(self) -> None:
+    def test_lineage_attribute_populates_remote_download_lineage(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
         lineage_type = Struct(
             kind="type",
             name="vector",
@@ -143,7 +150,6 @@ class TestLineageVirtualAttribute:
                 virtual_attributes=[Struct(name="lineage", type=lineage_type)],
                 _allowed_attrs={},
             ),
-            _lineage=[],
             location=Struct(
                 kind="location",
                 type="remote",
@@ -162,6 +168,11 @@ class TestLineageVirtualAttribute:
                 },
             ),
         )
+        monkeypatch.setattr(
+            "mlody.core.lineage._default_db_path",
+            lambda: tmp_path / "mlody.sqlite",
+        )
+        remember_runtime_label(value_struct, "@demo//datasets:employees")
 
         lineage_attr = lookup_runtime_attribute(value_struct, "lineage")
 
@@ -183,6 +194,7 @@ class TestLineageVirtualAttribute:
     def test_lineage_attribute_materializes_source_backed_local_copy(
         self,
         tmp_path: Path,
+        monkeypatch,
     ) -> None:
         staged_path = tmp_path / "staged.csv"
         staged_path.write_text("name,salary\nAlice,120000\n")
@@ -211,13 +223,11 @@ class TestLineageVirtualAttribute:
                 virtual_attributes=[Struct(name="lineage", type=lineage_type)],
                 _allowed_attrs={},
             ),
-            _lineage=[],
             location=Struct(kind="location", type="posix", path=str(destination_path)),
             source=":employees",
             _source_value=Struct(
                 kind="value",
                 name="employees",
-                _lineage=[],
                 location=Struct(
                     kind="location",
                     type="remote",
@@ -249,6 +259,12 @@ class TestLineageVirtualAttribute:
                 },
             ),
         )
+        monkeypatch.setattr(
+            "mlody.core.lineage._default_db_path",
+            lambda: tmp_path / "mlody.sqlite",
+        )
+        remember_runtime_label(value_struct, "@demo//datasets:employees_local")
+        remember_runtime_label(value_struct._source_value, "@demo//datasets:employees")
 
         lineage_attr = lookup_runtime_attribute(value_struct, "lineage")
 
@@ -269,5 +285,6 @@ class TestLineageVirtualAttribute:
         ]
         assert lineage[0].new_value.data == "https://example.com/employees.csv"
         assert lineage[1].details["destination_path"] == str(destination_path)
-        assert len(value_struct._source_value._lineage) == 1
-        assert value_struct._source_value._lineage[0].source == "downloaded from"
+        source_lineage = materialized_lineage(value_struct._source_value)
+        assert len(source_lineage) == 1
+        assert source_lineage[0].source == "downloaded from"

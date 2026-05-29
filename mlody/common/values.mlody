@@ -355,7 +355,6 @@ def _value_impl(ctx):
         "default": default_raw,
         "source": source_ref,
         "representation": rep_ref,
-        "_lineage": [],          # managed by MLody, not the user
     }
     if entity_type != None:
         value_fields["_entity_type"] = entity_type

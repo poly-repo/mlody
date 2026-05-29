@@ -11,13 +11,14 @@ from mlody.common.struct import (
     is_struct_like,
     struct_like_as_mapping,
     struct_like_to_struct,
-    struct_like_updated,
 )
 
 from mlody.core.place import AssignmentMode
 
 _DEFAULT_DB_SUFFIX = Path(".cache") / "mlody" / "mlody.sqlite"
 _RUNTIME_LABELS: dict[int, str] = {}
+_RUNTIME_OWNER_HASHES: dict[int, str] = {}
+_RUNTIME_LABEL_HASHES: dict[str, str] = {}
 _HASH_LOOKUPS_IN_PROGRESS: set[int] = set()
 
 
@@ -92,10 +93,10 @@ def remember_value_tree_labels(value: object, label: str | None) -> None:
 
 
 def materialized_lineage(value: object) -> list[object]:
-    """Return lineage for *value*, preferring persisted DB events when available."""
+    """Return persisted lineage events for *value* from the shared SQLite DB."""
     owner_label = _runtime_label(value)
     if owner_label is None:
-        return list(_lineage_items(value))
+        return []
 
     from mlody.db.lineage_events import open_lineage_db, read_lineage_events  # noqa: PLC0415
 
@@ -104,46 +105,25 @@ def materialized_lineage(value: object) -> list[object]:
         conn = open_lineage_db(_default_db_path())
         owner_hash = _value_hash(value, conn=conn)
         if not owner_hash:
-            return list(_lineage_items(value))
-        persisted = read_lineage_events(
+            return []
+        return read_lineage_events(
             conn,
             owner_label=owner_label,
             owner_hash=owner_hash,
         )
-        if persisted:
-            return persisted
     except Exception:
-        pass
+        return []
     finally:
         if conn is not None:
             conn.close()
-
-    return list(_lineage_items(value))
 
 
 def record_lineage(
     value: object,
     event: LineageEvent,
 ) -> bool:
-    """Append *event* in place when *value* exposes a mutable ``_lineage`` list.
-
-    Returns ``True`` when the event was recorded and ``False`` when lineage is
-    unavailable or an equal event was already present.
-    """
-    lineage = _mutable_lineage_items(value)
-    if lineage is not None and event in lineage:
-        return False
-
-    persisted = _record_lineage_db_best_effort(value, event)
-
-    if lineage is None:
-        return persisted
-
-    if event in lineage:
-        return persisted
-
-    lineage.append(event)
-    return True
+    """Persist *event* for *value* in the shared SQLite lineage store."""
+    return _record_lineage_db_best_effort(value, event)
 
 
 def append_lineage(
@@ -152,19 +132,9 @@ def append_lineage(
     *,
     mode: AssignmentMode,
 ) -> object:
-    """Append a lineage event to a value and return the updated value."""
+    """Persist a lineage event and return *value* unchanged."""
     _ = mode
     _record_lineage_db_best_effort(value, event)
-    if is_struct_like(value):
-        lineage = list(struct_like_as_mapping(value).get("_lineage", []))
-        lineage.append(event)
-        return struct_like_updated(value, _lineage=lineage)
-    if isinstance(value, dict):
-        updated = dict(value)
-        lineage = list(updated.get("_lineage", []))
-        lineage.append(event)
-        updated["_lineage"] = lineage
-        return updated
     return value
 
 
@@ -181,6 +151,7 @@ def _record_lineage_db_best_effort(value: object, event: LineageEvent) -> bool:
         owner_hash = _value_hash(value, conn=conn, event=event)
         if not owner_hash:
             return False
+        _remember_runtime_hash(value, owner_hash)
         return write_lineage_event(
             conn,
             owner_label=owner_label,
@@ -204,11 +175,6 @@ def _value_hash(
     content_hash = _event_content_hash(event)
     if content_hash:
         return content_hash
-
-    for existing_event in _lineage_items(value):
-        content_hash = _event_content_hash(existing_event)
-        if content_hash:
-            return content_hash
 
     value_id = id(value)
     if value_id in _HASH_LOOKUPS_IN_PROGRESS:
@@ -236,6 +202,13 @@ def _value_hash(
         source_attr = getattr(value, "source", None)
         if getattr(source_attr, "kind", None) == "value":
             return _value_hash(source_attr, conn=conn)
+
+        remembered_hash = _runtime_hash(value)
+        if remembered_hash:
+            return remembered_hash
+
+        if is_struct_like(value) or isinstance(value, (dict, list, tuple)):
+            return _structured_payload_hash(value)
 
         return None
     finally:
@@ -274,23 +247,21 @@ def _default_db_path() -> Path:
     return Path.home() / _DEFAULT_DB_SUFFIX
 
 
-def _mutable_lineage_items(value: object) -> list[object] | None:
-    if is_struct_like(value):
-        candidate = struct_like_as_mapping(value).get("_lineage")
-        if isinstance(candidate, list):
-            return candidate
-    elif isinstance(value, dict):
-        candidate = value.get("_lineage")
-        if isinstance(candidate, list):
-            return candidate
+def _remember_runtime_hash(value: object, owner_hash: str) -> None:
+    _RUNTIME_OWNER_HASHES[id(value)] = owner_hash
+    owner_label = _runtime_label(value)
+    if owner_label:
+        _RUNTIME_LABEL_HASHES[owner_label] = owner_hash
+
+
+def _runtime_hash(value: object) -> str | None:
+    remembered_hash = _RUNTIME_OWNER_HASHES.get(id(value))
+    if remembered_hash:
+        return remembered_hash
+    owner_label = _runtime_label(value)
+    if owner_label:
+        return _RUNTIME_LABEL_HASHES.get(owner_label)
     return None
-
-
-def _lineage_items(value: object) -> list[object]:
-    lineage = _mutable_lineage_items(value)
-    if lineage is not None:
-        return lineage
-    return []
 
 
 def _named_children(value: object) -> tuple[tuple[str, object], ...]:

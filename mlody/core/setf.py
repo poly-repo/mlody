@@ -5,11 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mlody.common.struct import Struct, is_struct_like
-
 from mlody.core.anchor import Anchor
 from mlody.core.label import parse_label as parse_ref_label
-from mlody.core.lineage import append_lineage, build_lineage_event, remember_value_tree_labels
+from mlody.core.lineage import (
+    append_lineage,
+    build_lineage_event,
+    remember_runtime_label,
+    remember_value_tree_labels,
+)
 from mlody.core.place import AssignmentMode, MISSING_PLACE_VALUE, Place, PlaceSet
 from mlody.core.setf_strategies import (
     DictKeySetter,
@@ -22,7 +25,6 @@ from mlody.core.setf_strategies import (
     _STRATEGIES,
 )
 from mlody.core.traversal_runtime import (
-    has_named_child,
     iter_children,
     replace_child,
     step_segment,
@@ -73,9 +75,9 @@ def _children(current: object) -> list[tuple[object, object]]:
     return list(iter_children(current))
 
 
-def _has_lineage(value: object) -> bool:
-    """Return True when *value* can store `_lineage`."""
-    return has_named_child(value, "_lineage")
+def _supports_lineage(value: object) -> bool:
+    """Return True when *value* exposes the virtual ``lineage`` attribute."""
+    return lookup_runtime_attribute(value, "lineage") is not None
 
 
 def _declared_child_contract(
@@ -171,8 +173,8 @@ def _make_direct_place(
 ) -> Place:
     """Construct a direct writable place for one concrete segment."""
     selector = PathExpression(segments=prefix)
-    lineage_on_current = _has_lineage(current_value)
-    lineage_on_owner = _has_lineage(owner)
+    lineage_on_current = _supports_lineage(current_value)
+    lineage_on_owner = _supports_lineage(owner)
     runtime_attr = (
         lookup_runtime_attribute(owner, segment.name)
         if isinstance(segment, FieldSegment)
@@ -304,9 +306,9 @@ def _resolve_places_recursive(
                 strategy=SequenceSliceSetter(),
                 declared_type=declared_type,
                 declared_representation=declared_representation,
-                lineage_sink=owner if _has_lineage(owner) else None,
+                lineage_sink=owner if _supports_lineage(owner) else None,
                 lineage_selector=PathExpression(segments=prefix[:-1])
-                if _has_lineage(owner)
+                if _supports_lineage(owner)
                 else None,
             )
         ]
@@ -455,6 +457,7 @@ def setf_root(
                 mode=mode,
             )
             if not fresh_place.lineage_selector.segments:
+                remember_runtime_label(working_root, "<root>")
                 working_root = append_lineage(working_root, event, mode=mode)
             else:
                 sink = (
@@ -462,6 +465,7 @@ def setf_root(
                     .places[0]
                     .current_value
                 )
+                remember_runtime_label(sink, str(fresh_place.lineage_selector))
                 updated_sink = append_lineage(sink, event, mode=mode)
                 working_root = _replace_path_value(
                     working_root,
@@ -597,7 +601,8 @@ def _apply_anchor_assignment(
     """Apply an assignment against a resolved anchor root."""
     if not anchor.residual_selector.segments:
         updated_root = new_value
-        if _has_lineage(updated_root):
+        if _supports_lineage(updated_root):
+            remember_runtime_label(updated_root, anchor.resolved_label)
             event = build_lineage_event(
                 accessor=anchor.resolved_label,
                 new_value=new_value,

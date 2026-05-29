@@ -6,10 +6,19 @@ import hashlib
 import json
 import os
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import uuid_utils
+try:
+    import uuid_utils
+except ModuleNotFoundError:  # pragma: no cover - exercised only outside Bazel deps.
+    class _UuidUtilsCompat:
+        @staticmethod
+        def uuid7() -> uuid.UUID:
+            return uuid.uuid4()
+
+    uuid_utils = _UuidUtilsCompat()
 
 from mlody.common.struct import Struct, struct_like_to_struct
 

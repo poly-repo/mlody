@@ -217,22 +217,22 @@ def test_value_location_struct_as_freshness_raises_type_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# TC-010: freshly registered value has an empty _lineage list
+# TC-010: freshly registered values no longer embed lineage state
 # ---------------------------------------------------------------------------
 
 
-def test_value_has_empty_lineage_on_creation() -> None:
-    """TC-010: a new value has _lineage == []."""
+def test_value_does_not_embed_lineage_on_creation() -> None:
+    """TC-010: a new value omits the legacy _lineage field."""
     ev = _eval('value(name="v", type=integer(), location=s3())')
     v = ev.registry.values.by_name["v"]
-    assert v._lineage == []
+    assert not hasattr(v, "_lineage")
 
 
-def test_value_lineage_is_a_list() -> None:
-    """TC-010: _lineage is a list, not None or missing."""
+def test_value_exposes_virtual_lineage_attribute() -> None:
+    """TC-010: values still expose the public lineage attribute."""
     ev = _eval('value(name="v", type=integer(), location=s3())')
     v = ev.registry.values.by_name["v"]
-    assert isinstance(v._lineage, list)
+    assert hasattr(v, "lineage")
 
 
 # ---------------------------------------------------------------------------

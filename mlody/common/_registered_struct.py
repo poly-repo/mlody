@@ -119,6 +119,7 @@ def populate_from_struct(instance: object, value: object) -> None:
                 f"{expected_kind!r}, got {actual_kind!r}.",
             )
         allowed_compat_fields.add("kind")
+    allowed_compat_fields.add("_lineage")
 
     unexpected = sorted(
         name
@@ -308,4 +309,3 @@ def _wrap_struct_with_wrapper(
         # Keep legacy or partially migrated shapes working until the remaining
         # callers are updated to construct the typed wrappers consistently.
         return value
-

@@ -385,7 +385,6 @@ def make_virtual_value(
         "type": value_type,
         "location": virtual_loc,
         "label": label,
-        "_lineage": [],
     }
     if name is not None:
         fields["name"] = name

@@ -158,7 +158,6 @@ def _task_impl(ctx):
             scoped = clone_value(
                 v,
                 name=prefix + "." + python.getattr(v, "name", ""),
-                _lineage=[],
             )
             builtins.register("value", scoped)
 

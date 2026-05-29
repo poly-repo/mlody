@@ -50,12 +50,21 @@ import logging
 import os
 import re
 import types
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, cast
 from urllib.parse import urlparse, urlunparse
 
-import uuid_utils
+try:
+    import uuid_utils
+except ModuleNotFoundError:  # pragma: no cover - exercised only outside Bazel deps.
+    class _UuidUtilsCompat:
+        @staticmethod
+        def uuid7() -> uuid.UUID:
+            return uuid.uuid4()
+
+    uuid_utils = _UuidUtilsCompat()
 from common.python.http_info import fetch_http_info
 from mlody.common.hash import hash as _mlody_hash
 
@@ -583,6 +592,13 @@ def _runtime_json_blob(obj: object) -> str:
     return json.dumps(_runtime_json_data(obj), indent=2, sort_keys=True)
 
 
+def _materialized_lineage(obj: object) -> object:
+    """Return DB-backed lineage events for one runtime object."""
+    from mlody.core.lineage import materialized_lineage  # noqa: PLC0415
+
+    return materialized_lineage(obj)
+
+
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHORT_SHA_RE = re.compile(r"^[0-9a-f]{4,39}$")
 
@@ -743,6 +759,7 @@ PYTHON_SPECIFIC_BUILTINS = struct(
     parse_quantity_string=_parse_quantity_string,
     format_quantity_string=_format_quantity_string,
     runtime_json_blob=_runtime_json_blob,
+    materialized_lineage=_materialized_lineage,
     uuid7=_uuid7_string,
     round=builtins.round,
     sum=builtins.sum,
@@ -1468,7 +1485,6 @@ class Evaluator:
                 materializer=_materialize,
             ),
             label=f"{label_prefix}.{field_name}" if label_prefix else field_name,
-            _lineage=[],
             name=field_name,
         )
 
