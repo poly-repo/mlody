@@ -158,7 +158,9 @@ class CopiedAssetSource:
         for source_event in self._inherited_source_lineage_events(source_path=source_path):
             record_lineage(self.lineage_owner, source_event)
 
-        for existing_event in materialized_lineage(self.lineage_owner):
+        existing_events = list(getattr(self.lineage_owner, "_lineage", ()) or ())
+        existing_events.extend(materialized_lineage(self.lineage_owner))
+        for existing_event in existing_events:
             if getattr(existing_event, "source", None) != "copied from":
                 continue
             existing_details = getattr(existing_event, "details", None)
@@ -185,7 +187,6 @@ class CopiedAssetSource:
                 "source_label": self.source_label,
                 "source_path": str(source_path) if source_path is not None else None,
                 "destination_path": str(destination),
-                "content_hash": self._file_content_hash(destination),
             },
         )
         record_lineage(self.lineage_owner, event)
@@ -221,6 +222,13 @@ class CopiedAssetSource:
             ):
                 if nested_event not in events:
                     events.append(nested_event)
+
+        runtime_lineage = getattr(value, "_lineage", None)
+        if isinstance(runtime_lineage, (list, tuple)) and runtime_lineage:
+            for existing_event in runtime_lineage:
+                if existing_event not in events:
+                    events.append(existing_event)
+            return events
 
         persisted_lineage = materialized_lineage(value)
         if persisted_lineage:

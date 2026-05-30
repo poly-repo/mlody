@@ -141,9 +141,31 @@ def _synthetic_lineage_attribute(lineage_type: object | None = None) -> Struct:
                     except Exception:
                         pass
 
+        runtime_lineage = getattr(owner, "_lineage", None)
+        if isinstance(runtime_lineage, (list, tuple)) and runtime_lineage:
+            return list(runtime_lineage)
+
         from mlody.core.lineage import materialized_lineage  # noqa: PLC0415
 
-        return materialized_lineage(owner)
+        lineage = materialized_lineage(owner)
+        source_value = getattr(owner, "_source_value", None)
+        if source_value is None:
+            return lineage
+
+        source_runtime_lineage = getattr(source_value, "_lineage", None)
+        if isinstance(source_runtime_lineage, (list, tuple)) and source_runtime_lineage:
+            source_lineage = list(source_runtime_lineage)
+        else:
+            source_lineage = materialized_lineage(source_value)
+
+        if not source_lineage:
+            return lineage
+
+        combined_lineage: list[object] = []
+        for event in [*source_lineage, *lineage]:
+            if event not in combined_lineage:
+                combined_lineage.append(event)
+        return combined_lineage
 
     return Struct(
         kind="field",

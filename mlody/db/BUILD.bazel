@@ -11,22 +11,47 @@ o_py_library(
 )
 
 o_py_library(
+    name = "assets_lib",
+    srcs = ["assets.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@pip//uuid_utils",
+    ],
+)
+
+o_py_library(
+    name = "local_patches_lib",
+    srcs = ["local_patches.py"],
+    visibility = ["//:__subpackages__"],
+)
+
+o_py_library(
+    name = "evaluations_lib",
+    srcs = ["evaluations.py"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":assets_lib",
+        ":lineage_events_lib",
+        ":local_patches_lib",
+        "@pip//uuid_utils",
+    ],
+)
+
+o_py_library(
     name = "db_lib",
     srcs = [
         "__init__.py",
-        "assets.py",
         "cache_stats.py",
-        "evaluations.py",
-        "lineage_events.py",
         "local_diff.py",
-        "local_patches.py",
         "stats.py",
     ],
     visibility = ["//:__subpackages__"],
     deps = [
+        ":assets_lib",
+        ":evaluations_lib",
         ":lineage_events_lib",
+        ":local_patches_lib",
         "//mlody/core:core_lib",
-        "@pip//uuid_utils",
     ],
 )
 

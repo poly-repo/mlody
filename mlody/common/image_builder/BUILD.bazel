@@ -32,6 +32,7 @@ o_py_library(
     deps = [
         ":image_builder_core",  # keep
         "//common/python/errors:errors_lib",
+        "//mlody/common:hash_lib",
         "//mlody/common/image_builder/phases:phases_lib",  # keep
     ],
 )

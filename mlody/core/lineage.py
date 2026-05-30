@@ -151,7 +151,8 @@ def record_lineage(
     owner_label: str | None = None,
     previous_owner: object | None = None,
 ) -> bool:
-    """Persist *event* for *value* in the shared SQLite lineage store."""
+    """Persist *event* for *value* and keep runtime lineage in sync."""
+    _append_runtime_lineage(value, event)
     return _record_lineage_db_best_effort(
         value,
         event,
@@ -170,6 +171,7 @@ def append_lineage(
 ) -> object:
     """Persist a lineage event and return *value* unchanged."""
     _ = mode
+    _append_runtime_lineage(value, event)
     _record_lineage_db_best_effort(
         value,
         event,
@@ -316,11 +318,16 @@ def _runtime_label(value: object) -> str | None:
     remembered = _RUNTIME_LABELS.get(id(value))
     if remembered:
         return _canonical_owner_label(remembered)
-
-    name = getattr(value, "name", None)
-    if isinstance(name, str) and name:
-        return name
     return None
+
+
+def _append_runtime_lineage(value: object, event: object) -> None:
+    lineage = getattr(value, "_lineage", None)
+    if not isinstance(lineage, list):
+        return
+    if event in lineage:
+        return
+    lineage.append(event)
 
 
 def _default_db_path() -> Path:
