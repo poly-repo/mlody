@@ -63,6 +63,22 @@ class MlodyActionGraphNodePayload:
     around: tuple[MlodyActionGraphPayloadAction, ...] = ()
 
 
+def _demo_task_node_payload() -> MlodyActionGraphNodePayload:
+    """Return the temporary demo payload injected onto task-derived action nodes.
+
+    Keep this helper isolated so the debug/demo hook can be removed cleanly when
+    real before/after/around actions start driving the payload.
+    """
+    return MlodyActionGraphNodePayload(
+        before=(
+            MlodyActionGraphPayloadAction(
+                name="demo-task-before",
+                description="temporary debug/demo action",
+            ),
+        ),
+    )
+
+
 @dataclass(frozen=True)
 class MlodyActionGraphDependency:
     """One explicit dependency edge between two action-graph nodes."""
@@ -276,6 +292,7 @@ def build_action_graph(selection: ActionGraphSelection) -> networkx.DiGraph:
                 ),
                 executor_detail=mlody_executor_detail,
                 structural_node_id=structural_node_id,
+                payload=_demo_task_node_payload(),
             )
         elif "value" in data:
             value_node = data["value"]

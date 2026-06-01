@@ -11,6 +11,7 @@ from mlody.core.action_graph import (
     MlodyActionGraphDependency,
     build_action_graph,
     MlodyActionGraphNodePayload,
+    MlodyActionGraphPayloadAction,
     selection_for_label,
 )
 from mlody.core.dag import Edge, TaskNode, ValueNode
@@ -166,7 +167,14 @@ def test_build_action_graph_collapses_parallel_structural_edges() -> None:
         Edge(src_port="cfg", dst_path="cfg"),
     )
     downstream_action = action_graph.nodes["struct:task/test:downstream"]["action"]
-    assert downstream_action.payload == MlodyActionGraphNodePayload()
+    assert downstream_action.payload == MlodyActionGraphNodePayload(
+        before=(
+            MlodyActionGraphPayloadAction(
+                name="demo-task-before",
+                description="temporary debug/demo action",
+            ),
+        ),
+    )
 
 
 def test_build_action_graph_preserves_task_output_to_config_value_chain() -> None:
@@ -241,3 +249,14 @@ def test_build_action_graph_preserves_task_output_to_config_value_chain() -> Non
         origin="structural-dag",
         structural_edges=(Edge(src_port="cfg_seed", dst_path="cfg_seed"),),
     )
+    consumer_action = action_graph.nodes["struct:task/test:consumer"]["action"]
+    assert consumer_action.payload == MlodyActionGraphNodePayload(
+        before=(
+            MlodyActionGraphPayloadAction(
+                name="demo-task-before",
+                description="temporary debug/demo action",
+            ),
+        ),
+    )
+    value_action = action_graph.nodes["struct:value/test:cfg_seed"]["action"]
+    assert value_action.payload == MlodyActionGraphNodePayload()
