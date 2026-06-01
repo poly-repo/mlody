@@ -174,6 +174,9 @@ def execute_show_action_graph(
                 db_conn=db_conn,
             )
             continue
+        if action.operation.startswith("payload-"):
+            results[node_id] = action
+            continue
         raise ValueError(f"Unsupported show action operation: {action.operation!r}")
 
     prepare_node_id = cast(str, action_graph.graph["prepare_node_id"])

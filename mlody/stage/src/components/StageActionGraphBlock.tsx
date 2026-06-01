@@ -113,6 +113,14 @@ function payloadComponentText(
     .join(", ");
 }
 
+function hasPayloadActions(payload: StageActionGraphNodePayload): boolean {
+  return (
+    payload.before.length > 0 ||
+    payload.after.length > 0 ||
+    payload.around.length > 0
+  );
+}
+
 function actionNodeColor(kind: StageActionGraphNode["kind"]): string {
   switch (kind) {
     case "task":
@@ -210,26 +218,28 @@ function MlodyActionGraphNodeWidget({
             {node.executorDetail}
           </div>
         ) : null}
-        <div className="StageActionGraphNode-payload">
-          <div className="StageActionGraphNode-payloadRow">
-            <span className="StageActionGraphNode-payloadLabel">Before</span>
-            <span className="StageActionGraphNode-payloadValue">
-              {payloadComponentText(node.payload, "before")}
-            </span>
+        {hasPayloadActions(node.payload) ? (
+          <div className="StageActionGraphNode-payload">
+            <div className="StageActionGraphNode-payloadRow">
+              <span className="StageActionGraphNode-payloadLabel">Before</span>
+              <span className="StageActionGraphNode-payloadValue">
+                {payloadComponentText(node.payload, "before")}
+              </span>
+            </div>
+            <div className="StageActionGraphNode-payloadRow">
+              <span className="StageActionGraphNode-payloadLabel">After</span>
+              <span className="StageActionGraphNode-payloadValue">
+                {payloadComponentText(node.payload, "after")}
+              </span>
+            </div>
+            <div className="StageActionGraphNode-payloadRow">
+              <span className="StageActionGraphNode-payloadLabel">Around</span>
+              <span className="StageActionGraphNode-payloadValue">
+                {payloadComponentText(node.payload, "around")}
+              </span>
+            </div>
           </div>
-          <div className="StageActionGraphNode-payloadRow">
-            <span className="StageActionGraphNode-payloadLabel">After</span>
-            <span className="StageActionGraphNode-payloadValue">
-              {payloadComponentText(node.payload, "after")}
-            </span>
-          </div>
-          <div className="StageActionGraphNode-payloadRow">
-            <span className="StageActionGraphNode-payloadLabel">Around</span>
-            <span className="StageActionGraphNode-payloadValue">
-              {payloadComponentText(node.payload, "around")}
-            </span>
-          </div>
-        </div>
+        ) : null}
       </div>
       <div className="StageActionGraphNode-ports">
         {inputPort ? (

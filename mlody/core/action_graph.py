@@ -100,6 +100,70 @@ def _add_action_dependency(
     )
 
 
+def _payload_action_node_id(parent_node_id: str, phase: str, index: int) -> str:
+    return f"payload:{phase}:{parent_node_id}:{index}"
+
+
+def _payload_action_title(phase: str) -> str:
+    return {
+        "before": "Before Action",
+        "around": "Around Action",
+        "after": "After Action",
+    }.get(phase, "Payload Action")
+
+
+def _payload_phase_nodes(
+    parent_action: MlodyActionGraphNode,
+    *,
+    phase: str,
+) -> tuple[MlodyActionGraphNode, ...]:
+    payload_actions = getattr(parent_action.payload, phase, ())
+    if not isinstance(payload_actions, tuple):
+        return ()
+    return tuple(
+        MlodyActionGraphNode(
+            node_id=_payload_action_node_id(parent_action.node_id, phase, index),
+            executor=parent_action.executor,
+            operation=f"payload-{phase}",
+            title=_payload_action_title(phase),
+            detail=payload_action.name,
+            description=payload_action.description,
+            executor_detail=parent_action.executor_detail,
+            structural_node_id=parent_action.structural_node_id,
+        )
+        for index, payload_action in enumerate(payload_actions)
+    )
+
+
+def _attach_payload_action_nodes(
+    action_graph: networkx.DiGraph,
+    action: MlodyActionGraphNode,
+) -> tuple[str, str]:
+    before_nodes = _payload_phase_nodes(action, phase="before")
+    around_nodes = _payload_phase_nodes(action, phase="around")
+    after_nodes = _payload_phase_nodes(action, phase="after")
+
+    for payload_node in (*before_nodes, *around_nodes, *after_nodes):
+        action_graph.add_node(payload_node.node_id, action=payload_node)
+
+    chain_ids = [
+        *[node.node_id for node in before_nodes],
+        *[node.node_id for node in around_nodes],
+        action.node_id,
+        *[node.node_id for node in after_nodes],
+    ]
+    for src_node_id, dst_node_id in zip(chain_ids, chain_ids[1:]):
+        _add_action_dependency(
+            action_graph,
+            MlodyActionGraphDependency(
+                source_node_id=src_node_id,
+                target_node_id=dst_node_id,
+                origin="payload-chain",
+            ),
+        )
+    return chain_ids[0], chain_ids[-1]
+
+
 def _structural_action_dependencies(
     selection: ActionGraphSelection,
     *,
@@ -273,6 +337,8 @@ def build_action_graph(selection: ActionGraphSelection) -> networkx.DiGraph:
     """Lower a structural DAG slice into executable ``mlody`` action nodes."""
     action_graph = networkx.DiGraph()
     structural_node_ids: list[str] = []
+    logical_entry_node_ids: dict[str, str] = {}
+    logical_exit_node_ids: dict[str, str] = {}
     mlody_executor_detail = (
         "Runs in-process Python in the current mlody CLI/server runtime."
     )
@@ -313,12 +379,27 @@ def build_action_graph(selection: ActionGraphSelection) -> networkx.DiGraph:
             continue
         structural_node_ids.append(action.node_id)
         action_graph.add_node(action.node_id, action=action)
+        entry_node_id, exit_node_id = _attach_payload_action_nodes(action_graph, action)
+        logical_entry_node_ids[action.node_id] = entry_node_id
+        logical_exit_node_ids[action.node_id] = exit_node_id
 
     for dependency in _structural_action_dependencies(
         selection,
-        action_node_ids=set(action_graph.nodes),
+        action_node_ids=set(structural_node_ids),
     ):
-        _add_action_dependency(action_graph, dependency)
+        _add_action_dependency(
+            action_graph,
+            MlodyActionGraphDependency(
+                source_node_id=logical_exit_node_ids.get(
+                    dependency.source_node_id, dependency.source_node_id
+                ),
+                target_node_id=logical_entry_node_ids.get(
+                    dependency.target_node_id, dependency.target_node_id
+                ),
+                origin=dependency.origin,
+                structural_edges=dependency.structural_edges,
+            ),
+        )
 
     prepare_node_id = f"prepare:{selection.requested_label}"
     action_graph.add_node(
@@ -342,13 +423,13 @@ def build_action_graph(selection: ActionGraphSelection) -> networkx.DiGraph:
         sink_ids = [
             node_id
             for node_id in structural_node_ids
-            if action_graph.out_degree(node_id) == 0
+            if action_graph.out_degree(logical_exit_node_ids[node_id]) == 0
         ]
         for sink_id in sink_ids:
             _add_action_dependency(
                 action_graph,
                 MlodyActionGraphDependency(
-                    source_node_id=sink_id,
+                    source_node_id=logical_exit_node_ids[sink_id],
                     target_node_id=prepare_node_id,
                     origin="prepare-sink",
                 ),

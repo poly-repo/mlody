@@ -115,6 +115,8 @@ def _detail_text(action: MlodyActionGraphNode) -> str:
 
 def _payload_text(action: MlodyActionGraphNode) -> str:
     payload = getattr(action, "payload", None)
+    if not _has_payload_actions(payload):
+        return "—"
     parts = [
         f"{label}: {_payload_component_text(payload, key)}"
         for key, label in (
@@ -124,6 +126,13 @@ def _payload_text(action: MlodyActionGraphNode) -> str:
         )
     ]
     return "\n".join(parts)
+
+
+def _has_payload_actions(payload: object) -> bool:
+    return any(
+        _payload_action_entries(payload, key)
+        for key in ("before", "after", "around")
+    )
 
 
 def _payload_component_text(payload: object, key: str) -> str:
