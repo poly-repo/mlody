@@ -12,6 +12,13 @@ import socket
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, NamedTuple
 
+from common.python.starlarkish.core.struct import Struct
+from mlody.common.struct import (
+    is_struct_like,
+    struct_like_as_mapping,
+    struct_like_to_struct,
+    struct_like_updated,
+)
 from mlody.core.workspace import Workspace, WorkspaceStateKind
 from mlody.db.evaluations import open_db, write_evaluation
 from mlody.db.local_diff import compute_local_diff_sha, get_repo_root
@@ -38,6 +45,7 @@ _WORKSPACE_TYPE = Workspace
 
 _DEFAULT_CACHE_SUFFIX = Path(".cache") / "mlody" / "workspaces"
 _DEFAULT_DB_SUFFIX = Path(".cache") / "mlody" / "mlody.sqlite"
+_SYNTHETIC_TASK_CTX_NAME = "ctx"
 
 
 @dataclass(frozen=True, unsafe_hash=True)
@@ -385,6 +393,374 @@ def _resolve_context_ref(ref: object, workspace: Workspace) -> object:
     return ctx
 
 
+def _task_ctx_source_file(
+    workspace: Workspace,
+    registry_key: tuple[object, object, object],
+    task: object,
+) -> Path:
+    source_range = getattr(task, "_source_range", None)
+    relative_path = getattr(source_range, "filepath", None)
+    if isinstance(relative_path, str) and relative_path:
+        return workspace.evaluator.root_path / relative_path
+
+    _kind, stem, _name = registry_key
+    if isinstance(stem, str) and stem:
+        return workspace.evaluator.root_path / f"{stem}.mlody"
+
+    return workspace.evaluator.root_path / "unknown.mlody"
+
+
+def _clone_ctx_struct(value: object) -> Struct:
+    converted = struct_like_to_struct(value)
+    if isinstance(converted, Struct):
+        return converted
+    raise TypeError(f"expected Struct-like context value, got {type(value).__name__}")
+
+
+def _ctx_field_type(
+    *,
+    type_name: str,
+    value: object,
+    any_type: object,
+) -> object:
+    if is_struct_like(value):
+        fields = [
+            Struct(
+                name=field_name,
+                type=_ctx_field_type(
+                    type_name=f"{type_name}.{field_name}",
+                    value=child,
+                    any_type=any_type,
+                ),
+            )
+            for field_name, child in struct_like_as_mapping(value).items()
+        ]
+        return Struct(
+            kind="record",
+            name=type_name,
+            fields=fields,
+            _root_kind="record",
+        )
+
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        fields = [
+            Struct(
+                name=field_name,
+                type=_ctx_field_type(
+                    type_name=f"{type_name}.{field_name}",
+                    value=child,
+                    any_type=any_type,
+                ),
+            )
+            for field_name, child in value.items()
+        ]
+        return Struct(
+            kind="record",
+            name=type_name,
+            fields=fields,
+            _root_kind="record",
+        )
+
+    return any_type
+
+
+def _build_task_ctx_payload(workspace: Workspace, *, file_path: Path) -> Struct:
+    ctx = getattr(workspace.evaluator, "_extra_ctx", None)
+    workspace_ctx = _clone_ctx_struct(getattr(ctx, "workspace", Struct()))
+    run_ctx = _clone_ctx_struct(getattr(ctx, "run", Struct()))
+    return Struct(
+        file=file_path,
+        workspace=workspace_ctx,
+        run=run_ctx,
+    )
+
+
+def _task_ctx_value_type(workspace: Workspace, payload: Struct) -> object:
+    any_type = workspace.registry_view.type_by_name("any")
+    if any_type is None:
+        any_type = Struct(kind="type", type="any", name="any")
+
+    return Struct(
+        kind="record",
+        name="mlody-task-context",
+        fields=[
+            Struct(name="file", type=any_type),
+            Struct(
+                name="workspace",
+                type=_ctx_field_type(
+                    type_name="mlody-task-context.workspace",
+                    value=payload.workspace,
+                    any_type=any_type,
+                ),
+            ),
+            Struct(
+                name="run",
+                type=_ctx_field_type(
+                    type_name="mlody-task-context.run",
+                    value=payload.run,
+                    any_type=any_type,
+                ),
+            ),
+        ],
+        _root_kind="record",
+    )
+
+
+def _build_synthetic_task_ctx_value(
+    workspace: Workspace,
+    *,
+    file_path: Path,
+) -> Struct:
+    payload = _build_task_ctx_payload(workspace, file_path=file_path)
+    registry_state = workspace.evaluator.registry
+    freshness_bucket = getattr(
+        registry_state,
+        "freshnesses",
+        getattr(registry_state, "freshness", None),
+    )
+    freshness_ref = (
+        freshness_bucket.by_name.get("always")
+        if freshness_bucket is not None
+        else None
+    )
+    value_type = _task_ctx_value_type(workspace, payload)
+    value_type_descriptor = workspace.registry_view.type_by_name("mlody-value")
+    fields: dict[str, object] = {
+        "kind": "value",
+        "name": _SYNTHETIC_TASK_CTX_NAME,
+        "description": "Synthetic runtime context for the owning task.",
+        "type": value_type,
+        "file": payload.file,
+        "workspace": payload.workspace,
+        "run": payload.run,
+        "location": Struct(
+            kind="location",
+            type="inline",
+            name="inline",
+            data=payload,
+            attributes={},
+            _allowed_attrs={},
+        ),
+        "freshness": (
+            freshness_ref
+            if freshness_ref is not None
+            else Struct(kind="freshness", type="always", name="always")
+        ),
+        "unit": None,
+        "default": payload,
+        "source": None,
+        "representation": None,
+        "_lineage": [],
+        "_synthetic_task_ctx": True,
+        "_synthetic_task_ctx_file": str(file_path),
+    }
+    if value_type_descriptor is not None:
+        fields["_entity_type"] = value_type_descriptor
+    return Struct(**fields)
+
+
+def _synthetic_task_ctx_payload(value: object) -> Struct | None:
+    if not is_struct_like(value):
+        return None
+
+    file_value = getattr(value, "file", None)
+    workspace_value = getattr(value, "workspace", None)
+    run_value = getattr(value, "run", None)
+    if workspace_value is None or run_value is None:
+        location = getattr(value, "location", None)
+        payload = getattr(location, "data", None)
+        if isinstance(payload, Struct):
+            return payload
+        return None
+
+    return Struct(
+        file=file_value,
+        workspace=_clone_ctx_struct(workspace_value),
+        run=_clone_ctx_struct(run_value),
+    )
+
+
+def _sync_synthetic_task_ctx_value(
+    workspace: Workspace,
+    value: object,
+    *,
+    payload: Struct,
+    location: object | None = None,
+    default: object | None = None,
+) -> object:
+    updated_location = location
+    if is_struct_like(updated_location):
+        updated_location = struct_like_updated(updated_location, data=payload)
+    return struct_like_updated(
+        value,
+        type=_task_ctx_value_type(workspace, payload),
+        file=payload.file,
+        workspace=payload.workspace,
+        run=payload.run,
+        location=updated_location if updated_location is not None else getattr(value, "location", None),
+        default=payload if default is None else default,
+    )
+
+
+def _coerce_task_ctx_override_payload(value: object) -> Struct | None:
+    converted = struct_like_to_struct(value)
+    if isinstance(converted, Struct):
+        return converted
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return Struct(**{str(key): child for key, child in value.items()})
+    return None
+
+
+def _inject_synthetic_task_ctx_values(workspace: Workspace) -> Workspace:
+    """Add a synthetic ``task.config.ctx`` value to every task that lacks one."""
+    for registry_key, entity in workspace.registry_view.iter_registry_items():
+        if not (
+            isinstance(registry_key, tuple)
+            and len(registry_key) == 3
+            and registry_key[0] == "task"
+            and is_struct_like(entity)
+            and getattr(entity, "kind", None) == "task"
+        ):
+            continue
+
+        config = getattr(entity, "config", None)
+        if not isinstance(config, dict):
+            continue
+        if _SYNTHETIC_TASK_CTX_NAME in config:
+            continue
+
+        file_path = _task_ctx_source_file(workspace, registry_key, entity)
+        updated_config = dict(config)
+        updated_config[_SYNTHETIC_TASK_CTX_NAME] = _build_synthetic_task_ctx_value(
+            workspace,
+            file_path=file_path,
+        )
+        workspace.registry_view.set_registry_entity(
+            registry_key,
+            struct_like_updated(entity, config=updated_config),
+        )
+    return workspace
+
+
+def _snapshot_for_compare(value: object) -> object:
+    if is_struct_like(value):
+        return {
+            name: _snapshot_for_compare(child)
+            for name, child in struct_like_as_mapping(value).items()
+        }
+    if isinstance(value, dict):
+        return {
+            key: _snapshot_for_compare(child)
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [_snapshot_for_compare(child) for child in value]
+    if isinstance(value, tuple):
+        return tuple(_snapshot_for_compare(child) for child in value)
+    return value
+
+
+def _structural_equal(left: object, right: object) -> bool:
+    return _snapshot_for_compare(left) == _snapshot_for_compare(right)
+
+
+def _string_mapping(value: object) -> dict[str, object] | None:
+    if is_struct_like(value):
+        return {str(name): child for name, child in struct_like_as_mapping(value).items()}
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return {str(key): child for key, child in value.items()}
+    return None
+
+
+def _merge_task_ctx_override(
+    previous_default: object,
+    current_value: object,
+    fresh_default: object,
+) -> object:
+    if _structural_equal(current_value, previous_default):
+        return fresh_default
+
+    previous_mapping = _string_mapping(previous_default)
+    current_mapping = _string_mapping(current_value)
+    fresh_mapping = _string_mapping(fresh_default)
+    if (
+        previous_mapping is None
+        or current_mapping is None
+        or fresh_mapping is None
+    ):
+        return current_value
+
+    merged: dict[str, object] = {}
+    for key in set(fresh_mapping) | set(current_mapping):
+        if key not in current_mapping:
+            merged[key] = fresh_mapping[key]
+            continue
+        if key not in previous_mapping or key not in fresh_mapping:
+            merged[key] = current_mapping[key]
+            continue
+        merged[key] = _merge_task_ctx_override(
+            previous_mapping[key],
+            current_mapping[key],
+            fresh_mapping[key],
+        )
+    return Struct(**merged)
+
+
+def _refresh_synthetic_task_ctx_values(workspace: Workspace) -> Workspace:
+    """Refresh synthetic task ctx payloads against the current request context."""
+    for registry_key, entity in workspace.registry_view.iter_registry_items():
+        if not (
+            isinstance(registry_key, tuple)
+            and len(registry_key) == 3
+            and registry_key[0] == "task"
+            and is_struct_like(entity)
+            and getattr(entity, "kind", None) == "task"
+        ):
+            continue
+
+        config = getattr(entity, "config", None)
+        if not isinstance(config, dict):
+            continue
+        ctx_value = config.get(_SYNTHETIC_TASK_CTX_NAME)
+        if not is_struct_like(ctx_value) or not bool(
+            getattr(ctx_value, "_synthetic_task_ctx", False)
+        ):
+            continue
+
+        file_path_text = getattr(ctx_value, "_synthetic_task_ctx_file", None)
+        if isinstance(file_path_text, str) and file_path_text:
+            file_path = Path(file_path_text)
+        else:
+            file_path = _task_ctx_source_file(workspace, registry_key, entity)
+
+        fresh_payload = _build_task_ctx_payload(workspace, file_path=file_path)
+        current_location = getattr(ctx_value, "location", None)
+        current_payload = _synthetic_task_ctx_payload(ctx_value)
+        previous_default = getattr(ctx_value, "default", None)
+        merged_payload = _merge_task_ctx_override(
+            previous_default,
+            current_payload,
+            fresh_payload,
+        )
+
+        updated_config = dict(config)
+        updated_config[_SYNTHETIC_TASK_CTX_NAME] = struct_like_updated(
+            _sync_synthetic_task_ctx_value(
+                workspace,
+                ctx_value,
+                payload=merged_payload,
+                location=current_location,
+                default=fresh_payload,
+            ),
+            _synthetic_task_ctx_file=str(file_path),
+        )
+        workspace.registry_view.set_registry_entity(
+            registry_key,
+            struct_like_updated(entity, config=updated_config),
+        )
+    return workspace
+
+
 def _normalize_workspace_defaults(workspace: Workspace) -> Workspace:
     """Populate missing value payloads from defaults before user overrides apply."""
     from mlody.common.struct import struct_like_as_mapping, struct_like_updated  # noqa: PLC0415
@@ -601,6 +977,32 @@ def _apply_registered_configs(workspace: Workspace) -> None:
                 resolved = None
             if getattr(resolved, "kind", None) == "value":
                 location = getattr(resolved, "location", None)
+                if bool(getattr(resolved, "_synthetic_task_ctx", False)):
+                    override_payload = _coerce_task_ctx_override_payload(value)
+                    if (
+                        override_payload is not None
+                        and getattr(location, "type", None) == "inline"
+                    ):
+                        current_payload = _synthetic_task_ctx_payload(resolved)
+                        if current_payload is not None:
+                            merged_payload = _merge_task_ctx_override(
+                                current_payload,
+                                override_payload,
+                                current_payload,
+                            )
+                            setf(
+                                label,
+                                _sync_synthetic_task_ctx_value(
+                                    workspace,
+                                    resolved,
+                                    payload=merged_payload,
+                                    location=location,
+                                    default=getattr(resolved, "default", None),
+                                ),
+                                workspace=workspace,
+                                source=source,
+                            )
+                            continue
                 if getattr(location, "type", None) == "inline":
                     setf(
                         f"{label}.location",
@@ -628,6 +1030,7 @@ def build_baseline_workspace(workspace: Workspace) -> Workspace:
     if not isinstance(workspace, _WORKSPACE_TYPE):
         _normalize_workspace_defaults(workspace)
         _normalize_action_implementations(workspace)
+        _inject_synthetic_task_ctx_values(workspace)
         _apply_registered_configs(workspace)
         _remember_workspace_labels()
         return workspace
@@ -635,6 +1038,7 @@ def build_baseline_workspace(workspace: Workspace) -> Workspace:
     if workspace.state_kind is WorkspaceStateKind.LOADED:
         _normalize_workspace_defaults(workspace)
         _normalize_action_implementations(workspace)
+        _inject_synthetic_task_ctx_values(workspace)
         _apply_registered_configs(workspace)
         _remember_workspace_labels()
         workspace.mark_baseline()
@@ -682,6 +1086,32 @@ def apply_request_overrides(workspace: Workspace, config: Iterable[str]) -> Work
                     else:
                         source = f"COMMAND_LINE: {ref}={value}"
                 location = getattr(resolved, "location", None)
+                if bool(getattr(resolved, "_synthetic_task_ctx", False)):
+                    override_payload = _coerce_task_ctx_override_payload(value)
+                    if (
+                        override_payload is not None
+                        and getattr(location, "type", None) == "inline"
+                    ):
+                        current_payload = _synthetic_task_ctx_payload(resolved)
+                        if current_payload is not None:
+                            merged_payload = _merge_task_ctx_override(
+                                current_payload,
+                                override_payload,
+                                current_payload,
+                            )
+                            setf(
+                                concrete_ref,
+                                _sync_synthetic_task_ctx_value(
+                                    workspace,
+                                    resolved,
+                                    payload=merged_payload,
+                                    location=location,
+                                    default=getattr(resolved, "default", None),
+                                ),
+                                workspace=workspace,
+                                source=source,
+                            )
+                            continue
                 if getattr(location, "type", None) == "inline":
                     updated_location = _updated_location_payload(location, value)
                     setf(
@@ -717,13 +1147,16 @@ def configure_workspace(workspace: Workspace, config: Iterable[str]) -> Workspac
     """Return a request-configured workspace without mutating a baseline in place."""
     if not isinstance(workspace, _WORKSPACE_TYPE):
         build_baseline_workspace(workspace)
+        _refresh_synthetic_task_ctx_values(workspace)
         return apply_request_overrides(workspace, config)
 
     if workspace.state_kind is WorkspaceStateKind.REQUEST:
+        _refresh_synthetic_task_ctx_values(workspace)
         return apply_request_overrides(workspace, config)
 
     baseline = build_baseline_workspace(workspace)
     request_workspace = baseline.fork_request()
+    _refresh_synthetic_task_ctx_values(request_workspace)
     return apply_request_overrides(request_workspace, config)
 
 

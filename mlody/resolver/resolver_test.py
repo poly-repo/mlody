@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from common.python.starlarkish.core.struct import Struct
 
+import mlody.resolver.resolver as resolver_mod
+import mlody.resolver.resolver_impl  # noqa: F401 — triggers _register_workspace_hook()
 from mlody.core.workspace import Workspace, WorkspaceStateKind
 from mlody.resolver.errors import (
     AmbiguousRefError,
@@ -278,7 +280,9 @@ class TestConfigureWorkspace:
         with (
             patch("mlody.resolver.resolver._normalize_workspace_defaults") as mock_normalize,
             patch("mlody.resolver.resolver._normalize_action_implementations") as mock_impls,
+            patch("mlody.resolver.resolver._inject_synthetic_task_ctx_values") as mock_inject,
             patch("mlody.resolver.resolver._apply_registered_configs") as mock_configs,
+            patch("mlody.resolver.resolver._refresh_synthetic_task_ctx_values") as mock_refresh,
             patch(
                 "mlody.resolver.resolver.apply_request_overrides",
                 return_value=request_workspace,
@@ -289,9 +293,11 @@ class TestConfigureWorkspace:
         assert result is request_workspace
         mock_normalize.assert_called_once_with(workspace)
         mock_impls.assert_called_once_with(workspace)
+        mock_inject.assert_called_once_with(workspace)
         mock_configs.assert_called_once_with(workspace)
         workspace.mark_baseline.assert_called_once_with()
         workspace.fork_request.assert_called_once_with()
+        mock_refresh.assert_called_once_with(request_workspace)
         mock_apply_request.assert_called_once_with(
             request_workspace,
             ["//simple:flag=true"],
@@ -306,7 +312,9 @@ class TestConfigureWorkspace:
 
         with (
             patch("mlody.resolver.resolver._normalize_workspace_defaults") as mock_normalize,
+            patch("mlody.resolver.resolver._inject_synthetic_task_ctx_values") as mock_inject,
             patch("mlody.resolver.resolver._apply_registered_configs") as mock_configs,
+            patch("mlody.resolver.resolver._refresh_synthetic_task_ctx_values") as mock_refresh,
             patch(
                 "mlody.resolver.resolver.apply_request_overrides",
                 return_value=request_workspace,
@@ -316,8 +324,10 @@ class TestConfigureWorkspace:
 
         assert result is request_workspace
         mock_normalize.assert_not_called()
+        mock_inject.assert_not_called()
         mock_configs.assert_not_called()
         baseline.fork_request.assert_called_once_with()
+        mock_refresh.assert_called_once_with(request_workspace)
         mock_apply_request.assert_called_once_with(request_workspace, [])
 
     def test_request_workspace_applies_overrides_in_place(self) -> None:
@@ -325,14 +335,18 @@ class TestConfigureWorkspace:
         request_workspace._state_kind = WorkspaceStateKind.REQUEST
         request_workspace.fork_request = MagicMock()
 
-        with patch(
-            "mlody.resolver.resolver.apply_request_overrides",
-            return_value=request_workspace,
-        ) as mock_apply_request:
+        with (
+            patch("mlody.resolver.resolver._refresh_synthetic_task_ctx_values") as mock_refresh,
+            patch(
+                "mlody.resolver.resolver.apply_request_overrides",
+                return_value=request_workspace,
+            ) as mock_apply_request,
+        ):
             result = configure_workspace(request_workspace, ["//simple:flag=true"])
 
         assert result is request_workspace
         request_workspace.fork_request.assert_not_called()
+        mock_refresh.assert_called_once_with(request_workspace)
         mock_apply_request.assert_called_once_with(
             request_workspace,
             ["//simple:flag=true"],
@@ -777,6 +791,177 @@ class TestConfigureWorkspace:
             WorkspaceResolutionError, match="cannot parse as quantity"
         ):
             configure_workspace(workspace, ["//simple:d=3kg"])
+
+
+def _fake_runtime_workspace(
+    *,
+    user: str,
+    branch: str,
+    run_id: str,
+) -> Struct:
+    return Struct(
+        workspace=Struct(
+            directory="/repo",
+            branch=branch,
+            commit="a" * 40,
+            user=user,
+            modified_files=0,
+            untracked_files=0,
+        ),
+        run=Struct(
+            id=run_id,
+            user=user,
+        ),
+    )
+
+
+def _make_fake_task(*, filepath: str, config: dict[str, object] | None = None) -> Struct:
+    return Struct(
+        kind="task",
+        name="train",
+        config={} if config is None else config,
+        _source_range=Struct(filepath=filepath, start_line=1, end_line=10),
+    )
+
+
+def test_inject_synthetic_task_ctx_values_adds_ctx_for_missing_task_config() -> None:
+    workspace = MagicMock()
+    workspace.evaluator.root_path = Path("/repo")
+    workspace.evaluator._extra_ctx = _fake_runtime_workspace(
+        user="base-user",
+        branch="main",
+        run_id="run-1",
+    )
+    workspace.evaluator.registry.freshness.by_name = {
+        "always": Struct(kind="freshness", type="always", name="always")
+    }
+    workspace.registry_view.type_by_name.side_effect = (
+        lambda name: Struct(kind="type", type=name, name=name)
+    )
+    task = _make_fake_task(filepath="mlody/teams/lexica/diamond.mlody")
+    workspace.registry_view.iter_registry_items.return_value = [
+        (("task", "mlody/teams/lexica/diamond", "train"), task)
+    ]
+
+    resolver_mod._inject_synthetic_task_ctx_values(workspace)
+
+    workspace.registry_view.set_registry_entity.assert_called_once()
+    updated_task = workspace.registry_view.set_registry_entity.call_args.args[1]
+    ctx_value = updated_task.config["ctx"]
+    payload = ctx_value.location.data
+
+    assert payload.file == Path("/repo/mlody/teams/lexica/diamond.mlody")
+    assert payload.workspace.user == "base-user"
+    assert payload.run.id == "run-1"
+    assert ctx_value.default == payload
+    assert ctx_value._synthetic_task_ctx is True
+
+
+def test_inject_synthetic_task_ctx_values_preserves_explicit_ctx() -> None:
+    workspace = MagicMock()
+    workspace.evaluator.root_path = Path("/repo")
+    workspace.evaluator._extra_ctx = _fake_runtime_workspace(
+        user="base-user",
+        branch="main",
+        run_id="run-1",
+    )
+    workspace.evaluator.registry.freshness.by_name = {}
+    workspace.registry_view.type_by_name.return_value = Struct(
+        kind="type",
+        type="any",
+        name="any",
+    )
+    explicit_ctx = Struct(
+        kind="value",
+        name="ctx",
+        location=Struct(kind="location", type="inline", name="inline", data="keep-me"),
+    )
+    task = _make_fake_task(
+        filepath="mlody/teams/lexica/diamond.mlody",
+        config={"ctx": explicit_ctx},
+    )
+    workspace.registry_view.iter_registry_items.return_value = [
+        (("task", "mlody/teams/lexica/diamond", "train"), task)
+    ]
+
+    resolver_mod._inject_synthetic_task_ctx_values(workspace)
+
+    workspace.registry_view.set_registry_entity.assert_not_called()
+
+
+def test_refresh_synthetic_task_ctx_values_merges_nested_overrides() -> None:
+    workspace = MagicMock()
+    workspace.evaluator.root_path = Path("/repo")
+    workspace.evaluator.registry.freshness.by_name = {
+        "always": Struct(kind="freshness", type="always", name="always")
+    }
+    workspace.registry_view.type_by_name.side_effect = (
+        lambda name: Struct(kind="type", type=name, name=name)
+    )
+    workspace.evaluator._extra_ctx = _fake_runtime_workspace(
+        user="base-user",
+        branch="main",
+        run_id="run-1",
+    )
+    original_task = _make_fake_task(filepath="mlody/teams/lexica/diamond.mlody")
+    workspace.registry_view.iter_registry_items.return_value = [
+        (("task", "mlody/teams/lexica/diamond", "train"), original_task)
+    ]
+    resolver_mod._inject_synthetic_task_ctx_values(workspace)
+    injected_task = workspace.registry_view.set_registry_entity.call_args.args[1]
+    injected_ctx = injected_task.config["ctx"]
+    overridden_payload = injected_ctx.location.data.updated(
+        workspace=injected_ctx.location.data.workspace.updated(user="config-user"),
+    )
+    overridden_ctx = injected_ctx.updated(
+        workspace=overridden_payload.workspace,
+        location=injected_ctx.location.updated(data=overridden_payload),
+    )
+    configured_task = injected_task.updated(
+        config={**injected_task.config, "ctx": overridden_ctx},
+    )
+
+    workspace.registry_view.set_registry_entity.reset_mock()
+    workspace.evaluator._extra_ctx = _fake_runtime_workspace(
+        user="request-user",
+        branch="feature/refreshed",
+        run_id="run-2",
+    )
+    workspace.registry_view.iter_registry_items.return_value = [
+        (("task", "mlody/teams/lexica/diamond", "train"), configured_task)
+    ]
+
+    resolver_mod._refresh_synthetic_task_ctx_values(workspace)
+
+    refreshed_task = workspace.registry_view.set_registry_entity.call_args.args[1]
+    refreshed_ctx = refreshed_task.config["ctx"]
+    refreshed_payload = refreshed_ctx.location.data
+
+    assert refreshed_payload.workspace.user == "config-user"
+    assert refreshed_payload.workspace.branch == "feature/refreshed"
+    assert refreshed_payload.run.id == "run-2"
+    assert refreshed_payload.run.user == "request-user"
+    assert refreshed_ctx.default.workspace.user == "request-user"
+
+
+def test_configure_workspace_injects_ctx_and_supports_nested_override_on_real_workspace() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    workspace = Workspace(monorepo_root=repo_root)
+    workspace.load()
+
+    configured = configure_workspace(
+        workspace,
+        ["@lexica//diamond:evaluate.config.ctx.workspace.user=override-user"],
+    )
+
+    assert (
+        configured.resolve("@lexica//diamond:evaluate.config.ctx.workspace.user")
+        == "override-user"
+    )
+    assert (
+        configured.resolve("@lexica//diamond:evaluate.config.ctx.run.id")
+        == configured.evaluator._extra_ctx.run.id
+    )
 
 
 def _make_cwd_request(monorepo_root: Path) -> WorkspaceRequest:
