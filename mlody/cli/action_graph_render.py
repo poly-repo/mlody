@@ -24,6 +24,7 @@ def build_action_graph_table(action_graph: networkx.DiGraph, title: str) -> Tabl
     table.add_column("Executor", style="magenta", no_wrap=True, ratio=2)
     table.add_column("Operation", style="yellow", no_wrap=True, ratio=3)
     table.add_column("Executes", style="white", ratio=5)
+    table.add_column("Payload", style="white", ratio=4)
     table.add_column("Dependencies", style="white", ratio=4)
 
     for node_id in order:
@@ -37,6 +38,7 @@ def build_action_graph_table(action_graph: networkx.DiGraph, title: str) -> Tabl
             Text(action.executor),
             Text(action.operation),
             Text(_detail_text(action)),
+            Text(_payload_text(action)),
             Text("\n".join(dependencies) if dependencies else "—"),
         )
 
@@ -62,6 +64,7 @@ def build_stage_action_graph_data(action_graph: networkx.DiGraph) -> dict[str, o
                 "executorDetail": getattr(action, "executor_detail", None),
                 "operation": getattr(action, "operation", "action"),
                 "structuralNodeId": getattr(action, "structural_node_id", None),
+                "payload": _stage_payload_data(getattr(action, "payload", None)),
                 "position": {
                     "x": position[0],
                     "y": position[1],
@@ -108,6 +111,59 @@ def _detail_text(action: MlodyActionGraphNode) -> str:
     if structural_node_id:
         parts.append(f"structural node: {structural_node_id}")
     return "\n".join(parts) if parts else "—"
+
+
+def _payload_text(action: MlodyActionGraphNode) -> str:
+    payload = getattr(action, "payload", None)
+    parts = [
+        f"{label}: {_payload_component_text(payload, key)}"
+        for key, label in (
+            ("before", "Before"),
+            ("after", "After"),
+            ("around", "Around"),
+        )
+    ]
+    return "\n".join(parts)
+
+
+def _payload_component_text(payload: object, key: str) -> str:
+    actions = _payload_action_entries(payload, key)
+    if not actions:
+        return "—"
+    return ", ".join(
+        entry["name"]
+        if entry.get("description") is None
+        else f"{entry['name']} ({entry['description']})"
+        for entry in actions
+    )
+
+
+def _payload_action_entries(payload: object, key: str) -> list[dict[str, str | None]]:
+    raw_actions = getattr(payload, key, ())
+    if not isinstance(raw_actions, (list, tuple)):
+        return []
+
+    actions: list[dict[str, str | None]] = []
+    for raw_action in raw_actions:
+        name = getattr(raw_action, "name", None)
+        if not isinstance(name, str) or not name:
+            continue
+        description = getattr(raw_action, "description", None)
+        actions.append(
+            {
+                "name": name,
+                "description": description if isinstance(description, str) and description else None,
+            }
+        )
+    return actions
+
+
+def _stage_payload_data(payload: object) -> dict[str, object]:
+    return {
+        "before": _payload_action_entries(payload, "before"),
+        "after": _payload_action_entries(payload, "after"),
+        "around": _payload_action_entries(payload, "around"),
+    }
 
 
 def _stage_action_kind(operation: str) -> str:

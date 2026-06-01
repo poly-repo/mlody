@@ -13,6 +13,7 @@ import { useMemo } from "react";
 import type {
   StageActionGraphData,
   StageActionGraphNode,
+  StageActionGraphNodePayload,
   StageResultPayload,
 } from "../types.js";
 
@@ -43,6 +44,7 @@ class MlodyActionGraphNodeModel extends DefaultNodeModel {
   readonly subtitle: string | null;
   readonly description: string | null;
   readonly executorDetail: string | null;
+  readonly payload: StageActionGraphNodePayload;
   private readonly portMetaByName = new Map<string, StageActionPortMeta>();
 
   constructor(node?: StageActionGraphNode) {
@@ -57,6 +59,7 @@ class MlodyActionGraphNodeModel extends DefaultNodeModel {
     this.subtitle = node?.subtitle ?? null;
     this.description = node?.description ?? null;
     this.executorDetail = node?.executorDetail ?? null;
+    this.payload = node?.payload ?? emptyActionGraphNodePayload();
 
     if (node) {
       this.setPosition(node.position.x, node.position.y);
@@ -85,6 +88,29 @@ class MlodyActionGraphNodeModel extends DefaultNodeModel {
     const portName = String(port.getOptions().name ?? "");
     return this.portMetaByName.get(portName) ?? null;
   }
+}
+
+function emptyActionGraphNodePayload(): StageActionGraphNodePayload {
+  return {
+    before: [],
+    after: [],
+    around: [],
+  };
+}
+
+function payloadComponentText(
+  payload: StageActionGraphNodePayload,
+  key: keyof StageActionGraphNodePayload,
+): string {
+  const actions = payload[key];
+  if (actions.length === 0) {
+    return "—";
+  }
+  return actions
+    .map((action) =>
+      action.description ? `${action.name} (${action.description})` : action.name,
+    )
+    .join(", ");
 }
 
 function actionNodeColor(kind: StageActionGraphNode["kind"]): string {
@@ -184,6 +210,26 @@ function MlodyActionGraphNodeWidget({
             {node.executorDetail}
           </div>
         ) : null}
+        <div className="StageActionGraphNode-payload">
+          <div className="StageActionGraphNode-payloadRow">
+            <span className="StageActionGraphNode-payloadLabel">Before</span>
+            <span className="StageActionGraphNode-payloadValue">
+              {payloadComponentText(node.payload, "before")}
+            </span>
+          </div>
+          <div className="StageActionGraphNode-payloadRow">
+            <span className="StageActionGraphNode-payloadLabel">After</span>
+            <span className="StageActionGraphNode-payloadValue">
+              {payloadComponentText(node.payload, "after")}
+            </span>
+          </div>
+          <div className="StageActionGraphNode-payloadRow">
+            <span className="StageActionGraphNode-payloadLabel">Around</span>
+            <span className="StageActionGraphNode-payloadValue">
+              {payloadComponentText(node.payload, "around")}
+            </span>
+          </div>
+        </div>
       </div>
       <div className="StageActionGraphNode-ports">
         {inputPort ? (

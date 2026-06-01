@@ -37,7 +37,11 @@ from mlody.cli.server import (
     parse_command_request,
     parse_verbatim_command_request,
 )
-from mlody.core.action_graph import MlodyActionGraphNode
+from mlody.core.action_graph import (
+    MlodyActionGraphNode,
+    MlodyActionGraphNodePayload,
+    MlodyActionGraphPayloadAction,
+)
 from mlody.core.action_graph_value import MlodyActionGraphType
 from mlody.core.dag import Edge, TaskNode, ValueNode
 from mlody.core.dag_value import MlodyDagType
@@ -1496,6 +1500,19 @@ class TestExecuteStageCommandResponse:
                 description="Loads the task node selected from the pruned task/value graph.",
                 executor_detail="Runs in-process Python in the current mlody CLI/server runtime.",
                 structural_node_id="task/test:cleanup",
+                payload=MlodyActionGraphNodePayload(
+                    before=(
+                        MlodyActionGraphPayloadAction(
+                            name="image-build",
+                            description="build the runtime image",
+                        ),
+                    ),
+                    around=(
+                        MlodyActionGraphPayloadAction(
+                            name="type-location-bridge",
+                        ),
+                    ),
+                ),
             ),
         )
         graph.add_node(
@@ -1575,6 +1592,21 @@ class TestExecuteStageCommandResponse:
             "executorDetail": "Runs in-process Python in the current mlody CLI/server runtime.",
             "operation": "structural-task",
             "structuralNodeId": "task/test:cleanup",
+            "payload": {
+                "before": [
+                    {
+                        "name": "image-build",
+                        "description": "build the runtime image",
+                    }
+                ],
+                "after": [],
+                "around": [
+                    {
+                        "name": "type-location-bridge",
+                        "description": None,
+                    }
+                ],
+            },
             "position": task_node["position"],
         }
 

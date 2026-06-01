@@ -10,6 +10,7 @@ from mlody.core.action_graph import (
     ActionGraphSelection,
     MlodyActionGraphDependency,
     build_action_graph,
+    MlodyActionGraphNodePayload,
     selection_for_label,
 )
 from mlody.core.dag import Edge, TaskNode, ValueNode
@@ -164,6 +165,8 @@ def test_build_action_graph_collapses_parallel_structural_edges() -> None:
         Edge(src_port="weights", dst_path="artifact"),
         Edge(src_port="cfg", dst_path="cfg"),
     )
+    downstream_action = action_graph.nodes["struct:task/test:downstream"]["action"]
+    assert downstream_action.payload == MlodyActionGraphNodePayload()
 
 
 def test_build_action_graph_preserves_task_output_to_config_value_chain() -> None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import networkx
@@ -41,6 +41,26 @@ class MlodyActionGraphNode:
     description: str | None = None
     executor_detail: str | None = None
     structural_node_id: str | None = None
+    payload: "MlodyActionGraphNodePayload" = field(
+        default_factory=lambda: MlodyActionGraphNodePayload()
+    )
+
+
+@dataclass(frozen=True)
+class MlodyActionGraphPayloadAction:
+    """One future action attached to an action-graph node payload slot."""
+
+    name: str
+    description: str | None = None
+
+
+@dataclass(frozen=True)
+class MlodyActionGraphNodePayload:
+    """Structured node payload for execution hooks around one action node."""
+
+    before: tuple[MlodyActionGraphPayloadAction, ...] = ()
+    after: tuple[MlodyActionGraphPayloadAction, ...] = ()
+    around: tuple[MlodyActionGraphPayloadAction, ...] = ()
 
 
 @dataclass(frozen=True)

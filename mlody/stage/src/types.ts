@@ -50,6 +50,7 @@ export interface StageActionGraphNode {
   executorDetail?: string | null;
   operation: string;
   structuralNodeId?: string | null;
+  payload: StageActionGraphNodePayload;
   position: {
     x: number;
     y: number;
@@ -60,6 +61,17 @@ export interface StageActionGraphEdge {
   id: string;
   sourceNodeId: string;
   targetNodeId: string;
+}
+
+export interface StageActionGraphPayloadAction {
+  name: string;
+  description?: string | null;
+}
+
+export interface StageActionGraphNodePayload {
+  before: StageActionGraphPayloadAction[];
+  after: StageActionGraphPayloadAction[];
+  around: StageActionGraphPayloadAction[];
 }
 
 export interface StageActionGraphData {

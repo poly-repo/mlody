@@ -1937,6 +1937,39 @@ textarea {
   word-break: break-word;
 }
 
+.StageActionGraphNode-payload {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(125, 144, 189, 0.14);
+}
+
+.StageActionGraphNode-payloadRow {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+}
+
+.StageActionGraphNode-payloadLabel {
+  color: rgba(80, 92, 121, 0.92);
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 0.38rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.StageActionGraphNode-payloadValue {
+  color: rgba(56, 68, 95, 0.97);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-size: 0.4rem;
+  font-weight: 500;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
 .StageActionGraphNode-ports {
   display: flex;
   align-items: center;
@@ -4571,7 +4604,9 @@ body::after {
 .StageActionGraphNode-subtitle,
 .StageActionGraphNode-description,
 .StageActionGraphNode-executor,
-.StageActionGraphNode-executorDetail {
+.StageActionGraphNode-executorDetail,
+.StageActionGraphNode-payloadLabel,
+.StageActionGraphNode-payloadValue {
   color: rgba(228, 232, 245, 0.9);
 }
 

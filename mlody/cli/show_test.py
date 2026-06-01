@@ -1581,6 +1581,16 @@ class TestShowMlodyValueRendering:
                 detail="@common//huggingface/downloader:downloader",
                 description="Consumes the already-resolved requested value and runs show-time preparation.",
                 executor_detail="Runs in-process Python in the current mlody CLI/server runtime.",
+                payload=SimpleNamespace(
+                    before=[
+                        SimpleNamespace(
+                            name="image",
+                            description="oci",
+                        )
+                    ],
+                    after=[],
+                    around=[SimpleNamespace(name="bridge")],
+                ),
             ),
         )
         value = MlodyValueValue(
@@ -1600,7 +1610,12 @@ class TestShowMlodyValueRendering:
 
         assert result.exit_code == 0  # type: ignore[union-attr]
         assert "Action Graph" in result.output  # type: ignore[union-attr]
-        assert "already-resolved" in result.output  # type: ignore[union-attr]
+        assert "Payload" in result.output  # type: ignore[union-attr]
+        assert "Before:" in result.output  # type: ignore[union-attr]
+        assert "image (oci)" in result.output  # type: ignore[union-attr]
+        assert "After: —" in result.output  # type: ignore[union-attr]
+        assert "Around:" in result.output  # type: ignore[union-attr]
+        assert "bridge" in result.output  # type: ignore[union-attr]
 
     def test_show_exits_1_on_unresolved_value(self, tmp_path: Path) -> None:
         """Task 7.5 — Scenario: show prints red error and exits 1 on MlodyUnresolvedValue."""
