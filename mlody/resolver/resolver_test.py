@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import sqlite3
+import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1107,6 +1109,54 @@ class TestBaselineWorkspaceCache:
         assert raw_workspace_a.load.call_count == 1
         assert raw_workspace_b.load.call_count == 1
         assert mock_build.call_count == 2
+        evict_baseline_workspace(req)
+
+    def test_get_or_build_deduplicates_concurrent_cold_builds(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        req = _make_cwd_request(tmp_path)
+        evict_baseline_workspace(req)
+        baseline_workspace = MagicMock(spec=Workspace)
+        build_started = threading.Event()
+        release_build = threading.Event()
+        build_count = 0
+        build_count_lock = threading.Lock()
+
+        def slow_load(
+            request: WorkspaceRequest,
+            reporter: Reporter,
+        ) -> Workspace:
+            nonlocal build_count
+            with build_count_lock:
+                build_count += 1
+            build_started.set()
+            assert release_build.wait(timeout=5)
+            return baseline_workspace
+
+        with patch(
+            "mlody.resolver.resolver._load_baseline_workspace",
+            side_effect=slow_load,
+        ):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                first_future = executor.submit(
+                    get_or_build_baseline_workspace,
+                    req,
+                    _NOOP_REPORTER,
+                )
+                assert build_started.wait(timeout=1)
+                second_future = executor.submit(
+                    get_or_build_baseline_workspace,
+                    req,
+                    _NOOP_REPORTER,
+                )
+                release_build.set()
+                first = first_future.result(timeout=5)
+                second = second_future.result(timeout=5)
+
+        assert first is baseline_workspace
+        assert second is baseline_workspace
+        assert build_count == 1
         evict_baseline_workspace(req)
 
     def test_evict_cwd_baselines_keeps_commit_entries(

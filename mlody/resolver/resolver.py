@@ -9,6 +9,7 @@ import os
 import pwd
 import shutil
 import socket
+import threading
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, NamedTuple
 
@@ -46,6 +47,7 @@ _WORKSPACE_TYPE = Workspace
 _DEFAULT_CACHE_SUFFIX = Path(".cache") / "mlody" / "workspaces"
 _DEFAULT_DB_SUFFIX = Path(".cache") / "mlody" / "mlody.sqlite"
 _SYNTHETIC_TASK_CTX_NAME = "ctx"
+_BASELINE_WORKSPACE_CACHE_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True, unsafe_hash=True)
@@ -85,6 +87,7 @@ class Reporter:
 
 
 _BASELINE_WORKSPACE_CACHE: dict[WorkspaceRequest, Workspace] = {}
+_BASELINE_WORKSPACE_IN_FLIGHT: dict[WorkspaceRequest, threading.Event] = {}
 
 
 def _get_username() -> str:
@@ -168,24 +171,46 @@ def get_or_build_baseline_workspace(
     if reporter.verbose:
         reporter.print_fn(f"[mlody] cache key: {request!r}")
 
-    cached = _BASELINE_WORKSPACE_CACHE.get(request)
-    if cached is not None:
-        _logger.debug("Baseline workspace cache hit for %r", request.mode)
-        if reporter.verbose:
-            reporter.print_fn(f"[mlody] cache hit for {request.mode!r}")
-        return cached
+    while True:
+        with _BASELINE_WORKSPACE_CACHE_LOCK:
+            cached = _BASELINE_WORKSPACE_CACHE.get(request)
+            if cached is not None:
+                _logger.debug("Baseline workspace cache hit for %r", request.mode)
+                if reporter.verbose:
+                    reporter.print_fn(f"[mlody] cache hit for {request.mode!r}")
+                return cached
+
+            in_flight = _BASELINE_WORKSPACE_IN_FLIGHT.get(request)
+            if in_flight is None:
+                in_flight = threading.Event()
+                _BASELINE_WORKSPACE_IN_FLIGHT[request] = in_flight
+                break
+
+        _logger.debug("Baseline workspace build already in progress for %r", request.mode)
+        in_flight.wait()
 
     _logger.debug("Baseline workspace cache miss for %r", request.mode)
     if reporter.verbose:
         reporter.print_fn("[mlody] cache miss — building workspace")
-    baseline = _load_baseline_workspace(request, reporter)
-    _BASELINE_WORKSPACE_CACHE[request] = baseline
+    try:
+        baseline = _load_baseline_workspace(request, reporter)
+    except Exception:
+        with _BASELINE_WORKSPACE_CACHE_LOCK:
+            _BASELINE_WORKSPACE_IN_FLIGHT.pop(request, None)
+            in_flight.set()
+        raise
+
+    with _BASELINE_WORKSPACE_CACHE_LOCK:
+        _BASELINE_WORKSPACE_CACHE[request] = baseline
+        _BASELINE_WORKSPACE_IN_FLIGHT.pop(request, None)
+        in_flight.set()
     return baseline
 
 
 def evict_baseline_workspace(key: WorkspaceRequest) -> bool:
     """Remove one cached baseline workspace by identity key."""
-    return _BASELINE_WORKSPACE_CACHE.pop(key, None) is not None
+    with _BASELINE_WORKSPACE_CACHE_LOCK:
+        return _BASELINE_WORKSPACE_CACHE.pop(key, None) is not None
 
 
 def reload_baseline_workspace(
@@ -200,13 +225,14 @@ def reload_baseline_workspace(
 def evict_cwd_baseline_workspaces(*, monorepo_root: Path | None = None) -> int:
     """Remove cached cwd baselines, optionally scoped to one monorepo root."""
     removed = 0
-    for key in list(_BASELINE_WORKSPACE_CACHE):
-        if key.mode != "cwd":
-            continue
-        if monorepo_root is not None and key.monorepo_root != monorepo_root:
-            continue
-        _BASELINE_WORKSPACE_CACHE.pop(key, None)
-        removed += 1
+    with _BASELINE_WORKSPACE_CACHE_LOCK:
+        for key in list(_BASELINE_WORKSPACE_CACHE):
+            if key.mode != "cwd":
+                continue
+            if monorepo_root is not None and key.monorepo_root != monorepo_root:
+                continue
+            _BASELINE_WORKSPACE_CACHE.pop(key, None)
+            removed += 1
     return removed
 
 

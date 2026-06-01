@@ -122,12 +122,27 @@ function normalizeUser(payload: unknown): WorkspaceUser | null {
 }
 
 async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${resolveServerBaseUrl()}${path}`, {
-    headers: {
-      Accept: "application/json",
-    },
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${resolveServerBaseUrl()}${path}`, {
+      headers: {
+        Accept: "application/json",
+      },
+      signal,
+    });
+  } catch (error) {
+    if (signal?.aborted) {
+      const reason = signal.reason;
+      if (reason instanceof Error && reason.message.trim() !== "") {
+        throw reason;
+      }
+      if (typeof reason === "string" && reason.trim() !== "") {
+        throw new Error(reason);
+      }
+      throw new Error("The request was aborted.");
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, path));
@@ -226,7 +241,13 @@ export function createServerBootstrapController(): {
   timeoutId: number;
 } {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), SERVER_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => {
+    controller.abort(
+      new Error(
+        `Stage bootstrap timed out after ${SERVER_TIMEOUT_MS / 1000} seconds.`,
+      ),
+    );
+  }, SERVER_TIMEOUT_MS);
   return { controller, timeoutId };
 }
 
