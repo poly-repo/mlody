@@ -153,15 +153,24 @@ def test_build_action_graph_collapses_parallel_structural_edges() -> None:
 
     downstream_before_node_id = "payload:before:struct:task/test:downstream:0"
     upstream_before_node_id = "payload:before:struct:task/test:upstream:0"
+    downstream_around_node_id = "payload:around:struct:task/test:downstream:0"
+    upstream_around_node_id = "payload:around:struct:task/test:upstream:0"
+    downstream_after_node_id = "payload:after:struct:task/test:downstream:0"
+    upstream_after_node_id = "payload:after:struct:task/test:upstream:0"
 
     assert downstream_before_node_id in action_graph.nodes
     assert upstream_before_node_id in action_graph.nodes
-    assert list(action_graph.in_edges("struct:task/test:downstream")) == [
-        (downstream_before_node_id, "struct:task/test:downstream")
-    ]
+    assert downstream_around_node_id in action_graph.nodes
+    assert upstream_around_node_id in action_graph.nodes
+    assert downstream_after_node_id in action_graph.nodes
+    assert upstream_after_node_id in action_graph.nodes
+    assert set(action_graph.in_edges("struct:task/test:downstream")) == {
+        (downstream_before_node_id, "struct:task/test:downstream"),
+        ("struct:task/test:upstream", "struct:task/test:downstream"),
+    }
     dependency_data = action_graph.get_edge_data(
         "struct:task/test:upstream",
-        downstream_before_node_id,
+        "struct:task/test:downstream",
     )
     assert dependency_data is not None
     dependency = dependency_data["dependency"]
@@ -191,12 +200,70 @@ def test_build_action_graph_collapses_parallel_structural_edges() -> None:
             origin="payload-chain",
         )
     }
+    assert action_graph.get_edge_data(
+        "struct:task/test:upstream",
+        upstream_around_node_id,
+    ) == {
+        "dependency": MlodyActionGraphDependency(
+            source_node_id="struct:task/test:upstream",
+            target_node_id=upstream_around_node_id,
+            origin="payload-chain",
+        )
+    }
+    assert action_graph.get_edge_data(
+        upstream_around_node_id,
+        upstream_after_node_id,
+    ) == {
+        "dependency": MlodyActionGraphDependency(
+            source_node_id=upstream_around_node_id,
+            target_node_id=upstream_after_node_id,
+            origin="payload-chain",
+        )
+    }
+    assert action_graph.get_edge_data(
+        "struct:task/test:downstream",
+        downstream_around_node_id,
+    ) == {
+        "dependency": MlodyActionGraphDependency(
+            source_node_id="struct:task/test:downstream",
+            target_node_id=downstream_around_node_id,
+            origin="payload-chain",
+        )
+    }
+    assert action_graph.get_edge_data(
+        downstream_around_node_id,
+        downstream_after_node_id,
+    ) == {
+        "dependency": MlodyActionGraphDependency(
+            source_node_id=downstream_around_node_id,
+            target_node_id=downstream_after_node_id,
+            origin="payload-chain",
+        )
+    }
     downstream_action = action_graph.nodes["struct:task/test:downstream"]["action"]
     assert downstream_action.payload == MlodyActionGraphNodePayload(
         before=(
             MlodyActionGraphPayloadAction(
                 name="demo-task-before",
                 description="temporary debug/demo action",
+            ),
+        ),
+        around=(
+            MlodyActionGraphPayloadAction(
+                name="demo-task-around-visualization-debug-action-with-extra-detail",
+                description=(
+                    "temporary debug/demo around action with a deliberately long "
+                    "name for graph layout inspection"
+                ),
+            ),
+        ),
+        after=(
+            MlodyActionGraphPayloadAction(
+                name="demo-task-after-visualization-debug-action-with-extra-detail",
+                description=(
+                    "temporary debug/demo after action with a deliberately long "
+                    "name for graph layout inspection"
+                ),
             ),
         ),
     )
@@ -252,13 +319,15 @@ def test_build_action_graph_preserves_task_output_to_config_value_chain() -> Non
     )
 
     consumer_before_node_id = "payload:before:struct:task/test:consumer:0"
+    consumer_around_node_id = "payload:around:struct:task/test:consumer:0"
+    consumer_after_node_id = "payload:after:struct:task/test:consumer:0"
     producer_dependency = action_graph.get_edge_data(
         "struct:task/test:producer",
         "struct:value/test:cfg_seed",
     )
     consumer_dependency = action_graph.get_edge_data(
         "struct:value/test:cfg_seed",
-        consumer_before_node_id,
+        "struct:task/test:consumer",
     )
 
     assert producer_dependency is not None
@@ -271,7 +340,7 @@ def test_build_action_graph_preserves_task_output_to_config_value_chain() -> Non
     )
     assert consumer_dependency["dependency"] == MlodyActionGraphDependency(
         source_node_id="struct:value/test:cfg_seed",
-        target_node_id=consumer_before_node_id,
+        target_node_id="struct:task/test:consumer",
         origin="structural-dag",
         structural_edges=(Edge(src_port="cfg_seed", dst_path="cfg_seed"),),
     )
@@ -285,12 +354,50 @@ def test_build_action_graph_preserves_task_output_to_config_value_chain() -> Non
             origin="payload-chain",
         )
     }
+    assert action_graph.get_edge_data(
+        "struct:task/test:consumer",
+        consumer_around_node_id,
+    ) == {
+        "dependency": MlodyActionGraphDependency(
+            source_node_id="struct:task/test:consumer",
+            target_node_id=consumer_around_node_id,
+            origin="payload-chain",
+        )
+    }
+    assert action_graph.get_edge_data(
+        consumer_around_node_id,
+        consumer_after_node_id,
+    ) == {
+        "dependency": MlodyActionGraphDependency(
+            source_node_id=consumer_around_node_id,
+            target_node_id=consumer_after_node_id,
+            origin="payload-chain",
+        )
+    }
     consumer_action = action_graph.nodes["struct:task/test:consumer"]["action"]
     assert consumer_action.payload == MlodyActionGraphNodePayload(
         before=(
             MlodyActionGraphPayloadAction(
                 name="demo-task-before",
                 description="temporary debug/demo action",
+            ),
+        ),
+        around=(
+            MlodyActionGraphPayloadAction(
+                name="demo-task-around-visualization-debug-action-with-extra-detail",
+                description=(
+                    "temporary debug/demo around action with a deliberately long "
+                    "name for graph layout inspection"
+                ),
+            ),
+        ),
+        after=(
+            MlodyActionGraphPayloadAction(
+                name="demo-task-after-visualization-debug-action-with-extra-detail",
+                description=(
+                    "temporary debug/demo after action with a deliberately long "
+                    "name for graph layout inspection"
+                ),
             ),
         ),
     )
