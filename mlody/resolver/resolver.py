@@ -417,6 +417,18 @@ def _clone_ctx_struct(value: object) -> Struct:
     raise TypeError(f"expected Struct-like context value, got {type(value).__name__}")
 
 
+def _record_type_struct(type_name: str, fields: list[Struct]) -> Struct:
+    return Struct(
+        kind="type",
+        type=type_name,
+        name=type_name,
+        fields=fields,
+        attributes={"fields": fields},
+        _allowed_attrs={},
+        _root_kind="record",
+    )
+
+
 def _ctx_field_type(
     *,
     type_name: str,
@@ -435,12 +447,7 @@ def _ctx_field_type(
             )
             for field_name, child in struct_like_as_mapping(value).items()
         ]
-        return Struct(
-            kind="record",
-            name=type_name,
-            fields=fields,
-            _root_kind="record",
-        )
+        return _record_type_struct(type_name, fields)
 
     if isinstance(value, dict) and all(isinstance(key, str) for key in value):
         fields = [
@@ -454,12 +461,7 @@ def _ctx_field_type(
             )
             for field_name, child in value.items()
         ]
-        return Struct(
-            kind="record",
-            name=type_name,
-            fields=fields,
-            _root_kind="record",
-        )
+        return _record_type_struct(type_name, fields)
 
     return any_type
 
@@ -480,10 +482,9 @@ def _task_ctx_value_type(workspace: Workspace, payload: Struct) -> object:
     if any_type is None:
         any_type = Struct(kind="type", type="any", name="any")
 
-    return Struct(
-        kind="record",
-        name="mlody-task-context",
-        fields=[
+    return _record_type_struct(
+        "mlody-task-context",
+        [
             Struct(name="file", type=any_type),
             Struct(
                 name="workspace",
@@ -502,7 +503,6 @@ def _task_ctx_value_type(workspace: Workspace, payload: Struct) -> object:
                 ),
             ),
         ],
-        _root_kind="record",
     )
 
 

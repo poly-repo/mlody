@@ -42,6 +42,7 @@ from mlody.resolver.values.structural import (
     MlodySourceRangeValue,
     MlodySourceValue,
     MlodyUnresolvedValue,
+    MlodyVectorValue,
 )
 
 
@@ -733,6 +734,71 @@ class TestShowCommandOutput:
         assert '"kind": "task"' in result.output
         assert '"name": "trainer"' in result.output
         assert '"state": "ready"' in result.output
+
+    def test_structured_inline_value_renders_inline_payload_json(
+        self, tmp_path: Path
+    ) -> None:
+        mock_ws = MagicMock()
+        mock_ws.root_infos = {}
+        mock_ws.expand_wildcard_label.return_value = [
+            "@common//huggingface/downloader:downloader.config.ctx"
+        ]
+        mock_ws.evaluator = MagicMock()
+        mock_ws.evaluator._method_registry = {}
+        ctx_type = _make_type_struct(
+            "mlody-task-context",
+            root_kind="record",
+            attributes={
+                "fields": [
+                    struct(name="file", type=_make_type_struct("string")),
+                    struct(
+                        name="workspace",
+                        type=_make_type_struct("mlody-task-context.workspace"),
+                    ),
+                    struct(
+                        name="run",
+                        type=_make_type_struct("mlody-task-context.run"),
+                    ),
+                ]
+            },
+        )
+        payload = struct(
+            file="/repo/mlody/common/huggingface/downloader.mlody",
+            workspace=struct(user="mav", branch="main"),
+            run=struct(id="run-1", user="mav"),
+        )
+        resolved_value = MlodyValueValue(
+            struct=Struct(
+                kind="value",
+                name="ctx",
+                type=ctx_type,
+                location=Struct(kind="location", type="inline", name="inline", data=payload),
+                default=payload,
+            )
+        )
+
+        runner = CliRunner()
+        with patch("mlody.cli.show.resolve_workspace") as mock_rw, \
+             patch("mlody.cli.show.resolve_label_to_value") as mock_rlv:
+            mock_rw.return_value = (mock_ws, None)
+            mock_rlv.return_value = resolved_value
+            result = runner.invoke(
+                cli,
+                ["show", "@common//huggingface/downloader:downloader.config.ctx"],
+                obj={"monorepo_root": tmp_path, "roots": None, "verbose": False},
+            )
+
+        assert result.exit_code == 0
+        assert '"file": "/repo/mlody/common/huggingface/downloader.mlody"' in result.output
+        assert '"workspace"' in result.output
+        assert '"run"' in result.output
+        assert "_synthetic_task_ctx" not in result.output
+
+    def test_describe_empty_vector_is_non_empty(self) -> None:
+        assert (
+            mlody.cli.show._describe_mlody_value(MlodyVectorValue(elements=()))
+            == "value:\n(empty vector)"
+        )
 
     def test_multiple_targets_displayed_in_order(self) -> None:
         ws = MagicMock()

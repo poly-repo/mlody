@@ -853,6 +853,13 @@ def test_inject_synthetic_task_ctx_values_adds_ctx_for_missing_task_config() -> 
     assert payload.file == Path("/repo/mlody/teams/lexica/diamond.mlody")
     assert payload.workspace.user == "base-user"
     assert payload.run.id == "run-1"
+    assert ctx_value.type.kind == "type"
+    assert ctx_value.type._root_kind == "record"
+    assert [field.name for field in ctx_value.type.attributes["fields"]] == [
+        "file",
+        "workspace",
+        "run",
+    ]
     assert ctx_value.default == payload
     assert ctx_value._synthetic_task_ctx is True
 

@@ -25,6 +25,7 @@ from rich.segment import Segment
 from rich.table import Table
 
 from common.python.console import RichDomNode, RichDomExecutor, SyntaxNode, panel
+from common.python.starlarkish.evaluator.evaluator import _runtime_json_data
 
 from mlody.cli.asset_render import (
     asset_metadata_payload,
@@ -170,6 +171,22 @@ def _display_payload(value: MlodyValueValue) -> object:
     when the user explicitly asks to display them.
     """
     return force(value.struct)
+
+
+def _inline_structured_payload_blob(value_struct: object) -> str | None:
+    """Return JSON for structured inline payloads stored directly on a value."""
+    location = getattr(value_struct, "location", None)
+    if getattr(location, "type", None) != "inline":
+        return None
+    payload = getattr(location, "data", None)
+    if payload is None:
+        payload = getattr(value_struct, "default", None)
+    if payload is None or not hasattr(payload, "as_mapping"):
+        return None
+    try:
+        return json.dumps(_runtime_json_data(payload), indent=2, sort_keys=True)
+    except Exception:
+        return None
 
 
 def _concrete_show_label(committoid: str | None, label_text: str) -> object:
@@ -1253,7 +1270,7 @@ def _print_mlody_value(
 
         raw_json = _raw_json_blob(
             display_payload, name=getattr(value.struct, "name", None)
-        )
+        ) or _inline_structured_payload_blob(value.struct)
         if raw_json is not None:
             extra_fields["_display_json"] = raw_json
 
@@ -1433,7 +1450,9 @@ def _render_mlody_value(
                 _RichRenderableNode(build_asset_metadata_console_table(asset_payload)),
                 title="asset",
             )
-        raw_json = _raw_json_blob(payload, name=getattr(value.struct, "name", None))
+        raw_json = _raw_json_blob(
+            payload, name=getattr(value.struct, "name", None)
+        ) or _inline_structured_payload_blob(value.struct)
         if raw_json is not None:
             return panel(SyntaxNode(raw_json, language="json"), title="value")
         if hasattr(payload, "as_mapping") or isinstance(payload, (list, dict)):
@@ -1447,7 +1466,14 @@ def _render_mlody_value(
 def _describe_mlody_value(value: MlodyValue) -> str:
     """Return a plain-text description of a value (for SQLite storage)."""
     if isinstance(value, MlodyVectorValue):
-        return "\n".join(_describe_mlody_value(e) for e in value.elements)
+        descriptions = [
+            description
+            for description in (_describe_mlody_value(e) for e in value.elements)
+            if description
+        ]
+        if not descriptions:
+            return "value:\n(empty vector)"
+        return "\n".join(descriptions)
     if isinstance(value, MlodyWorkspaceValue):
         return f"workspace: {value.name or '(cwd)'}\nroot: {value.root}"
     if isinstance(value, MlodyFolderValue):
@@ -1460,6 +1486,9 @@ def _describe_mlody_value(value: MlodyValue) -> str:
     if isinstance(value, MlodyActionValue):
         return f"action:\n{pretty_repr(value.struct)}"
     if isinstance(value, MlodyValueValue):
+        inline_payload = _inline_structured_payload_blob(value.struct)
+        if inline_payload is not None:
+            return f"value:\n{inline_payload}"
         payload = _display_payload(value)
         raw_json = _raw_json_blob(payload, name=getattr(value.struct, "name", None))
         if raw_json is not None:
