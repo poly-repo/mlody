@@ -34,9 +34,11 @@ from mlody.cli.asset_render import (
 from mlody.cli.action_graph_render import build_action_graph_table
 from mlody.cli.dag_render import build_dag_table, render_dag_table, resolve_show_output_selection
 from mlody.cli.show_execution import (
+    CliPreparedShowResult,
     PreparedShowValue,
     TabularPreviewFailure,
     execute_show_action_graph,
+    make_cli_prepare_display,
 )
 from mlody.cli.lineage_render import (
     build_lineage_console_table,
@@ -310,8 +312,11 @@ def show_fn(
         inner_label,
         concrete_label,
         resolve_label=resolve_label_to_value,
+        prepare_display=make_cli_prepare_display(),
     )
-    return execution.prepared_value.value
+    final_result = execution.final_result
+    assert isinstance(final_result, CliPreparedShowResult)
+    return final_result.value
 
 
 def _parse_inner(label: str) -> tuple[str | None, str]:
@@ -1627,10 +1632,12 @@ def show(
                     expanded_inner,
                     concrete_label,
                     resolve_label=resolve_label_to_value,
-                    db_conn=_asset_conn,
+                    prepare_display=make_cli_prepare_display(db_conn=_asset_conn),
                 )
                 _maybe_print_selected_dag_plan(execution.selection, expanded_inner)
-                mlody_value = execution.prepared_value.value
+                final_result = execution.final_result
+                assert isinstance(final_result, CliPreparedShowResult)
+                mlody_value = final_result.value
 
                 if isinstance(mlody_value, MlodyUnresolvedValue):
                     has_error = True
@@ -1674,7 +1681,7 @@ def show(
                     mlody_value,
                     workspace=workspace,
                     _has_error=_error_sink,
-                    prepared=execution.prepared_value,
+                    prepared=final_result.prepared,
                 )
                 rendered_any_output = True
                 if _error_sink:

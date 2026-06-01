@@ -112,6 +112,19 @@ o_py_binary(
 )
 
 o_py_test(
+    name = "show_execution_test",
+    srcs = ["show_execution_test.py"],
+    deps = [
+        ":cli_lib",
+        "//common/python/starlarkish/core:core_lib",
+        "//mlody/core:core_lib",
+        "//mlody/resolver:resolver_lib",
+        "@pip//networkx",
+        "@pip//pytest",
+    ],
+)
+
+o_py_test(
     name = "show_test",
     srcs = ["show_test.py"],
     deps = [

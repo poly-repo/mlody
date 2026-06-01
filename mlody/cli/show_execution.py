@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
+import logging
+from types import MappingProxyType
 from typing import cast
 
 import networkx
@@ -15,19 +17,21 @@ from mlody.core.action_graph import (
     build_action_graph,
     selection_for_label,
 )
-from mlody.core.dag import TaskNode, ValueNode
 from mlody.core.derived import DerivedValueShapeError
 from mlody.core.sql.sql_query import MlodyQueryError
 from mlody.core.tabular.location_specs import source_from_value
 from mlody.core.tabular.derived_source import DerivedSource
 from mlody.core.workspace import Workspace, force
 from mlody.resolver import (
-    MlodyUnresolvedValue,
     MlodyValue,
     MlodyValueValue,
     MlodyVectorValue,
     resolve_label_to_value,
 )
+
+_logger = logging.getLogger(__name__)
+
+ShowActionNodeCallable = Callable[["ShowActionExecutionContext"], object]
 
 
 @dataclass(frozen=True)
@@ -52,13 +56,62 @@ class PreparedShowValue:
     source_failure: str | None = None
 
 
+PreparedShowResultFinalizer = Callable[
+    [PreparedShowValue, "ShowActionExecutionContext"],
+    object,
+]
+
+
+@dataclass(frozen=True)
+class CliPreparedShowResult:
+    """CLI-facing artifact produced by the ``prepare display`` action."""
+
+    value: MlodyValue
+    prepared: PreparedShowValue
+
+
+@dataclass(frozen=True)
+class StagePreparedShowResult:
+    """Stage-facing artifact produced by the ``prepare display`` action."""
+
+    value: MlodyValue
+    prepared: PreparedShowValue
+    stage_result: dict[str, object]
+
+
+@dataclass(frozen=True)
+class ShowActionStubResult:
+    """Placeholder result for actions that do not execute real work yet."""
+
+    node_id: str
+    operation: str
+    title: str
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class ShowActionExecutionContext:
+    """Runtime inputs visible to one action-graph node callable."""
+
+    workspace: Workspace
+    selection: ActionGraphSelection
+    action_graph: networkx.DiGraph
+    requested_label: str
+    concrete_label: object
+    resolved_value: MlodyValue
+    action: MlodyActionGraphNode
+    dependency_results: Mapping[str, object]
+    node_results: Mapping[str, object]
+
+
 @dataclass(frozen=True)
 class ShowActionGraphExecution:
-    """Result of planning and executing a ``show`` action graph."""
+    """Result of binding and executing a ``show`` action graph."""
 
     selection: ActionGraphSelection
     action_graph: networkx.DiGraph
-    prepared_value: PreparedShowValue
+    node_results: Mapping[str, object]
+    final_result: object
 
 
 def _preview_failure(
@@ -133,55 +186,134 @@ def prepare_show_value(
     )
 
 
+def _make_prepare_display_callable(
+    finalizer: PreparedShowResultFinalizer,
+    *,
+    display_value: Callable[[MlodyValueValue], object] = _default_display_payload,
+    db_conn: object | None = None,
+) -> ShowActionNodeCallable:
+    def _run(context: ShowActionExecutionContext) -> object:
+        prepared = prepare_show_value(
+            context.resolved_value,
+            display_value=display_value,
+            db_conn=db_conn,
+        )
+        return finalizer(prepared, context)
+
+    return _run
+
+
+def make_cli_prepare_display(
+    *,
+    display_value: Callable[[MlodyValueValue], object] = _default_display_payload,
+    db_conn: object | None = None,
+) -> ShowActionNodeCallable:
+    return _make_prepare_display_callable(
+        lambda prepared, _context: CliPreparedShowResult(
+            value=prepared.value,
+            prepared=prepared,
+        ),
+        display_value=display_value,
+        db_conn=db_conn,
+    )
+
+
+def make_stage_prepare_display(
+    *,
+    stage_result_builder: Callable[[MlodyValue, PreparedShowValue], dict[str, object]],
+    display_value: Callable[[MlodyValueValue], object] = _default_display_payload,
+    db_conn: object | None = None,
+) -> ShowActionNodeCallable:
+    return _make_prepare_display_callable(
+        lambda prepared, _context: StagePreparedShowResult(
+            value=prepared.value,
+            prepared=prepared,
+            stage_result=stage_result_builder(prepared.value, prepared),
+        ),
+        display_value=display_value,
+        db_conn=db_conn,
+    )
+
+
+def _stub_show_action_callable(action: MlodyActionGraphNode) -> ShowActionNodeCallable:
+    def _run(_context: ShowActionExecutionContext) -> ShowActionStubResult:
+        _logger.info(
+            "Show action %s (%s) would run once implemented",
+            action.node_id,
+            action.operation,
+        )
+        return ShowActionStubResult(
+            node_id=action.node_id,
+            operation=action.operation,
+            title=action.title,
+            detail=action.detail,
+        )
+
+    return _run
+
+
+def _bind_show_action_callables(
+    action_graph: networkx.DiGraph,
+    *,
+    prepare_display: ShowActionNodeCallable,
+) -> None:
+    prepare_node_id = cast(str, action_graph.graph["prepare_node_id"])
+    for node_id in networkx.topological_sort(action_graph):
+        action = cast(MlodyActionGraphNode, action_graph.nodes[node_id]["action"])
+        if action.executor != "mlody":
+            raise ValueError(f"Unsupported show executor: {action.executor!r}")
+        node_callable = (
+            prepare_display if node_id == prepare_node_id else _stub_show_action_callable(action)
+        )
+        action_graph.nodes[node_id]["action"] = replace(
+            action,
+            callable=node_callable,
+        )
+
+
 def execute_show_action_graph(
     workspace: Workspace,
     requested_label: str,
     concrete_label: object,
     *,
     resolve_label: Callable[[object, Workspace], MlodyValue] = resolve_label_to_value,
-    display_value: Callable[[MlodyValueValue], object] = _default_display_payload,
-    db_conn: object | None = None,
+    prepare_display: ShowActionNodeCallable,
 ) -> ShowActionGraphExecution:
     resolved_value = resolve_label(concrete_label, workspace)
     selection = selection_for_label(workspace, requested_label)
     action_graph = build_action_graph(selection)
+    _bind_show_action_callables(
+        action_graph,
+        prepare_display=prepare_display,
+    )
     results: dict[str, object] = {}
 
     for node_id in networkx.topological_sort(action_graph):
         action = cast(MlodyActionGraphNode, action_graph.nodes[node_id]["action"])
-        if action.executor != "mlody":
-            raise ValueError(f"Unsupported show executor: {action.executor!r}")
-        if action.operation == "structural-task":
-            assert action.structural_node_id is not None
-            task_node = cast(
-                TaskNode,
-                selection.graph.nodes[action.structural_node_id]["task"],
+        if action.callable is None:
+            raise ValueError(f"Show action {node_id!r} is missing a callable")
+        dependency_results = {
+            src_id: results[src_id]
+            for src_id, _dst_id in action_graph.in_edges(node_id)
+        }
+        results[node_id] = action.callable(
+            ShowActionExecutionContext(
+                workspace=workspace,
+                selection=selection,
+                action_graph=action_graph,
+                requested_label=requested_label,
+                concrete_label=concrete_label,
+                resolved_value=resolved_value,
+                action=action,
+                dependency_results=MappingProxyType(dependency_results),
+                node_results=MappingProxyType(dict(results)),
             )
-            results[node_id] = task_node.task
-            continue
-        if action.operation == "structural-value":
-            assert action.structural_node_id is not None
-            value_node = cast(
-                ValueNode,
-                selection.graph.nodes[action.structural_node_id]["value"],
-            )
-            results[node_id] = value_node.value
-            continue
-        if action.operation == "prepare-show-value":
-            results[node_id] = prepare_show_value(
-                resolved_value,
-                display_value=display_value,
-                db_conn=db_conn,
-            )
-            continue
-        if action.operation.startswith("payload-"):
-            results[node_id] = action
-            continue
-        raise ValueError(f"Unsupported show action operation: {action.operation!r}")
+        )
 
     prepare_node_id = cast(str, action_graph.graph["prepare_node_id"])
     return ShowActionGraphExecution(
         selection=selection,
         action_graph=action_graph,
-        prepared_value=cast(PreparedShowValue, results[prepare_node_id]),
+        node_results=MappingProxyType(dict(results)),
+        final_result=results[prepare_node_id],
     )

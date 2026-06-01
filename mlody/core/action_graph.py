@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,6 +43,11 @@ class MlodyActionGraphNode:
     structural_node_id: str | None = None
     payload: "MlodyActionGraphNodePayload" = field(
         default_factory=lambda: MlodyActionGraphNodePayload()
+    )
+    callable: Callable[..., object] | None = field(
+        default=None,
+        compare=False,
+        repr=False,
     )
 
 

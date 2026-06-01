@@ -49,7 +49,12 @@ from mlody.cli.action_graph_render import build_stage_action_graph_data
 from mlody.cli.asset_render import asset_metadata_payload
 from mlody.cli.dag_render import build_stage_dag_data
 from mlody.cli.lineage_render import is_lineage_type, lineage_rows_from_payload
-from mlody.cli.show_execution import PreparedShowValue, execute_show_action_graph
+from mlody.cli.show_execution import (
+    PreparedShowValue,
+    StagePreparedShowResult,
+    execute_show_action_graph,
+    make_stage_prepare_display,
+)
 from mlody.cli.show import (
     _DEFAULT_CACHE_SUFFIX,
     _DEFAULT_DB_NAME,
@@ -2107,10 +2112,22 @@ def _execute_show_command(
                     expanded_inner,
                     concrete_label,
                     resolve_label=resolve_label_to_value,
-                    display_value=_display_payload,
-                    db_conn=_asset_conn,
+                    prepare_display=make_stage_prepare_display(
+                        stage_result_builder=lambda value, prepared: (
+                            _stage_result_for_resolved_value(
+                                workspace,
+                                value,
+                                title=full_label,
+                                prepared=prepared,
+                            )
+                        ),
+                        display_value=_display_payload,
+                        db_conn=_asset_conn,
+                    ),
                 )
-                mlody_value = execution.prepared_value.value
+                final_result = execution.final_result
+                assert isinstance(final_result, StagePreparedShowResult)
+                mlody_value = final_result.value
                 if isinstance(mlody_value, MlodyUnresolvedValue):
                     yield _event(
                         request,
@@ -2129,12 +2146,7 @@ def _execute_show_command(
                     user=selected_user,
                     resolvedSha=resolved_sha,
                     value=_serialize_mlody_value(mlody_value),
-                    stageResult=_stage_result_for_resolved_value(
-                        workspace,
-                        mlody_value,
-                        title=full_label,
-                        prepared=execution.prepared_value,
-                    ),
+                    stageResult=final_result.stage_result,
                 )
         except (
             WorkspaceLoadError,
