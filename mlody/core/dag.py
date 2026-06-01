@@ -190,6 +190,32 @@ def iter_port_values(container: object) -> tuple[RegisteredValue, ...]:
     return ()
 
 
+def _iter_action_dependency_values(
+    action_struct: object,
+) -> Iterator[tuple[object, str]]:
+    """Yield action-scoped value refs that can introduce task dependencies."""
+    if isinstance(action_struct, dict):
+        for grouped_action in action_struct.values():
+            yield from _iter_action_dependency_values(grouped_action)
+        return
+
+    for value in iter_port_values(getattr(action_struct, "inputs", None)):
+        yield value, getattr(value, "name", "")
+    for value in iter_port_values(getattr(action_struct, "config", None)):
+        yield value, getattr(value, "name", "")
+
+
+def _iter_task_dependency_values(task_struct: object) -> Iterator[tuple[object, str]]:
+    """Yield every task-scoped value ref that can introduce a DAG edge."""
+    for value in iter_port_values(getattr(task_struct, "outputs", None)):
+        yield value, getattr(value, "name", "")
+    for value in iter_port_values(getattr(task_struct, "inputs", None)):
+        yield value, getattr(value, "name", "")
+    for value in iter_port_values(getattr(task_struct, "config", None)):
+        yield value, getattr(value, "name", "")
+    yield from _iter_action_dependency_values(getattr(task_struct, "action", None))
+
+
 def _collect_edges(
     evaluator: Evaluator,
     tasks_index: dict[str, tuple[str, object]],
@@ -210,14 +236,10 @@ def _collect_edges(
     for tasks_key, task_struct in evaluator.registry.tasks.by_key.items():
         consumer_node_id = f"task/{tasks_key}"
 
-        for port_val in (
-            *iter_port_values(getattr(task_struct, "outputs", {})),
-            *iter_port_values(getattr(task_struct, "inputs", {})),
-        ):
+        for port_val, dst_path in _iter_task_dependency_values(task_struct):
             source_val = getattr(port_val, "source", None)
             if source_val is None:
                 continue
-            dst_path: str = getattr(port_val, "name", "")
             if isinstance(source_val, PortRef):
                 producer = tasks_index.get(source_val.task)
                 if producer is not None:
@@ -306,16 +328,12 @@ def _collect_value_edges(
 
     for tasks_key, task_struct in evaluator.registry.tasks.by_key.items():
         consumer_id = f"task/{tasks_key}"
-        for port_val in (
-            *iter_port_values(getattr(task_struct, "outputs", {})),
-            *iter_port_values(getattr(task_struct, "inputs", {})),
-        ):
+        for port_val, dst_path in _iter_task_dependency_values(task_struct):
             source_val = getattr(port_val, "source", None)
             if source_val is None:
                 continue
             if isinstance(source_val, PortRef):
                 continue
-            dst_path: str = getattr(port_val, "name", "")
             src_name = _resolve_source_name(source_val)
             if src_name is None:
                 continue

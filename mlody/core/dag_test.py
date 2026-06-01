@@ -470,6 +470,54 @@ task(name="b", inputs=["lr"], outputs=[],    action="act_b")
         assert edge.src_port == "action.config.lr"
 
 
+class TestBuildDagConfigDependencies:
+    """Task and action config values sourced from task outputs create DAG edges."""
+
+    def test_task_config_value_sourced_from_task_output_creates_edge(self) -> None:
+        mlody = _PREAMBLE + dedent("""\
+value(name="out_a", type=integer(), location=s3())
+action(name="act_a", inputs=[], outputs=[], implementation="dummy")
+action(name="act_b", inputs=[], outputs=[], implementation="dummy")
+task(name="a", inputs=[], outputs=["out_a"], action="act_a")
+task(
+    name="b",
+    inputs=[],
+    outputs=[],
+    config=[value(name="cfg", type=integer(), location=inline(), source=":out_a")],
+    action="act_b",
+)
+""")
+        dag = _build_dag_from_mlody({"test.mlody": mlody})
+        a_id = "task/test:a"
+        b_id = "task/test:b"
+        assert dag.has_edge(a_id, b_id)
+        edge: Edge = dag.get_edge_data(a_id, b_id)[0]["edge"]
+        assert edge.src_port == "out_a"
+        assert edge.dst_path == "cfg"
+
+    def test_action_config_value_sourced_from_task_output_creates_edge(self) -> None:
+        mlody = _PREAMBLE + dedent("""\
+value(name="out_a", type=integer(), location=s3())
+action(name="act_a", inputs=[], outputs=[], implementation="dummy")
+action(
+    name="act_b",
+    inputs=[],
+    outputs=[],
+    config=[value(name="cfg", type=integer(), location=inline(), source=":out_a")],
+    implementation="dummy",
+)
+task(name="a", inputs=[], outputs=["out_a"], action="act_a")
+task(name="b", inputs=[], outputs=[], action="act_b")
+""")
+        dag = _build_dag_from_mlody({"test.mlody": mlody})
+        a_id = "task/test:a"
+        b_id = "task/test:b"
+        assert dag.has_edge(a_id, b_id)
+        edge: Edge = dag.get_edge_data(a_id, b_id)[0]["edge"]
+        assert edge.src_port == "out_a"
+        assert edge.dst_path == "cfg"
+
+
 # ---------------------------------------------------------------------------
 # Section 4 — Query functions (Task 6)
 # ---------------------------------------------------------------------------

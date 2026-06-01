@@ -9,6 +9,7 @@ from pathlib import Path
 import networkx
 
 from mlody.core.dag import (
+    Edge,
     TaskNode,
     ValueNode,
     ancestors_subgraph,
@@ -40,6 +41,61 @@ class MlodyActionGraphNode:
     description: str | None = None
     executor_detail: str | None = None
     structural_node_id: str | None = None
+
+
+@dataclass(frozen=True)
+class MlodyActionGraphDependency:
+    """One explicit dependency edge between two action-graph nodes."""
+
+    source_node_id: str
+    target_node_id: str
+    origin: str
+    structural_edges: tuple[Edge, ...] = ()
+
+
+def _add_action_dependency(
+    action_graph: networkx.DiGraph,
+    dependency: MlodyActionGraphDependency,
+) -> None:
+    action_graph.add_edge(
+        dependency.source_node_id,
+        dependency.target_node_id,
+        dependency=dependency,
+    )
+
+
+def _structural_action_dependencies(
+    selection: ActionGraphSelection,
+    *,
+    action_node_ids: set[str],
+) -> tuple[MlodyActionGraphDependency, ...]:
+    seen: set[tuple[str, str]] = set()
+    grouped_edges: dict[tuple[str, str], list[Edge]] = {}
+    ordered_pairs: list[tuple[str, str]] = []
+
+    for src_id, dst_id, data in selection.graph.edges(data=True):
+        src_action_id = f"struct:{src_id}"
+        dst_action_id = f"struct:{dst_id}"
+        pair = (src_action_id, dst_action_id)
+        if src_action_id not in action_node_ids or dst_action_id not in action_node_ids:
+            continue
+        if pair not in seen:
+            seen.add(pair)
+            ordered_pairs.append(pair)
+            grouped_edges[pair] = []
+        edge = data.get("edge")
+        if isinstance(edge, Edge):
+            grouped_edges[pair].append(edge)
+
+    return tuple(
+        MlodyActionGraphDependency(
+            source_node_id=src_action_id,
+            target_node_id=dst_action_id,
+            origin="structural-dag",
+            structural_edges=tuple(grouped_edges[(src_action_id, dst_action_id)]),
+        )
+        for src_action_id, dst_action_id in ordered_pairs
+    )
 
 
 def _workspace_relative_stem(workspace: Workspace) -> str:
@@ -221,11 +277,11 @@ def build_action_graph(selection: ActionGraphSelection) -> networkx.DiGraph:
         structural_node_ids.append(action.node_id)
         action_graph.add_node(action.node_id, action=action)
 
-    for src_id, dst_id in selection.graph.edges():
-        src_action_id = f"struct:{src_id}"
-        dst_action_id = f"struct:{dst_id}"
-        if src_action_id in action_graph.nodes and dst_action_id in action_graph.nodes:
-            action_graph.add_edge(src_action_id, dst_action_id)
+    for dependency in _structural_action_dependencies(
+        selection,
+        action_node_ids=set(action_graph.nodes),
+    ):
+        _add_action_dependency(action_graph, dependency)
 
     prepare_node_id = f"prepare:{selection.requested_label}"
     action_graph.add_node(
@@ -252,7 +308,14 @@ def build_action_graph(selection: ActionGraphSelection) -> networkx.DiGraph:
             if action_graph.out_degree(node_id) == 0
         ]
         for sink_id in sink_ids:
-            action_graph.add_edge(sink_id, prepare_node_id)
+            _add_action_dependency(
+                action_graph,
+                MlodyActionGraphDependency(
+                    source_node_id=sink_id,
+                    target_node_id=prepare_node_id,
+                    origin="prepare-sink",
+                ),
+            )
 
     action_graph.graph["prepare_node_id"] = prepare_node_id
     action_graph.graph["requested_label"] = selection.requested_label
