@@ -252,6 +252,27 @@ def _stub_show_action_callable(action: MlodyActionGraphNode) -> ShowActionNodeCa
     return _run
 
 
+def _action_result_summary(result: object) -> str:
+    if isinstance(result, CliPreparedShowResult):
+        return (
+            f"{type(result).__name__}(value={type(result.value).__name__}, "
+            f"prepared={type(result.prepared).__name__})"
+        )
+    if isinstance(result, StagePreparedShowResult):
+        return (
+            f"{type(result).__name__}(value={type(result.value).__name__}, "
+            f"prepared={type(result.prepared).__name__}, "
+            f"stage_result={type(result.stage_result).__name__})"
+        )
+    if isinstance(result, ShowActionStubResult):
+        return f"{type(result).__name__}(operation={result.operation})"
+    if isinstance(result, PreparedShowValue):
+        return f"{type(result).__name__}(value={type(result.value).__name__})"
+    if isinstance(result, str):
+        return repr(result)
+    return type(result).__name__
+
+
 def _bind_show_action_callables(
     action_graph: networkx.DiGraph,
     *,
@@ -308,6 +329,12 @@ def execute_show_action_graph(
                 dependency_results=MappingProxyType(dependency_results),
                 node_results=MappingProxyType(dict(results)),
             )
+        )
+        _logger.info(
+            "Show action %s (%s) produced %s",
+            action.node_id,
+            action.operation,
+            _action_result_summary(results[node_id]),
         )
 
     prepare_node_id = cast(str, action_graph.graph["prepare_node_id"])

@@ -132,6 +132,11 @@ def test_execute_show_action_graph_runs_nodes_topologically(
         "Show action payload:before:test:0 (payload-before) would run once implemented",
         "Show action struct:test:task (structural-task) would run once implemented",
     ]
+    assert [record.message for record in caplog.records if "produced" in record.message] == [
+        "Show action payload:before:test:0 (payload-before) produced ShowActionStubResult(operation=payload-before)",
+        "Show action struct:test:task (structural-task) produced ShowActionStubResult(operation=structural-task)",
+        "Show action prepare://test:report.outputs.value (prepare-show-value) produced 'prepared-result'",
+    ]
 
 
 def test_make_cli_prepare_display_returns_prepared_cli_result() -> None:
