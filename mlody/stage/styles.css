@@ -1444,6 +1444,36 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.StageTaskBlock-portDetailList {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.StageTaskBlock-portDetailRow {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: start;
+}
+
+.StageTaskBlock-portDetailName {
+  color: rgba(94, 106, 136, 0.9);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.StageTaskBlock-portDetailValue {
+  margin: 0;
+  color: rgba(58, 70, 100, 0.96);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .StageTaskBlock-portDescription--empty,
 .StageTaskBlock-empty {
   color: rgba(122, 133, 161, 0.92);

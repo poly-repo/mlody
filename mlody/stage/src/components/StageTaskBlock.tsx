@@ -1,5 +1,6 @@
 import type {
   StageEntityData,
+  StageEntityValue,
   StageEntitySection,
   StageResultPayload,
 } from "../types.js";
@@ -32,6 +33,36 @@ function entitySections(data: StageEntityData): StageEntitySection[] {
 
 function entityLabel(kind: StageEntityBlockProps["payload"]["view"]["type"]): string {
   return kind === "action" ? "Action" : "Task";
+}
+
+function shouldRenderStructuredDetails(details: StageEntityValue["details"]): boolean {
+  return details.length > 1 || details.some((detail) => detail.name.includes("."));
+}
+
+function renderPortDetails(port: StageEntityValue) {
+  if (!port.details.length && !port.detailsText) {
+    return null;
+  }
+
+  if (!shouldRenderStructuredDetails(port.details)) {
+    return port.detailsText ? (
+      <p className="StageTaskBlock-portDetails">{port.detailsText}</p>
+    ) : null;
+  }
+
+  return (
+    <dl className="StageTaskBlock-portDetailList">
+      {port.details.map((detail) => (
+        <div
+          className="StageTaskBlock-portDetailRow"
+          key={`${port.name}-${detail.name}-${detail.value}`}
+        >
+          <dt className="StageTaskBlock-portDetailName">{detail.name}</dt>
+          <dd className="StageTaskBlock-portDetailValue">{detail.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 export function StageEntityBlock({ payload }: StageEntityBlockProps) {
@@ -104,9 +135,7 @@ export function StageEntityBlock({ payload }: StageEntityBlockProps) {
                       >
                         {port.description || "No description."}
                       </p>
-                      {port.detailsText ? (
-                        <p className="StageTaskBlock-portDetails">{port.detailsText}</p>
-                      ) : null}
+                      {renderPortDetails(port)}
                     </article>
                   ))}
                 </div>

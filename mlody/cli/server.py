@@ -1437,17 +1437,126 @@ def _stage_source_code_result(
     }
 
 
+def _stage_named_items(container: object) -> list[tuple[str, object]]:
+    if hasattr(container, "as_mapping"):
+        mapping = getattr(container, "as_mapping")()
+        return [(str(key), item) for key, item in mapping.items()]
+    if isinstance(container, Mapping):
+        return [(str(key), item) for key, item in container.items()]
+    if isinstance(container, (list, tuple)):
+        items: list[tuple[str, object]] = []
+        for index, item in enumerate(container):
+            item_name = getattr(item, "name", None)
+            name = str(item_name) if item_name not in (None, "") else str(index)
+            items.append((name, item))
+        return items
+    return []
+
+
+def _stage_summary_scalar_text(value: object) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    if isinstance(value, list):
+        if not value:
+            return "-"
+        return ", ".join(_stage_summary_scalar_text(item) for item in value)
+    return str(value)
+
+
+def _flatten_stage_detail_items(
+    value: object,
+    *,
+    prefix: str = "",
+) -> list[dict[str, str]]:
+    if isinstance(value, Mapping):
+        details: list[dict[str, str]] = []
+        for key, item in value.items():
+            key_text = str(key)
+            child_prefix = f"{prefix}.{key_text}" if prefix else key_text
+            details.extend(
+                _flatten_stage_detail_items(item, prefix=child_prefix)
+            )
+        return details
+
+    if prefix == "":
+        return []
+
+    return [{"name": prefix, "value": _stage_summary_scalar_text(value)}]
+
+
+def _stage_inline_value_details(value: object) -> list[dict[str, str]]:
+    location = getattr(value, "location", None)
+    if getattr(location, "type", None) != "inline":
+        return []
+
+    payload = getattr(location, "data", None)
+    if payload is None:
+        payload = getattr(value, "default", None)
+    if payload is None:
+        return []
+
+    payload_data = _runtime_json_data(payload)
+    if not isinstance(payload_data, Mapping):
+        return []
+
+    return _flatten_stage_detail_items(payload_data)
+
+
+def _enrich_stage_entity_summary_config(
+    summary: dict[str, object],
+    entity: object,
+) -> dict[str, object]:
+    config_summary = summary.get("config")
+    if not isinstance(config_summary, list):
+        return summary
+
+    for index, (_name, config_value) in enumerate(
+        _stage_named_items(getattr(entity, "config", None))
+    ):
+        if index >= len(config_summary):
+            break
+        port_summary = config_summary[index]
+        if not isinstance(port_summary, dict):
+            continue
+
+        extra_details = _stage_inline_value_details(config_value)
+        if not extra_details:
+            continue
+
+        existing_details = port_summary.get("details")
+        details = (
+            list(existing_details)
+            if isinstance(existing_details, list)
+            else []
+        )
+        details.extend(extra_details)
+        port_summary["details"] = details
+        port_summary["detailsText"] = ", ".join(
+            f"{detail['name']}={detail['value']}" for detail in details
+        )
+
+    return summary
+
+
 def _stage_task_result(
     title: str,
     value: MlodyTaskValue,
 ) -> dict[str, object]:
+    summary = _enrich_stage_entity_summary_config(
+        summarize_task_struct(value.struct),
+        value.struct,
+    )
     return {
         "kind": "result",
         "view": {
             "type": "task",
             "title": title,
         },
-        "data": summarize_task_struct(value.struct),
+        "data": summary,
     }
 
 
@@ -1455,13 +1564,17 @@ def _stage_action_result(
     title: str,
     value: MlodyActionValue,
 ) -> dict[str, object]:
+    summary = _enrich_stage_entity_summary_config(
+        summarize_action_struct(value.struct),
+        value.struct,
+    )
     return {
         "kind": "result",
         "view": {
             "type": "action",
             "title": title,
         },
-        "data": summarize_action_struct(value.struct),
+        "data": summary,
     }
 
 

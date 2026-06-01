@@ -711,9 +711,27 @@ class TestExecuteStageCommandResponse:
             config=[
                 Struct(
                     kind="value",
-                    name="epochs",
-                    description="Training epochs",
-                    type=Struct(kind="type", type="integer", name="integer"),
+                    name="ctx",
+                    description="Synthetic runtime context for the task",
+                    type=Struct(
+                        kind="type",
+                        type="mlody-task-context",
+                        name="mlody-task-context",
+                    ),
+                    location=Struct(
+                        kind="location",
+                        type="inline",
+                        name="inline",
+                        data=Struct(
+                            file="/repo/mlody/train.mlody",
+                            workspace=Struct(
+                                branch="config",
+                                directory="/repo",
+                                user="mav",
+                            ),
+                            run=Struct(id="run-7", user="mav"),
+                        ),
+                    ),
                 )
             ],
             action=Struct(
@@ -772,6 +790,16 @@ class TestExecuteStageCommandResponse:
         ]
         assert response["data"]["sections"][0]["label"] == "Inputs"
         assert response["data"]["sections"][0]["values"] == response["data"]["inputs"]
+        assert response["data"]["config"][0]["name"] == "ctx"
+        assert response["data"]["config"][0]["type"] == "mlody-task-context"
+        assert response["data"]["config"][0]["details"] == [
+            {"name": "file", "value": "/repo/mlody/train.mlody"},
+            {"name": "workspace.branch", "value": "config"},
+            {"name": "workspace.directory", "value": "/repo"},
+            {"name": "workspace.user", "value": "mav"},
+            {"name": "run.id", "value": "run-7"},
+            {"name": "run.user", "value": "mav"},
+        ]
         assert response["data"]["attributes"][1]["value"] == "container"
         assert response["data"]["attributes"][1]["detailsText"] == (
             "build=bazel(target=//mlody/train:image)"
