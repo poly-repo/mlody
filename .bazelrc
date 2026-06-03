@@ -111,7 +111,10 @@ test  --keep_going
 
 # Workaround to avoid
 # WARNING: Couldn't auto load rules or symbols, because no dependency on module/repository 'rules_android' found. This will result in a failure if there's a reference to those rules or symbols.
-common --incompatible_autoload_externally="+@rules_python,+@rules_shell"
+common --incompatible_autoload_externally="+@rules_python,+@rules_shell,+CcInfo,+CcSharedLibraryInfo,+CcToolchainConfigInfo,+ProtoInfo,+JavaInfo,+cc_common"
+
+# rules_haskell uses ctx.resolve_tools (removed in Bazel 9); allow it
+common --noincompatible_disallow_ctx_resolve_tools
 common --disk_cache=~/.cache/bazel/remote
 common --experimental_disk_cache_gc_max_size=50G
 common --experimental_disk_cache_gc_max_age=10d
