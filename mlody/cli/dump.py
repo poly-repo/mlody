@@ -30,6 +30,9 @@ _RUNTIME_ONLY_ENTITY_FIELDS = frozenset(
 
 def _iter_workspace_registry_rows(
     workspace: object,
+    *,
+    kind_filter: str | None = None,
+    name_filter: str | None = None,
 ) -> tuple[tuple[str, str, str, object], ...]:
     registry_view = getattr(workspace, "registry_view", None)
     iter_registry_items = getattr(registry_view, "iter_registry_items", None)
@@ -50,6 +53,10 @@ def _iter_workspace_registry_rows(
             or not isinstance(raw_stem, str)
             or not isinstance(raw_name, str)
         ):
+            continue
+        if kind_filter is not None and raw_kind != kind_filter:
+            continue
+        if name_filter is not None and raw_name != name_filter:
             continue
         rows.append((raw_kind, raw_stem, raw_name, value))
     rows.sort(key=lambda row: row[:3])
@@ -77,17 +84,41 @@ def _registered_entity_payload(raw_kind: str, value: object) -> object:
     return {"kind": raw_kind, "value": trimmed_value}
 
 
-def _raw_registry_payload(workspace: object) -> list[object]:
+def _raw_registry_payload(
+    workspace: object,
+    *,
+    kind_filter: str | None = None,
+    name_filter: str | None = None,
+) -> list[object]:
     return [
         _registered_entity_payload(raw_kind, value)
-        for raw_kind, _stem, _name, value in _iter_workspace_registry_rows(workspace)
+        for raw_kind, _stem, _name, value in _iter_workspace_registry_rows(
+            workspace,
+            kind_filter=kind_filter,
+            name_filter=name_filter,
+        )
     ]
 
 
 @cli.command()
+@click.option(
+    "--kind",
+    "kind_filter",
+    help="Only dump registered entities of the given kind.",
+)
+@click.option(
+    "--name",
+    "name_filter",
+    help="Only dump registered entities with the given name.",
+)
 @click.argument("target", required=False)
 @click.pass_context
-def dump(ctx: click.Context, target: str | None) -> None:
+def dump(
+    ctx: click.Context,
+    kind_filter: str | None,
+    name_filter: str | None,
+    target: str | None,
+) -> None:
     """Dump raw registered entities before workspace fixups or value resolution.
 
     TARGET may be omitted to dump the current workspace, or provided using the
@@ -116,4 +147,14 @@ def dump(ctx: click.Context, target: str | None) -> None:
         click.echo(click.style(f"Error: {exc}", fg="red"), err=True)
         ctx.exit(1)
 
-    click.echo(json.dumps(_raw_registry_payload(workspace), indent=2, sort_keys=True))
+    click.echo(
+        json.dumps(
+            _raw_registry_payload(
+                workspace,
+                kind_filter=kind_filter,
+                name_filter=name_filter,
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+    )
