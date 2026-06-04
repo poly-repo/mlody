@@ -34,6 +34,7 @@ from mlody.resolver.resolver import (
     parse_label,
     reload_baseline_workspace,
     resolve_sha,
+    resolve_workspace_raw,
     resolve_workspace,
 )
 
@@ -1697,6 +1698,62 @@ class TestResolveWorkspaceValueDescription:
 
         assert sha is None
         assert called == []
+
+
+class TestResolveWorkspaceRaw:
+    """Requirement: raw workspace resolution stops before baseline fixups."""
+
+    def _make_fake_client(self, full_sha: str) -> MagicMock:
+        client = MagicMock()
+        client.ls_remote.return_value = [(full_sha, "refs/heads/main")]
+        client.cat_file_type.return_value = "commit"
+        client.remote_url.return_value = "git@github.com:org/repo.git"
+        return client
+
+    def test_current_workspace_loads_raw_registry_without_baseline_fixups(
+        self, tmp_path: Path
+    ) -> None:
+        raw_workspace = MagicMock()
+
+        with (
+            patch("mlody.resolver.resolver.Workspace", return_value=raw_workspace),
+            patch("mlody.resolver.resolver.build_baseline_workspace") as mock_baseline,
+        ):
+            workspace, resolved_sha = resolve_workspace_raw(
+                None,
+                monorepo_root=tmp_path,
+            )
+
+        assert workspace is raw_workspace
+        assert resolved_sha is None
+        raw_workspace.load_raw_registry.assert_called_once()
+        raw_workspace.load.assert_not_called()
+        mock_baseline.assert_not_called()
+
+    def test_commit_workspace_loads_raw_registry_without_baseline_fixups(
+        self, tmp_path: Path
+    ) -> None:
+        cache_root = tmp_path / "cache"
+        full_sha = SHA_MAIN
+        client = self._make_fake_client(full_sha)
+        raw_workspace = MagicMock()
+
+        with (
+            patch("mlody.resolver.resolver.Workspace", return_value=raw_workspace),
+            patch("mlody.resolver.resolver.build_baseline_workspace") as mock_baseline,
+        ):
+            workspace, resolved_sha = resolve_workspace_raw(
+                "main|@lexica//models:bert",
+                monorepo_root=tmp_path,
+                git_client=client,
+                cache_root=cache_root,
+            )
+
+        assert workspace is raw_workspace
+        assert resolved_sha == full_sha
+        raw_workspace.load_raw_registry.assert_called_once()
+        raw_workspace.load.assert_not_called()
+        mock_baseline.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

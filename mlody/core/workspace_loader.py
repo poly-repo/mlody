@@ -78,7 +78,7 @@ class WorkspaceLoader:
         self._last_phase2_files_loaded: int = 0
         self._extra_eval_files: list[Path] = extra_eval_files or []
 
-    def load(self, *, workspace: object | None = None) -> None:
+    def _load_registry(self) -> None:
         verbose = self._reporter.verbose
         print_fn = self._reporter.print_fn
 
@@ -111,6 +111,15 @@ class WorkspaceLoader:
 
         if load_errors:
             raise WorkspaceLoadError(load_errors)
+
+    def load_raw_registry(self, *, workspace: object | None = None) -> None:
+        """Load roots and evaluate raw registry entries without post-load fixups."""
+        _ = workspace
+        self._load_registry()
+
+    def load(self, *, workspace: object | None = None) -> None:
+        _ = workspace
+        self._load_registry()
         self._eval_extra_files()
         self._ensure_synthetic_mav_user()
         self._registry.resolve_all()

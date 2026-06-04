@@ -143,12 +143,8 @@ class ResolvedRef(NamedTuple):
     local_only: bool
 
 
-def _load_baseline_workspace(
-    request: WorkspaceRequest,
-    reporter: Reporter,
-) -> Workspace:
-    """Construct, load, and baseline-normalise a workspace."""
-    workspace = Workspace(
+def _new_workspace(request: WorkspaceRequest) -> Workspace:
+    return Workspace(
         monorepo_root=request.monorepo_root,
         roots_file=request.roots_file,
         full_workspace=request.full_workspace,
@@ -159,6 +155,24 @@ def _load_baseline_workspace(
         workspace_root=request.workspace_root if request.workspace_root != request.monorepo_root else None,
         eval_files=list(request.eval_files) if request.eval_files else None,
     )
+
+
+def _load_raw_workspace(
+    request: WorkspaceRequest,
+    reporter: Reporter,
+) -> Workspace:
+    """Construct and load a workspace through raw registry evaluation only."""
+    workspace = _new_workspace(request)
+    workspace.load_raw_registry(reporter=reporter)
+    return workspace
+
+
+def _load_baseline_workspace(
+    request: WorkspaceRequest,
+    reporter: Reporter,
+) -> Workspace:
+    """Construct, load, and baseline-normalise a workspace."""
+    workspace = _new_workspace(request)
     workspace.load(reporter=reporter)
     return build_baseline_workspace(workspace)
 
@@ -1505,6 +1519,93 @@ def resolve_workspace_baseline(
         )
         baseline = get_or_build_baseline_workspace(request, reporter)
         return (baseline, resolved.sha)
+    except FileNotFoundError:
+        raise NoMlodyAtCommitError(committoid, resolved.sha) from None
+
+
+def resolve_workspace_raw(
+    label: str | None,
+    monorepo_root: Path,
+    workspace_root: Path | None = None,
+    roots_file: Path | None = None,
+    full_workspace: bool = False,
+    print_fn: Callable[..., None] = print,
+    git_client: GitClient | None = None,
+    cache_root: Path | None = None,
+    verbose: bool = False,
+    eval_files: tuple[Path, ...] = (),
+) -> tuple[Workspace, str | None]:
+    """Resolve a workspace and stop after raw ``registry.all`` population.
+
+    When ``label`` is omitted, the current workspace selection is used directly.
+    When it is provided, only the commit/workspace selection semantics are used;
+    no entity resolution, registry fixup, or request configuration is applied.
+    """
+    reporter = Reporter(print_fn=print_fn, verbose=verbose)
+
+    if label is None:
+        ws_root = workspace_root if workspace_root is not None else monorepo_root
+        extra_roots, lazy_roots = _workspace_injections(monorepo_root, ws_root)
+        request = _make_workspace_request(
+            mode="cwd",
+            monorepo_root=monorepo_root,
+            workspace_root=ws_root,
+            roots_file=roots_file,
+            full_workspace=full_workspace,
+            print_fn=print_fn,
+            extra_roots=extra_roots,
+            lazy_roots=lazy_roots,
+            eval_files=eval_files,
+        )
+        return (_load_raw_workspace(request, reporter), None)
+
+    committoid, _inner_label = parse_label(label)
+
+    if committoid is None:
+        ws_root = workspace_root if workspace_root is not None else monorepo_root
+        extra_roots, lazy_roots = _workspace_injections(monorepo_root, ws_root)
+        request = _make_workspace_request(
+            mode="cwd",
+            monorepo_root=monorepo_root,
+            workspace_root=ws_root,
+            roots_file=roots_file,
+            full_workspace=full_workspace,
+            print_fn=print_fn,
+            extra_roots=extra_roots,
+            lazy_roots=lazy_roots,
+            eval_files=eval_files,
+        )
+        return (_load_raw_workspace(request, reporter), None)
+
+    client = git_client or GitClient(monorepo_root)
+    root = cache_root or (Path.home() / _DEFAULT_CACHE_SUFFIX)
+    ensure_cache_root(root)
+
+    resolved = resolve_sha(committoid, client)
+    _logger.debug("Resolved %s to %s", committoid, resolved.sha)
+
+    dest = materialise(
+        resolved.sha,
+        monorepo_root,
+        client,
+        root,
+        committoid,
+        local_only=resolved.local_only,
+    )
+
+    try:
+        request = _make_workspace_request(
+            mode="commit",
+            monorepo_root=dest,
+            workspace_root=dest,
+            roots_file=None,
+            full_workspace=full_workspace,
+            print_fn=print_fn,
+            resolved_sha=resolved.sha,
+            eval_files=eval_files,
+        )
+        workspace = _load_raw_workspace(request, reporter)
+        return (workspace, resolved.sha)
     except FileNotFoundError:
         raise NoMlodyAtCommitError(committoid, resolved.sha) from None
 

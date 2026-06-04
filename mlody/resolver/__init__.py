@@ -15,6 +15,7 @@ from mlody.resolver.resolver_impl import resolve_label_to_value as resolve_label
 from mlody.resolver.resolver import apply_workspace_user as apply_workspace_user
 from mlody.resolver.resolver import configure_workspace as configure_workspace
 from mlody.resolver.resolver import resolve_workspace_baseline as resolve_workspace_baseline
+from mlody.resolver.resolver import resolve_workspace_raw as resolve_workspace_raw
 from mlody.resolver.resolver import resolve_workspace as resolve_workspace
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     "configure_workspace",
     "resolve_label_to_value",
     "resolve_workspace_baseline",
+    "resolve_workspace_raw",
     "resolve_workspace",
 ]

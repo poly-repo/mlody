@@ -743,6 +743,31 @@ class Workspace:
         loader.load(workspace=self)
         self._refresh_workspace_attributes()
 
+    def load_raw_registry(self, verbose: bool = False, *, reporter: Any = None) -> None:
+        """Execute two-phase loading and stop after raw registry evaluation."""
+        _ = verbose
+        loader = WorkspaceLoader(
+            monorepo_root=self._monorepo_root,
+            workspace_root=self._workspace_root,
+            roots_file=self._roots_file,
+            root_infos=self._root_infos,
+            registry=self._registry,
+            extra_roots=self._extra_roots,
+            lazy_roots=self._lazy_roots,
+            should_skip_mlody_file=(
+                (lambda _path: False)
+                if self._full_workspace
+                else self._is_skipped_mlody_file
+            ),
+            convert_ports_to_structs=self._convert_ports_to_structs,
+            resolve_value_sources=self._resolve_value_sources,
+            after_root_discovery=self._refresh_workspace_attributes,
+            reporter=reporter,
+            extra_eval_files=self._eval_files,
+        )
+        loader.load_raw_registry(workspace=self)
+        self._refresh_workspace_attributes()
+
     def resolve(self, target: str | TargetAddress) -> object:
         """Parse (if string) and resolve a target to a value.
 
