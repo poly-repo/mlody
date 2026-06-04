@@ -295,29 +295,23 @@ def _compact_value_mapping(mapping: Mapping[str, object], *, _seen: set[int]) ->
 
     type_value = mapping.get("type")
     if type_value is not None:
-        compact_type = _source_like_json_data(type_value, field_name="type", _seen=_seen)
-        if compact_type != "nothing":
-            result["type"] = compact_type
+        result["type"] = _source_like_json_data(type_value, field_name="type", _seen=_seen)
 
     location_value = mapping.get("location")
     if location_value is not None:
-        compact_location = _source_like_json_data(
+        result["location"] = _source_like_json_data(
             location_value,
             field_name="location",
             _seen=_seen,
         )
-        if compact_location != "inline":
-            result["location"] = compact_location
 
     freshness_value = mapping.get("freshness")
     if freshness_value is not None:
-        compact_freshness = _source_like_json_data(
+        result["freshness"] = _source_like_json_data(
             freshness_value,
             field_name="freshness",
             _seen=_seen,
         )
-        if compact_freshness != "always":
-            result["freshness"] = compact_freshness
 
     for key in ("unit", "default", "source", "representation", "group", "constraint"):
         child = mapping.get(key)
