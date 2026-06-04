@@ -1,4 +1,4 @@
-"""dump subcommand — emit the raw ``registry.all`` contents as JSON."""
+"""dump subcommand — emit raw registered entities as JSON."""
 
 from __future__ import annotations
 
@@ -13,6 +13,19 @@ from mlody.cli.main import cli
 from mlody.core.workspace import WorkspaceLoadError
 from mlody.resolver import resolve_workspace_raw
 from mlody.resolver.errors import WorkspaceResolutionError
+
+_RUNTIME_ONLY_ENTITY_FIELDS = frozenset(
+    {
+        "_context_attr_policies",
+        "_entity_type",
+        "_producer_task",
+        "_source_range",
+        "_source_value",
+        "lineage",
+        "methods",
+        "raw",
+    }
+)
 
 
 def _iter_workspace_registry_rows(
@@ -43,25 +56,39 @@ def _iter_workspace_registry_rows(
     return tuple(rows)
 
 
-def _raw_registry_payload(workspace: object) -> Mapping[str, object]:
-    return {
-        "all": [
-            {
-                "kind": raw_kind,
-                "stem": stem,
-                "name": name,
-                "value": _runtime_json_data(value),
-            }
-            for raw_kind, stem, name, value in _iter_workspace_registry_rows(workspace)
-        ]
-    }
+def _trim_runtime_only_fields(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _trim_runtime_only_fields(child)
+            for key, child in value.items()
+            if key not in _RUNTIME_ONLY_ENTITY_FIELDS
+        }
+    if isinstance(value, list):
+        return [_trim_runtime_only_fields(child) for child in value]
+    return value
+
+
+def _registered_entity_payload(raw_kind: str, value: object) -> object:
+    trimmed_value = _trim_runtime_only_fields(_runtime_json_data(value))
+    if isinstance(trimmed_value, dict):
+        if "kind" not in trimmed_value:
+            return {"kind": raw_kind, **trimmed_value}
+        return trimmed_value
+    return {"kind": raw_kind, "value": trimmed_value}
+
+
+def _raw_registry_payload(workspace: object) -> list[object]:
+    return [
+        _registered_entity_payload(raw_kind, value)
+        for raw_kind, _stem, _name, value in _iter_workspace_registry_rows(workspace)
+    ]
 
 
 @cli.command()
 @click.argument("target", required=False)
 @click.pass_context
 def dump(ctx: click.Context, target: str | None) -> None:
-    """Dump raw registry entries before workspace fixups or value resolution.
+    """Dump raw registered entities before workspace fixups or value resolution.
 
     TARGET may be omitted to dump the current workspace, or provided using the
     same ref syntax accepted by ``show`` to select a specific cached commit.

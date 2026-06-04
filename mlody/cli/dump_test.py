@@ -29,11 +29,23 @@ class TestDumpCommand:
         fake_workspace.registry_view.iter_registry_items.return_value = [
             (
                 ("value", "pkg/a", "z"),
-                {"path": Path("/tmp/raw"), "callable": lambda: None},
+                {
+                    "name": "z",
+                    "path": Path("/tmp/raw"),
+                    "callable": lambda: None,
+                    "lineage": {"ignored": True},
+                    "raw": '{"ignored": true}',
+                    "_source_range": {"start_line": 9},
+                },
             ),
             (
                 ("task", "pkg/a", "a"),
-                {"kind": "task", "nested": {"epochs": 3}},
+                {
+                    "kind": "task",
+                    "name": "a",
+                    "nested": {"epochs": 3},
+                    "methods": [{"name": "ignored"}],
+                },
             ),
         ]
 
@@ -53,22 +65,10 @@ class TestDumpCommand:
             print_fn=mlody.cli.dump.click.echo,
             verbose=False,
         )
-        assert json.loads(result.output) == {
-            "all": [
-                {
-                    "kind": "task",
-                    "name": "a",
-                    "stem": "pkg/a",
-                    "value": {"kind": "task", "nested": {"epochs": 3}},
-                },
-                {
-                    "kind": "value",
-                    "name": "z",
-                    "stem": "pkg/a",
-                    "value": {"callable": "<callable>", "path": "/tmp/raw"},
-                },
-            ]
-        }
+        assert json.loads(result.output) == [
+            {"kind": "task", "name": "a", "nested": {"epochs": 3}},
+            {"callable": "<callable>", "kind": "value", "name": "z", "path": "/tmp/raw"},
+        ]
 
     def test_dump_with_target_uses_show_style_workspace_selection(self) -> None:
         fake_workspace = MagicMock()
@@ -94,7 +94,7 @@ class TestDumpCommand:
             print_fn=mlody.cli.dump.click.echo,
             verbose=False,
         )
-        assert json.loads(result.output) == {"all": []}
+        assert json.loads(result.output) == []
 
     def test_dump_surfaces_workspace_resolution_errors(self) -> None:
         with patch(
