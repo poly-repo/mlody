@@ -48,4 +48,4 @@ SCRIPT_DIR="$(resolve_script_dir)"
 REPO_ROOT="$(find_repo_root "$SCRIPT_DIR")"
 
 cd "$REPO_ROOT"
-exec cabal run omega-mlody-repl -- "$@"
+exec cabal run -v0 omega-mlody-repl -- "$@"
