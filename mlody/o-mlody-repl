@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve through symlinks so this remains usable from PATH entries that point
+# back into the checkout. The REPL should run against the checkout that owns the
+# script, not whichever directory the user happened to invoke it from.
+resolve_script_dir() {
+  local source="${BASH_SOURCE[0]}"
+
+  while [[ -L "$source" ]]; do
+    local dir
+    dir="$(cd -P -- "$(dirname -- "$source")" && pwd)"
+    source="$(readlink -- "$source")"
+
+    if [[ "$source" != /* ]]; then
+      source="$dir/$source"
+    fi
+  done
+
+  cd -P -- "$(dirname -- "$source")" && pwd
+}
+
+# The repo root is the Cabal workspace root. Walking upward is intentionally
+# better than baking in "../..": it keeps the wrapper correct if mlody scripts
+# move within the monorepo or are reached through a symlink.
+find_repo_root() {
+  local dir="$1"
+
+  while [[ "$dir" != "/" ]]; do
+    if [[ -f "$dir/cabal.project" && -f "$dir/MODULE.bazel" ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+
+    dir="$(dirname -- "$dir")"
+  done
+
+  echo "Could not find monorepo root above: $1" >&2
+  exit 1
+}
+
+if ! command -v cabal >/dev/null 2>&1; then
+  echo "Missing required command: cabal" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(resolve_script_dir)"
+REPO_ROOT="$(find_repo_root "$SCRIPT_DIR")"
+
+cd "$REPO_ROOT"
+exec cabal run omega-mlody-repl -- "$@"
