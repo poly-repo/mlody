@@ -42,6 +42,11 @@ exports_files(
     visibility = ["//:__subpackages__"],
 )
 
+exports_files(
+    [".hlint.yaml"],
+    visibility = ["//:__subpackages__"],
+)
+
 # Produce Omega specific python targets
 # gazelle:map_kind py_binary o_py_binary //build/bzl:python.bzl
 # gazelle:map_kind py_library o_py_library //build/bzl:python.bzl

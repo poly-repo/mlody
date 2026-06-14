@@ -9,9 +9,19 @@ we don't want to trigger eager fetches of these for builds which aren't running 
 package(default_visibility = ["//:__subpackages__"])
 
 bzl_library(
+    name = "hlint",
+    srcs = ["hlint.bzl"],
+    deps = ["@aspect_rules_lint//lint/private:lint_aspect"],
+)
+
+bzl_library(
     name = "linters",
-    srcs = ["linters.bzl"],
+    srcs = [
+        "hlint.bzl",
+        "linters.bzl",
+    ],
     deps = [
+        ":hlint",
         "@aspect_rules_lint//lint:lint_test",
         "@aspect_rules_lint//lint:ruff",
     ],

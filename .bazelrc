@@ -16,7 +16,7 @@ common --downloader_config=tools/downloader.cfg
 common --@rules_python//python/config_settings:bootstrap_impl=script
 common --workspace_status_command=githooks/check-config.sh
 
-common:lint --aspects=//tools/lint:linters.bzl%ruff
+common:lint --aspects=//tools/lint:linters.bzl%ruff,//tools/lint:linters.bzl%hlint
 
 # ---------------------------
 # Disk cache (shared across repos)
