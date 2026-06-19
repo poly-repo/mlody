@@ -6,4 +6,4 @@
 # rolling                 refers to the latest rolling release (even if there is a newer LTS release).
 
 #USE_BAZEL_VERSION=9.0.2
-USE_BAZEL_VERSION=9.1.0
+USE_BAZEL_VERSION=9.1.1
